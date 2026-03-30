@@ -143,8 +143,8 @@ async def login(request: LoginRequest, response: Response):
     access_token = create_access_token(user_id, email)
     refresh_token = create_refresh_token(user_id)
     
-    response.set_cookie(key="access_token", value=access_token, httponly=True, secure=False, samesite="lax", max_age=3600, path="/")
-    response.set_cookie(key="refresh_token", value=refresh_token, httponly=True, secure=False, samesite="lax", max_age=604800, path="/")
+    response.set_cookie(key="access_token", value=access_token, httponly=True, secure=True, samesite="none", max_age=3600, path="/")
+    response.set_cookie(key="refresh_token", value=refresh_token, httponly=True, secure=True, samesite="none", max_age=604800, path="/")
     
     return {
         "id": user_id,
@@ -424,19 +424,18 @@ async def root():
 # Include the router in the main app
 app.include_router(api_router)
 
-# CORS Configuration
-frontend_url = os.environ.get('FRONTEND_URL', 'http://localhost:3000')
-cors_origins = os.environ.get('CORS_ORIGINS', '*')
-
-if cors_origins == '*':
-    origins = ["*"]
-else:
-    origins = cors_origins.split(',')
+# CORS Configuration - must be specific origins for credentials to work
+frontend_url = os.environ.get('FRONTEND_URL', 'https://agent-builder-133.preview.emergentagent.com')
+cors_origins = [
+    frontend_url,
+    "https://agent-builder-133.preview.emergentagent.com",
+    "http://localhost:3000"
+]
 
 app.add_middleware(
     CORSMiddleware,
     allow_credentials=True,
-    allow_origins=origins,
+    allow_origins=cors_origins,
     allow_methods=["*"],
     allow_headers=["*"],
 )
