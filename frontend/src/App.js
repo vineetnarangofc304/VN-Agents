@@ -208,7 +208,7 @@ const Dashboard = () => {
       const url = window.URL.createObjectURL(new Blob([response.data]));
       const link = document.createElement("a");
       link.href = url;
-      link.download = `original_${invoice.original_filename}`;
+      link.download = invoice.original_filename;
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
@@ -227,7 +227,7 @@ const Dashboard = () => {
       const url = window.URL.createObjectURL(new Blob([response.data]));
       const link = document.createElement("a");
       link.href = url;
-      link.download = `edited_${invoice.original_filename}`;
+      link.download = invoice.original_filename;
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
