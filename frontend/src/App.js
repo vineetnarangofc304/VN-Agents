@@ -1,4 +1,4 @@
-import { useState, useEffect, createContext, useContext, useCallback } from "react";
+import { useState, useEffect, createContext, useContext, useCallback, useRef } from "react";
 import "@/App.css";
 import axios from "axios";
 import { FileText, Upload, Download, Trash2, LogOut, Menu, X, CheckCircle, AlertCircle, Loader2, Receipt } from "lucide-react";
@@ -154,6 +154,7 @@ const Dashboard = () => {
   const [invoices, setInvoices] = useState([]);
   const [uploading, setUploading] = useState(false);
   const [loadingInvoices, setLoadingInvoices] = useState(true);
+  const fileInputRef = useRef(null);
 
   const agents = [
     { id: "invoicing", name: "Invoicing Agent", icon: Receipt }
@@ -339,14 +340,20 @@ const Dashboard = () => {
 
             {/* Upload Area */}
             <div className="upload-section">
-              <label className="upload-area" data-testid="upload-area">
+              <div 
+                className="upload-area" 
+                data-testid="upload-area"
+                onClick={() => fileInputRef.current?.click()}
+              >
                 <input
+                  ref={fileInputRef}
                   type="file"
                   accept=".pdf"
                   multiple
                   onChange={handleFileUpload}
                   disabled={uploading}
                   data-testid="file-input"
+                  style={{ display: 'none' }}
                 />
                 {uploading ? (
                   <div className="upload-content">
@@ -360,7 +367,7 @@ const Dashboard = () => {
                     <small>Multiple files supported</small>
                   </div>
                 )}
-              </label>
+              </div>
             </div>
 
             {/* Invoice List */}
