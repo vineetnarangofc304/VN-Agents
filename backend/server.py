@@ -365,13 +365,13 @@ async def download_all_edited(user: dict = Depends(get_current_user)):
         raise HTTPException(status_code=404, detail="No processed invoices found")
     
     # Create ZIP file
-    zip_filename = f"edited_invoices_{datetime.now().strftime('%Y%m%d_%H%M%S')}.zip"
+    zip_filename = f"invoices_{datetime.now().strftime('%Y%m%d_%H%M%S')}.zip"
     zip_path = UPLOAD_DIR / zip_filename
     
     with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
         for invoice in invoices:
             if invoice.get("edited_path") and os.path.exists(invoice["edited_path"]):
-                arcname = f"edited_{invoice['original_filename']}"
+                arcname = invoice['original_filename']
                 zipf.write(invoice["edited_path"], arcname)
     
     return FileResponse(
