@@ -202,13 +202,16 @@ const Dashboard = () => {
   const handleDownloadOriginal = async (invoice) => {
     try {
       const response = await axios.get(`${API}/invoices/${invoice.id}/original`, {
-        responseType: "blob"
+        responseType: "blob",
+        withCredentials: true
       });
       const url = window.URL.createObjectURL(new Blob([response.data]));
       const link = document.createElement("a");
       link.href = url;
       link.download = `original_${invoice.original_filename}`;
+      document.body.appendChild(link);
       link.click();
+      document.body.removeChild(link);
       window.URL.revokeObjectURL(url);
     } catch (err) {
       alert(formatApiError(err));
@@ -218,13 +221,16 @@ const Dashboard = () => {
   const handleDownloadEdited = async (invoice) => {
     try {
       const response = await axios.get(`${API}/invoices/${invoice.id}/edited`, {
-        responseType: "blob"
+        responseType: "blob",
+        withCredentials: true
       });
       const url = window.URL.createObjectURL(new Blob([response.data]));
       const link = document.createElement("a");
       link.href = url;
       link.download = `edited_${invoice.original_filename}`;
+      document.body.appendChild(link);
       link.click();
+      document.body.removeChild(link);
       window.URL.revokeObjectURL(url);
     } catch (err) {
       alert(formatApiError(err));
@@ -234,13 +240,16 @@ const Dashboard = () => {
   const handleDownloadAll = async () => {
     try {
       const response = await axios.get(`${API}/invoices/download-all`, {
-        responseType: "blob"
+        responseType: "blob",
+        withCredentials: true
       });
       const url = window.URL.createObjectURL(new Blob([response.data]));
       const link = document.createElement("a");
       link.href = url;
       link.download = `edited_invoices_${new Date().toISOString().split("T")[0]}.zip`;
+      document.body.appendChild(link);
       link.click();
+      document.body.removeChild(link);
       window.URL.revokeObjectURL(url);
     } catch (err) {
       alert(formatApiError(err));
