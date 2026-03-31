@@ -23,97 +23,28 @@ endobj
 /Contents 5 0 R
 /MediaBox [ 0 0 612 792 ]
 /Resources <<
-/Font <<
-/F1 6 0 R
-/F127e2471d-8b9f-4fe4-a4e0-717a52711c11 <<
-/BaseFont /Helvetica
-/Encoding /WinAnsiEncoding
-/Name /F1
-/Subtype /Type1
-/Type /Font
->>
->>
-/ProcSet [ /Text /ImageB /PDF /ImageI /ImageC ]
+/Font 6 0 R
+/ProcSet [ /PDF /Text /ImageB /ImageC /ImageI ]
 >>
 /Rotate 0
 /Trans <<
 >>
 /Type /Page
-/Annots [ ]
 /Parent 1 0 R
 >>
 endobj
 5 0 obj
 <<
-/Length 571
+/Filter [ /ASCII85Decode /FlateDecode ]
+/Length 196
 >>
 stream
-q
-1 0 0 1 0 0 cm
-BT
-/F1 12 Tf
-14.4 TL
-ET
-BT
-1 0 0 1 100 750 Tm
-(INVOICE) Tj
-T*
-ET
-BT
-1 0 0 1 100 700 Tm
-(Google\040LLC) Tj
-T*
-ET
-BT
-1 0 0 1 100 650 Tm
-(Service\072\040Google\040Cloud\040Platform) Tj
-T*
-ET
-BT
-1 0 0 1 100 600 Tm
-(Amount\072\040\044100\05600) Tj
-T*
-ET
-BT
-1 0 0 1 300 30 Tm
-(Page\0401\040of\0402) Tj
-T*
-ET
-Q
-q
-0 0 612 792 re
-W
-n
-1 0 0 1 0 0 cm
-BT
-/F127e2471d-8b9f-4fe4-a4e0-717a52711c11 12 Tf
-14.4 TL
-ET
-1 1 1 rg
-n
-0 0 612 30 re
-f*
-0 0 0 rg
-BT
-/F127e2471d-8b9f-4fe4-a4e0-717a52711c11 10 Tf
-12 TL
-ET
-BT
-1 0 0 1 280.425 15 Tm
-(Page\0401\040of\0401) Tj
-T*
-ET
-Q
-
+Gas3,5mr90&-_"(^Z$7p<!Smi/+?SK+\2nKh8NDDg_N<Tr@PR8%Mf.fG^OFa6$E%0.h1hKWrmtV8.CUW#a-DIcfXRB'4JL"LrMP=?-cZ:/g(\GEXL5#O2a#Y6CoR>mD^0[W:"f3<")i#=u4r1Zt3U6:B0Rj?TW+ZB-1Vq6_A&'&6^'6^*jq3'2p.NZLH`$%7.Q~>
 endstream
 endobj
 6 0 obj
 <<
-/BaseFont /Helvetica
-/Encoding /WinAnsiEncoding
-/Name /F1
-/Subtype /Type1
-/Type /Font
+/F1 7 0 R
 >>
 endobj
 7 0 obj
@@ -132,9 +63,9 @@ xref
 0000000074 00000 n 
 0000000114 00000 n 
 0000000163 00000 n 
-0000000506 00000 n 
-0000001128 00000 n 
-0000001235 00000 n 
+0000000352 00000 n 
+0000000639 00000 n 
+0000000670 00000 n 
 trailer
 <<
 /Size 8
@@ -142,5 +73,5 @@ trailer
 /Info 2 0 R
 >>
 startxref
-1342
+777
 %%EOF

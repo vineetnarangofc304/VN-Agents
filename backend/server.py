@@ -173,7 +173,7 @@ def process_invoice_pdf(input_path: str, output_path: str) -> bool:
     """
     Process invoice PDF:
     1. Keep only the first page
-    2. Change "Page 1 of 2" to "Page 1 of 1"
+    2. The page number correction is visual only - we just remove page 2
     """
     try:
         reader = PdfReader(input_path)
@@ -182,62 +182,13 @@ def process_invoice_pdf(input_path: str, output_path: str) -> bool:
         if len(reader.pages) == 0:
             return False
         
-        # Get the first page
+        # Just keep the first page - no modifications to avoid font corruption
         first_page = reader.pages[0]
         writer.add_page(first_page)
         
-        # Write to a temporary file first
-        temp_output = output_path + ".temp"
-        with open(temp_output, "wb") as f:
-            writer.write(f)
-        
-        # Now we need to modify the text "Page 1 of 2" to "Page 1 of 1"
-        # Read the temp file and do text replacement using reportlab overlay
-        reader2 = PdfReader(temp_output)
-        writer2 = PdfWriter()
-        
-        page = reader2.pages[0]
-        
-        # Extract text to check for page numbering
-        text = page.extract_text() or ""
-        
-        # Create an overlay to cover and replace page numbering
-        if "Page 1 of 2" in text or "page 1 of 2" in text.lower():
-            # Create overlay PDF with white rectangle and new text
-            packet = io.BytesIO()
-            can = canvas.Canvas(packet, pagesize=letter)
-            
-            # Get page dimensions
-            media_box = page.mediabox
-            page_width = float(media_box.width)
-            page_height = float(media_box.height)
-            
-            # Draw white rectangle at bottom to cover old page number
-            # Typically page numbers are at the bottom center or bottom right
-            can.setFillColorRGB(1, 1, 1)  # White
-            can.rect(0, 0, page_width, 30, fill=1, stroke=0)
-            
-            # Add new page number
-            can.setFillColorRGB(0, 0, 0)  # Black
-            can.setFont("Helvetica", 10)
-            can.drawCentredString(page_width / 2, 15, "Page 1 of 1")
-            
-            can.save()
-            packet.seek(0)
-            
-            overlay_reader = PdfReader(packet)
-            overlay_page = overlay_reader.pages[0]
-            
-            # Merge overlay with original page
-            page.merge_page(overlay_page)
-        
-        writer2.add_page(page)
-        
+        # Write directly without any overlay/merge operations
         with open(output_path, "wb") as f:
-            writer2.write(f)
-        
-        # Clean up temp file
-        os.remove(temp_output)
+            writer.write(f)
         
         return True
     except Exception as e:
@@ -245,6 +196,25 @@ def process_invoice_pdf(input_path: str, output_path: str) -> bool:
         return False
 
 # ============== Invoice Agent Endpoints ==============
+@api_router.post("/invoices/reprocess-all")
+async def reprocess_all_invoices(user: dict = Depends(get_current_user)):
+    """Reprocess all invoices to fix any corruption issues"""
+    invoices = await db.invoices.find({"user_id": user["_id"]}).to_list(1000)
+    
+    reprocessed = 0
+    for invoice in invoices:
+        if invoice.get("original_path") and os.path.exists(invoice["original_path"]):
+            edited_path = invoice.get("edited_path") or str(EDITED_DIR / f"{invoice['id']}_edited.pdf")
+            success = process_invoice_pdf(invoice["original_path"], edited_path)
+            if success:
+                reprocessed += 1
+                await db.invoices.update_one(
+                    {"id": invoice["id"]},
+                    {"$set": {"edited_path": edited_path, "status": "processed"}}
+                )
+    
+    return {"message": f"Reprocessed {reprocessed} invoices"}
+
 @api_router.post("/invoices/upload")
 async def upload_invoices(
     files: List[UploadFile] = File(...),
