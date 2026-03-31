@@ -279,14 +279,14 @@ const Dashboard = () => {
 
   const handleDownloadAll = async () => {
     try {
-      const response = await axios.get(`${API}/invoices/download-all`, {
+      const response = await axios.get(`${API}/invoices/download-all?filter=${dateFilter}`, {
         responseType: "blob",
         withCredentials: true
       });
       const url = window.URL.createObjectURL(new Blob([response.data]));
       const link = document.createElement("a");
-      link.href = url;
-      link.download = `edited_invoices_${new Date().toISOString().split("T")[0]}.zip`;
+      const filterLabel = dateFilter === "all" ? "" : `_${dateFilter}`;
+      link.download = `invoices${filterLabel}_${new Date().toISOString().split("T")[0]}.zip`;
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
@@ -375,14 +375,14 @@ const Dashboard = () => {
                 <h1>Invoicing Agent</h1>
                 <p>Upload Google invoices to process and edit them automatically</p>
               </div>
-              {invoices.length > 0 && (
+              {filteredInvoices.length > 0 && (
                 <button
                   className="download-all-btn"
                   onClick={handleDownloadAll}
                   data-testid="download-all-btn"
                 >
                   <Download size={18} />
-                  Download All Edited
+                  Download {dateFilter === "all" ? "All" : filteredInvoices.length} Edited
                 </button>
               )}
             </header>

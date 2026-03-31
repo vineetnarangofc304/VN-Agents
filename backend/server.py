@@ -355,21 +355,43 @@ async def download_edited(invoice_id: str, user: dict = Depends(get_current_user
     )
 
 @api_router.get("/invoices/download-all")
-async def download_all_edited(user: dict = Depends(get_current_user)):
-    """Download all edited invoices as a ZIP file"""
+async def download_all_edited(user: dict = Depends(get_current_user), filter: str = "all"):
+    """Download edited invoices as a ZIP file with date filter"""
     invoices = await db.invoices.find(
         {"user_id": user["_id"], "status": "processed"}
     ).to_list(1000)
     
-    if not invoices:
-        raise HTTPException(status_code=404, detail="No processed invoices found")
+    # Apply date filter
+    now = datetime.now(timezone.utc)
+    today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    
+    filtered_invoices = []
+    for inv in invoices:
+        inv_date = datetime.fromisoformat(inv["upload_date"].replace("Z", "+00:00"))
+        if filter == "today":
+            if inv_date >= today_start:
+                filtered_invoices.append(inv)
+        elif filter == "week":
+            week_ago = today_start - timedelta(days=7)
+            if inv_date >= week_ago:
+                filtered_invoices.append(inv)
+        elif filter == "month":
+            month_ago = today_start - timedelta(days=30)
+            if inv_date >= month_ago:
+                filtered_invoices.append(inv)
+        else:  # "all"
+            filtered_invoices.append(inv)
+    
+    if not filtered_invoices:
+        raise HTTPException(status_code=404, detail="No processed invoices found for this filter")
     
     # Create ZIP file
-    zip_filename = f"invoices_{datetime.now().strftime('%Y%m%d_%H%M%S')}.zip"
+    filter_label = f"_{filter}" if filter != "all" else ""
+    zip_filename = f"invoices{filter_label}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.zip"
     zip_path = UPLOAD_DIR / zip_filename
     
     with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
-        for invoice in invoices:
+        for invoice in filtered_invoices:
             if invoice.get("edited_path") and os.path.exists(invoice["edited_path"]):
                 arcname = invoice['original_filename']
                 zipf.write(invoice["edited_path"], arcname)
