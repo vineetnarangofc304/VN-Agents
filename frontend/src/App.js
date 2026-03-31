@@ -154,6 +154,7 @@ const Dashboard = () => {
   const [invoices, setInvoices] = useState([]);
   const [uploading, setUploading] = useState(false);
   const [loadingInvoices, setLoadingInvoices] = useState(true);
+  const [dateFilter, setDateFilter] = useState("all");
   const fileInputRef = useRef(null);
 
   const agents = [
@@ -170,6 +171,45 @@ const Dashboard = () => {
       setLoadingInvoices(false);
     }
   }, []);
+
+  // Filter invoices by date
+  const filteredInvoices = invoices.filter(invoice => {
+    if (dateFilter === "all") return true;
+    const invoiceDate = new Date(invoice.upload_date);
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    
+    if (dateFilter === "today") {
+      const invoiceDateOnly = new Date(invoiceDate);
+      invoiceDateOnly.setHours(0, 0, 0, 0);
+      return invoiceDateOnly.getTime() === today.getTime();
+    }
+    if (dateFilter === "week") {
+      const weekAgo = new Date(today);
+      weekAgo.setDate(weekAgo.getDate() - 7);
+      return invoiceDate >= weekAgo;
+    }
+    if (dateFilter === "month") {
+      const monthAgo = new Date(today);
+      monthAgo.setMonth(monthAgo.getMonth() - 1);
+      return invoiceDate >= monthAgo;
+    }
+    return true;
+  });
+
+  // Group invoices by date
+  const groupedInvoices = filteredInvoices.reduce((groups, invoice) => {
+    const date = new Date(invoice.upload_date).toLocaleDateString('en-US', {
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric'
+    });
+    if (!groups[date]) {
+      groups[date] = [];
+    }
+    groups[date].push(invoice);
+    return groups;
+  }, {});
 
   useEffect(() => {
     fetchInvoices();
@@ -381,32 +421,66 @@ const Dashboard = () => {
 
             {/* Invoice List */}
             <div className="invoice-section">
-              <h2>
-                <FileText size={20} />
-                Invoices ({invoices.length})
-              </h2>
+              <div className="invoice-header">
+                <h2>
+                  <FileText size={20} />
+                  Invoices ({filteredInvoices.length}{dateFilter !== "all" ? ` of ${invoices.length}` : ""})
+                </h2>
+                <div className="filter-tabs" data-testid="date-filter">
+                  <button 
+                    className={`filter-tab ${dateFilter === "all" ? "active" : ""}`}
+                    onClick={() => setDateFilter("all")}
+                  >
+                    All
+                  </button>
+                  <button 
+                    className={`filter-tab ${dateFilter === "today" ? "active" : ""}`}
+                    onClick={() => setDateFilter("today")}
+                  >
+                    Today
+                  </button>
+                  <button 
+                    className={`filter-tab ${dateFilter === "week" ? "active" : ""}`}
+                    onClick={() => setDateFilter("week")}
+                  >
+                    This Week
+                  </button>
+                  <button 
+                    className={`filter-tab ${dateFilter === "month" ? "active" : ""}`}
+                    onClick={() => setDateFilter("month")}
+                  >
+                    This Month
+                  </button>
+                </div>
+              </div>
 
               {loadingInvoices ? (
                 <div className="loading-state">
                   <Loader2 className="spin" size={32} />
                   <span>Loading invoices...</span>
                 </div>
-              ) : invoices.length === 0 ? (
+              ) : filteredInvoices.length === 0 ? (
                 <div className="empty-state" data-testid="empty-state">
                   <FileText size={64} />
-                  <p>No invoices uploaded yet</p>
-                  <span>Upload your Google invoices to get started</span>
+                  <p>{invoices.length === 0 ? "No invoices uploaded yet" : "No invoices match this filter"}</p>
+                  <span>{invoices.length === 0 ? "Upload your Google invoices to get started" : "Try a different date range"}</span>
                 </div>
               ) : (
                 <div className="invoice-list" data-testid="invoice-list">
-                  {invoices.map((invoice) => (
+                  {Object.entries(groupedInvoices).map(([date, dateInvoices]) => (
+                    <div key={date} className="invoice-group">
+                      <div className="date-header">
+                        <span>{date}</span>
+                        <span className="date-count">{dateInvoices.length} invoice{dateInvoices.length > 1 ? 's' : ''}</span>
+                      </div>
+                      {dateInvoices.map((invoice) => (
                     <div key={invoice.id} className="invoice-card" data-testid={`invoice-${invoice.id}`}>
                       <div className="invoice-info">
                         <FileText size={24} />
                         <div className="invoice-details">
                           <span className="invoice-name">{invoice.original_filename}</span>
                           <span className="invoice-date">
-                            {new Date(invoice.upload_date).toLocaleDateString()}
+                            {new Date(invoice.upload_date).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
                           </span>
                         </div>
                         <span className={`invoice-status ${invoice.status}`}>
@@ -448,6 +522,9 @@ const Dashboard = () => {
                         </button>
                       </div>
                     </div>
+                      ))}
+                    </div>
+                  ))}
                   ))}
                 </div>
               )}
