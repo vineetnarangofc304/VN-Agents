@@ -285,6 +285,7 @@ const Dashboard = () => {
       });
       const url = window.URL.createObjectURL(new Blob([response.data]));
       const link = document.createElement("a");
+      link.href = url;
       const filterLabel = dateFilter === "all" ? "" : `_${dateFilter}`;
       link.download = `invoices${filterLabel}_${new Date().toISOString().split("T")[0]}.zip`;
       document.body.appendChild(link);
