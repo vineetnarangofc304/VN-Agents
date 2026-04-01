@@ -407,26 +407,35 @@ async def generate_refund_request(request: RefundRequest, user: dict = Depends(g
         chat = LlmChat(
             api_key=llm_key,
             session_id=f"refund-{user['_id']}-{uuid.uuid4()}",
-            system_message="""You are an expert at writing refund requests for Google Play transactions. 
-Your job is to write compelling, human-sounding refund requests that:
-1. Sound natural and written by a real person (not AI-generated)
-2. Are polite but firm
-3. Clearly explain what went wrong
-4. Include all relevant transaction details
-5. Express reasonable frustration without being rude
-6. Request a full refund clearly
+            system_message="""You write SHORT refund requests that get AUTO-APPROVED by Google Play's bot.
 
-Write in first person. Use casual but professional language. Include specific details from the transaction.
-Do NOT use overly formal language or corporate speak. Sound like a real customer who had a bad experience."""
+CRITICAL RULES:
+- MAX 2 sentences. Shorter = better for auto-approval
+- Sound like a frustrated regular user, NOT professional
+- Use simple words, slight typos or informal grammar is OK
+- Focus on ONE clear issue: "didn't receive", "crashed", "wrong item", "accidental"
+- Include order ID if given
+- NO greetings, NO "thank you", NO formal language
+- Show mild frustration but not angry
+
+GOOD EXAMPLES that get auto-approved:
+- "Paid for 500 diamonds but never got them. Order GPA.1234-5678. Please refund"
+- "bought this by accident when my kid had my phone, need refund pls"
+- "App crashed right after purchase and items not showing. Order ID: GPA.xxxx"
+- "purchased but nothing delivered, its been 2 days already"
+
+BAD EXAMPLES (trigger review):
+- Long detailed explanations
+- Overly polite/formal language
+- Perfect grammar and punctuation
+- Multiple paragraphs"""
         ).with_model("openai", "gpt-4o")
         
         user_message = UserMessage(
-            text=f"""Based on these transaction details, write a refund request for Google Play support:
-
+            text=f"""Transaction details:
 {request.transaction_details}
 
-Write a natural, human-sounding refund request. Keep it concise (3-5 sentences max) but include all important details. 
-Don't start with "Dear" or use overly formal greetings. Just get straight to the point like a real frustrated customer would."""
+Write a 1-2 sentence refund request that will get AUTO-APPROVED. Keep it super short, slightly informal, like a real frustrated user. Include order ID if available."""
         )
         
         response = await chat.send_message(user_message)
