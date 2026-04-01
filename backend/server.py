@@ -25,6 +25,7 @@ from typing import List, Optional
 from PyPDF2 import PdfReader, PdfWriter
 from reportlab.pdfgen import canvas
 from reportlab.lib.pagesizes import letter
+from emergentintegrations.llm.chat import LlmChat, UserMessage
 
 # MongoDB connection
 mongo_url = os.environ['MONGO_URL']
@@ -391,11 +392,73 @@ async def delete_invoice(invoice_id: str, user: dict = Depends(get_current_user)
     
     return {"message": "Invoice deleted successfully"}
 
+# ============== Refund Agent Endpoints ==============
+class RefundRequest(BaseModel):
+    transaction_details: str
+
+@api_router.post("/refund/generate")
+async def generate_refund_request(request: RefundRequest, user: dict = Depends(get_current_user)):
+    """Generate a human-like refund request based on transaction details"""
+    try:
+        llm_key = os.environ.get("EMERGENT_LLM_KEY")
+        if not llm_key:
+            raise HTTPException(status_code=500, detail="LLM key not configured")
+        
+        chat = LlmChat(
+            api_key=llm_key,
+            session_id=f"refund-{user['_id']}-{uuid.uuid4()}",
+            system_message="""You are an expert at writing refund requests for Google Play transactions. 
+Your job is to write compelling, human-sounding refund requests that:
+1. Sound natural and written by a real person (not AI-generated)
+2. Are polite but firm
+3. Clearly explain what went wrong
+4. Include all relevant transaction details
+5. Express reasonable frustration without being rude
+6. Request a full refund clearly
+
+Write in first person. Use casual but professional language. Include specific details from the transaction.
+Do NOT use overly formal language or corporate speak. Sound like a real customer who had a bad experience."""
+        ).with_model("openai", "gpt-4o")
+        
+        user_message = UserMessage(
+            text=f"""Based on these transaction details, write a refund request for Google Play support:
+
+{request.transaction_details}
+
+Write a natural, human-sounding refund request. Keep it concise (3-5 sentences max) but include all important details. 
+Don't start with "Dear" or use overly formal greetings. Just get straight to the point like a real frustrated customer would."""
+        )
+        
+        response = await chat.send_message(user_message)
+        
+        # Save to history
+        await db.refund_history.insert_one({
+            "user_id": user["_id"],
+            "transaction_details": request.transaction_details,
+            "refund_request": response,
+            "created_at": datetime.now(timezone.utc).isoformat()
+        })
+        
+        return {"refund_request": response}
+        
+    except Exception as e:
+        logger.error(f"Error generating refund request: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@api_router.get("/refund/history")
+async def get_refund_history(user: dict = Depends(get_current_user)):
+    """Get refund request history for the current user"""
+    history = await db.refund_history.find(
+        {"user_id": user["_id"]},
+        {"_id": 0}
+    ).sort("created_at", -1).to_list(50)
+    
+    return {"history": history}
+
 # ============== Agents Management ==============
 @api_router.get("/agents")
 async def get_agents(user: dict = Depends(get_current_user)):
     """Get all available agents"""
-    # For now, return hardcoded agents - can be made dynamic later
     return {
         "agents": [
             {
@@ -403,6 +466,13 @@ async def get_agents(user: dict = Depends(get_current_user)):
                 "name": "Invoicing Agent",
                 "description": "Upload, process, and manage Google invoices",
                 "icon": "receipt",
+                "status": "active"
+            },
+            {
+                "id": "refund",
+                "name": "Refund Agent",
+                "description": "Generate refund requests for Google Play transactions",
+                "icon": "refresh",
                 "status": "active"
             }
         ]

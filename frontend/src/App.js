@@ -1,7 +1,7 @@
 import { useState, useEffect, createContext, useContext, useCallback, useRef } from "react";
 import "@/App.css";
 import axios from "axios";
-import { FileText, Upload, Download, Trash2, LogOut, Menu, X, CheckCircle, AlertCircle, Loader2, Receipt } from "lucide-react";
+import { FileText, Upload, Download, Trash2, LogOut, Menu, X, CheckCircle, AlertCircle, Loader2, Receipt, RefreshCw, Mail, Copy, ExternalLink, Calendar } from "lucide-react";
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
@@ -156,9 +156,19 @@ const Dashboard = () => {
   const [loadingInvoices, setLoadingInvoices] = useState(true);
   const [dateFilter, setDateFilter] = useState("all");
   const fileInputRef = useRef(null);
+  
+  // Refund Agent state
+  const [gmailConnected, setGmailConnected] = useState(false);
+  const [transactions, setTransactions] = useState([]);
+  const [selectedTransaction, setSelectedTransaction] = useState(null);
+  const [refundRequest, setRefundRequest] = useState("");
+  const [generatingRefund, setGeneratingRefund] = useState(false);
+  const [transactionInput, setTransactionInput] = useState("");
+  const [refundHistory, setRefundHistory] = useState([]);
 
   const agents = [
-    { id: "invoicing", name: "Invoicing Agent", icon: Receipt }
+    { id: "invoicing", name: "Invoicing Agent", icon: Receipt },
+    { id: "refund", name: "Refund Agent", icon: RefreshCw }
   ];
 
   const fetchInvoices = useCallback(async () => {
@@ -526,10 +536,151 @@ const Dashboard = () => {
                       ))}
                     </div>
                   ))}
-                  ))}
                 </div>
               )}
             </div>
+          </div>
+        )}
+
+        {/* Refund Agent */}
+        {activeAgent === "refund" && (
+          <div className="refund-agent" data-testid="refund-agent">
+            <header className="content-header">
+              <div>
+                <h1>Refund Agent</h1>
+                <p>Generate compelling refund requests for failed Google Play transactions</p>
+              </div>
+            </header>
+
+            {/* Gmail Connection Status */}
+            <div className="gmail-section">
+              <div className="gmail-status">
+                <Mail size={24} />
+                <div className="gmail-info">
+                  <span className="gmail-title">Gmail Connection</span>
+                  <span className="gmail-subtitle">
+                    {gmailConnected ? "Connected - Ready to fetch receipts" : "Connect to auto-fetch Google Play receipts"}
+                  </span>
+                </div>
+                <button 
+                  className={`gmail-btn ${gmailConnected ? "connected" : ""}`}
+                  onClick={() => {
+                    if (!gmailConnected) {
+                      alert("Gmail integration requires OAuth setup. For now, paste transaction details manually below.");
+                    }
+                  }}
+                  data-testid="gmail-connect-btn"
+                >
+                  {gmailConnected ? (
+                    <><CheckCircle size={16} /> Connected</>
+                  ) : (
+                    <><Mail size={16} /> Connect Gmail</>
+                  )}
+                </button>
+              </div>
+            </div>
+
+            {/* Transaction Input */}
+            <div className="transaction-input-section">
+              <h2>
+                <FileText size={20} />
+                Paste Transaction Details
+              </h2>
+              <p className="section-desc">Copy transaction details from Google Play and paste below</p>
+              <textarea
+                className="transaction-textarea"
+                placeholder="Paste transaction details here...&#10;&#10;Example:&#10;Order ID: GPA.1234-5678-9012&#10;Date: March 30, 2026&#10;Item: Game Currency Pack&#10;Amount: ₹990.00&#10;What went wrong: Payment was charged but items were never received in the game"
+                value={transactionInput}
+                onChange={(e) => setTransactionInput(e.target.value)}
+                data-testid="transaction-input"
+              />
+              <button
+                className="generate-btn"
+                onClick={async () => {
+                  if (!transactionInput.trim()) {
+                    alert("Please paste transaction details first");
+                    return;
+                  }
+                  setGeneratingRefund(true);
+                  try {
+                    const response = await axios.post(`${API}/refund/generate`, {
+                      transaction_details: transactionInput
+                    });
+                    setRefundRequest(response.data.refund_request);
+                    setSelectedTransaction({
+                      details: transactionInput,
+                      generated_at: new Date().toISOString()
+                    });
+                  } catch (err) {
+                    alert("Failed to generate refund request");
+                  } finally {
+                    setGeneratingRefund(false);
+                  }
+                }}
+                disabled={generatingRefund || !transactionInput.trim()}
+                data-testid="generate-refund-btn"
+              >
+                {generatingRefund ? (
+                  <><Loader2 className="spin" size={18} /> Generating...</>
+                ) : (
+                  <><RefreshCw size={18} /> Generate Refund Request</>
+                )}
+              </button>
+            </div>
+
+            {/* Generated Refund Request */}
+            {refundRequest && (
+              <div className="refund-output-section">
+                <h2>
+                  <CheckCircle size={20} />
+                  Your Refund Request
+                </h2>
+                <div className="refund-output">
+                  <pre>{refundRequest}</pre>
+                </div>
+                <div className="refund-actions">
+                  <button
+                    className="action-btn copy"
+                    onClick={() => {
+                      navigator.clipboard.writeText(refundRequest);
+                      alert("Copied to clipboard!");
+                    }}
+                    data-testid="copy-refund-btn"
+                  >
+                    <Copy size={16} />
+                    Copy to Clipboard
+                  </button>
+                  <a
+                    href="https://play.google.com/store/account/orderhistory"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="action-btn submit-link"
+                    data-testid="submit-refund-link"
+                  >
+                    <ExternalLink size={16} />
+                    Open Google Play Refunds
+                  </a>
+                </div>
+              </div>
+            )}
+
+            {/* Refund History */}
+            {refundHistory.length > 0 && (
+              <div className="refund-history-section">
+                <h2>
+                  <Calendar size={20} />
+                  Recent Refund Requests ({refundHistory.length})
+                </h2>
+                <div className="history-list">
+                  {refundHistory.map((item, index) => (
+                    <div key={index} className="history-item">
+                      <span className="history-date">{new Date(item.created_at).toLocaleDateString()}</span>
+                      <span className="history-preview">{item.details.substring(0, 50)}...</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
         )}
       </main>
