@@ -885,9 +885,9 @@ const Dashboard = () => {
 
             {/* Stock Scanner Section */}
             <div className="scanner-section">
-              <h2><Search size={20} /> Top Volume Movers</h2>
+              <h2><Search size={20} /> Top Volume Movers (Under ₹100)</h2>
               <p className="criteria-info">
-                Sorted by shares traded today | Highlights: Price &lt; 60% of 52-week high
+                NSE stocks under ₹100 sorted by shares traded today | Top 50 | Highlights: Price &lt; 60% of 52W high
               </p>
 
               {loadingStocks ? (

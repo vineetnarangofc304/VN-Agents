@@ -470,16 +470,38 @@ async def get_refund_history(user: dict = Depends(get_current_user)):
 
 # ============== Stock Market Agent Endpoints ==============
 
-# Top NSE stocks by volume (Nifty 50 + high volume stocks)
-NSE_STOCKS = [
+# NSE stocks under ₹100 with typically high volume (penny stocks, small/mid caps)
+NSE_STOCKS_UNDER_100 = [
+    # High volume penny/small cap stocks
+    "YESBANK", "IDEA", "SUZLON", "JPASSOCIAT", "RPOWER", "IDFCFIRSTB", 
+    "ZOMATO", "PAYTM", "IRFC", "PNB", "BANKBARODA", "UNIONBANK", "CANBK",
+    "INDIANB", "CENTRALBK", "UCOBANK", "BANKINDIA", "MAHABANK", "IOB",
+    "NHPC", "SJVN", "IREDA", "RECLTD", "PFC", "HUDCO",
+    "SAIL", "NMDC", "NATIONALUM", "HINDCOPPER", "MOIL",
+    "GMRINFRA", "IRB", "JPPOWER", "RTNPOWER", "NESCO",
+    "TRIDENT", "WELSPUNIND", "RAYMOND", "ARVIND", "NIITLTD",
+    "TATAPOWER", "ADANIPOWER", "TORNTPOWER", "CESC", "TATAELXSI",
+    "GAIL", "ONGC", "OIL", "MRPL", "CHENNPETRO", "IOCL", "BPCL", "HPCL",
+    "BHEL", "BEML", "BEL", "HAL", "COCHINSHIP", "GRSE", "MAZDA",
+    "VODAFONE", "TTML", "HFCL", "STLTECH", "NELCO",
+    "IBULHSGFIN", "IIFL", "MUTHOOTFIN", "MANAPPURAM", "CHOLAFIN",
+    "DELTACORP", "NAZARA", "TANLA", "ROUTE", "RATEGAIN",
+    "HAPPSTMNDS", "KPITTECH", "PERSISTENT", "COFORGE", "LTTS",
+    "FSL", "NETWORK18", "TV18BRDCST", "DISHTV", "ZEEL", "SUNTV",
+    "TATACHEM", "DEEPAKNI", "ATUL", "NAVINFLUOR", "CLEAN",
+    "POLYCAB", "HAVELLS", "AMBER", "DIXON", "VOLTAS",
+    "EQUITAS", "UJJIVANSFB", "SURYODAY", "ESAFSFB", "FINOPB",
+    "JINDALSAW", "JINDWORLD", "WELCORP", "RATNAMANI", "ASTRAL"
+]
+
+# Combine with original for broader coverage
+NSE_ALL_STOCKS = list(set(NSE_STOCKS_UNDER_100 + [
     "RELIANCE", "TCS", "HDFCBANK", "INFY", "ICICIBANK", "HINDUNILVR", "SBIN", 
     "BHARTIARTL", "ITC", "KOTAKBANK", "LT", "AXISBANK", "BAJFINANCE", "ASIANPAINT",
     "MARUTI", "TITAN", "SUNPHARMA", "ULTRACEMCO", "NESTLEIND", "WIPRO", "HCLTECH",
     "POWERGRID", "NTPC", "ONGC", "TATAMOTORS", "ADANIENT", "ADANIPORTS", "COALINDIA",
-    "JSWSTEEL", "TATASTEEL", "HINDALCO", "GRASIM", "TECHM", "INDUSINDBK", "BAJAJFINSV",
-    "DRREDDY", "DIVISLAB", "CIPLA", "EICHERMOT", "HEROMOTOCO", "BPCL", "BRITANNIA",
-    "APOLLOHOSP", "SBILIFE", "HDFCLIFE", "TATACONSUM", "UPL", "M&M", "BAJAJ-AUTO"
-]
+    "JSWSTEEL", "TATASTEEL", "HINDALCO", "GRASIM", "TECHM", "INDUSINDBK", "BAJAJFINSV"
+]))
 
 def get_stock_data(symbol: str, period: str = "3mo"):
     """Fetch stock data from Yahoo Finance"""
@@ -513,11 +535,20 @@ def get_stock_news(symbol: str):
         return []
 
 @api_router.get("/stocks/scanner")
-async def scan_stocks(user: dict = Depends(get_current_user)):
-    """Scan for top volume stocks - sorted by today's trading volume"""
+async def scan_stocks(user: dict = Depends(get_current_user), max_price: float = 100.0):
+    """Scan for top volume NSE stocks under ₹100 - sorted by today's trading volume"""
     results = []
     
-    for symbol in NSE_STOCKS:  # Scan all stocks
+    # Format volume in lakhs/crores for display
+    def format_volume(vol):
+        if vol >= 10000000:  # 1 crore
+            return f"{vol/10000000:.2f} Cr"
+        elif vol >= 100000:  # 1 lakh
+            return f"{vol/100000:.2f} L"
+        else:
+            return f"{vol:,}"
+    
+    for symbol in NSE_ALL_STOCKS:  # Scan all stocks
         try:
             hist, info = get_stock_data(symbol, period="3mo")
             if hist is None or hist.empty:
@@ -526,6 +557,10 @@ async def scan_stocks(user: dict = Depends(get_current_user)):
             # Get today's/latest volume and price
             today_volume = int(hist['Volume'].iloc[-1]) if not hist.empty else 0
             current_price = float(hist['Close'].iloc[-1]) if not hist.empty else 0
+            
+            # Skip if price > max_price (default ₹100)
+            if current_price > max_price:
+                continue
             
             # 7-day average volume for comparison
             avg_volume_7d = int(hist['Volume'].tail(7).mean()) if len(hist) >= 7 else 0
@@ -539,15 +574,6 @@ async def scan_stocks(user: dict = Depends(get_current_user)):
             
             # High volume day: today's volume > 7-day average
             high_volume_day = bool(today_volume > avg_volume_7d * 1.2) if avg_volume_7d > 0 else False
-            
-            # Format volume in lakhs/crores for display
-            def format_volume(vol):
-                if vol >= 10000000:  # 1 crore
-                    return f"{vol/10000000:.2f} Cr"
-                elif vol >= 100000:  # 1 lakh
-                    return f"{vol/100000:.2f} L"
-                else:
-                    return f"{vol:,}"
             
             results.append({
                 "symbol": symbol,
@@ -570,11 +596,15 @@ async def scan_stocks(user: dict = Depends(get_current_user)):
     # Sort by today's volume (highest first) - TOP VOLUME MOVERS
     results.sort(key=lambda x: x["today_volume"], reverse=True)
     
+    # Return top 50
+    results = results[:50]
+    
     return {
         "stocks": results,
         "scan_time": datetime.now(timezone.utc).isoformat(),
         "criteria": {
-            "description": "Top volume movers sorted by shares traded today",
+            "description": f"Top 50 NSE stocks under ₹{max_price} by volume",
+            "max_price": max_price,
             "price_below_52w_pct": 60
         }
     }
