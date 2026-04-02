@@ -19,6 +19,10 @@ import shutil
 import zipfile
 import io
 import re
+import yfinance as yf
+import pandas as pd
+from bs4 import BeautifulSoup
+import requests
 from datetime import datetime, timezone, timedelta
 from pydantic import BaseModel, Field, ConfigDict, EmailStr
 from typing import List, Optional
@@ -464,6 +468,249 @@ async def get_refund_history(user: dict = Depends(get_current_user)):
     
     return {"history": history}
 
+# ============== Stock Market Agent Endpoints ==============
+
+# Top NSE stocks by volume (Nifty 50 + high volume stocks)
+NSE_STOCKS = [
+    "RELIANCE", "TCS", "HDFCBANK", "INFY", "ICICIBANK", "HINDUNILVR", "SBIN", 
+    "BHARTIARTL", "ITC", "KOTAKBANK", "LT", "AXISBANK", "BAJFINANCE", "ASIANPAINT",
+    "MARUTI", "TITAN", "SUNPHARMA", "ULTRACEMCO", "NESTLEIND", "WIPRO", "HCLTECH",
+    "POWERGRID", "NTPC", "ONGC", "TATAMOTORS", "ADANIENT", "ADANIPORTS", "COALINDIA",
+    "JSWSTEEL", "TATASTEEL", "HINDALCO", "GRASIM", "TECHM", "INDUSINDBK", "BAJAJFINSV",
+    "DRREDDY", "DIVISLAB", "CIPLA", "EICHERMOT", "HEROMOTOCO", "BPCL", "BRITANNIA",
+    "APOLLOHOSP", "SBILIFE", "HDFCLIFE", "TATACONSUM", "UPL", "M&M", "BAJAJ-AUTO"
+]
+
+def get_stock_data(symbol: str, period: str = "3mo"):
+    """Fetch stock data from Yahoo Finance"""
+    try:
+        ticker = yf.Ticker(f"{symbol}.NS")
+        hist = ticker.history(period=period)
+        info = ticker.info
+        return hist, info
+    except Exception as e:
+        logger.error(f"Error fetching {symbol}: {e}")
+        return None, None
+
+def get_stock_news(symbol: str):
+    """Fetch news for a stock from Google News"""
+    try:
+        url = f"https://news.google.com/rss/search?q={symbol}+NSE+stock&hl=en-IN&gl=IN&ceid=IN:en"
+        response = requests.get(url, timeout=10)
+        soup = BeautifulSoup(response.content, 'xml')
+        items = soup.find_all('item')[:5]  # Get top 5 news
+        
+        news = []
+        for item in items:
+            news.append({
+                "title": item.title.text if item.title else "",
+                "link": item.link.text if item.link else "",
+                "date": item.pubDate.text if item.pubDate else ""
+            })
+        return news
+    except Exception as e:
+        logger.error(f"Error fetching news for {symbol}: {e}")
+        return []
+
+@api_router.get("/stocks/scanner")
+async def scan_stocks(user: dict = Depends(get_current_user)):
+    """Scan for high volume stocks meeting criteria"""
+    results = []
+    
+    for symbol in NSE_STOCKS[:20]:  # Limit to avoid timeout
+        try:
+            hist, info = get_stock_data(symbol)
+            if hist is None or hist.empty:
+                continue
+            
+            # Calculate metrics
+            current_price = float(hist['Close'].iloc[-1]) if not hist.empty else 0
+            avg_volume_7d = float(hist['Volume'].tail(7).mean()) if len(hist) >= 7 else 0
+            avg_volume_30d = float(hist['Volume'].tail(30).mean()) if len(hist) >= 30 else 0
+            
+            # 52-week high
+            week_52_high = float(hist['High'].max()) if not hist.empty else 0
+            price_vs_52w = (current_price / week_52_high * 100) if week_52_high > 0 else 0
+            
+            # Volume momentum (7-day vs 30-day)
+            volume_momentum = (avg_volume_7d / avg_volume_30d) if avg_volume_30d > 0 else 0
+            
+            # Check if meets criteria: price < 60% of 52-week high
+            meets_criteria = bool(price_vs_52w < 60)
+            
+            # High volume flag: 7-day volume > 1.5x 30-day average
+            high_volume = bool(volume_momentum > 1.5)
+            
+            results.append({
+                "symbol": symbol,
+                "name": info.get("longName", symbol) if info else symbol,
+                "current_price": round(current_price, 2),
+                "week_52_high": round(week_52_high, 2),
+                "price_vs_52w_pct": round(price_vs_52w, 1),
+                "avg_volume_7d": int(avg_volume_7d),
+                "avg_volume_30d": int(avg_volume_30d),
+                "volume_momentum": round(volume_momentum, 2),
+                "high_volume": high_volume,
+                "meets_criteria": meets_criteria,
+                "sector": info.get("sector", "N/A") if info else "N/A"
+            })
+        except Exception as e:
+            logger.error(f"Error processing {symbol}: {e}")
+            continue
+    
+    # Sort by volume momentum
+    results.sort(key=lambda x: x["volume_momentum"], reverse=True)
+    
+    return {
+        "stocks": results,
+        "scan_time": datetime.now(timezone.utc).isoformat(),
+        "criteria": {
+            "price_below_52w_pct": 60,
+            "volume_momentum_threshold": 1.5
+        }
+    }
+
+@api_router.get("/stocks/{symbol}/details")
+async def get_stock_details(symbol: str, user: dict = Depends(get_current_user)):
+    """Get detailed info for a specific stock"""
+    hist, info = get_stock_data(symbol.upper(), period="1y")
+    
+    if hist is None or hist.empty:
+        raise HTTPException(status_code=404, detail="Stock not found")
+    
+    # Get news
+    news = get_stock_news(symbol.upper())
+    
+    # Calculate metrics
+    current_price = float(hist['Close'].iloc[-1])
+    week_52_high = float(hist['High'].max())
+    week_52_low = float(hist['Low'].min())
+    
+    # Price history for chart
+    price_history = []
+    for date, row in hist.tail(30).iterrows():
+        price_history.append({
+            "date": date.strftime("%Y-%m-%d"),
+            "price": round(float(row['Close']), 2),
+            "volume": int(row['Volume'])
+        })
+    
+    return {
+        "symbol": symbol.upper(),
+        "name": info.get("longName", symbol) if info else symbol,
+        "current_price": round(current_price, 2),
+        "week_52_high": round(week_52_high, 2),
+        "week_52_low": round(week_52_low, 2),
+        "price_vs_52w_pct": round(current_price / week_52_high * 100, 1),
+        "sector": info.get("sector", "N/A") if info else "N/A",
+        "industry": info.get("industry", "N/A") if info else "N/A",
+        "market_cap": info.get("marketCap", 0) if info else 0,
+        "pe_ratio": float(info.get("trailingPE", 0)) if info and info.get("trailingPE") else 0,
+        "price_history": price_history,
+        "news": news
+    }
+
+class PortfolioEntry(BaseModel):
+    symbol: str
+    buy_price: float
+    quantity: int
+    target_pct: float = 30.0  # Default 30% profit target
+
+@api_router.post("/stocks/portfolio/add")
+async def add_to_portfolio(entry: PortfolioEntry, user: dict = Depends(get_current_user)):
+    """Add a stock to portfolio for tracking"""
+    portfolio_entry = {
+        "id": str(uuid.uuid4()),
+        "user_id": user["_id"],
+        "symbol": entry.symbol.upper(),
+        "buy_price": entry.buy_price,
+        "quantity": entry.quantity,
+        "target_pct": entry.target_pct,
+        "target_price": round(entry.buy_price * (1 + entry.target_pct / 100), 2),
+        "status": "holding",
+        "bought_at": datetime.now(timezone.utc).isoformat(),
+        "sold_at": None,
+        "sell_price": None,
+        "profit_loss": None
+    }
+    
+    await db.portfolio.insert_one(portfolio_entry)
+    portfolio_entry.pop("_id", None)
+    
+    return portfolio_entry
+
+@api_router.get("/stocks/portfolio")
+async def get_portfolio(user: dict = Depends(get_current_user)):
+    """Get user's portfolio with current prices and alerts"""
+    portfolio = await db.portfolio.find(
+        {"user_id": user["_id"]},
+        {"_id": 0}
+    ).sort("bought_at", -1).to_list(100)
+    
+    # Update with current prices and check alerts
+    alerts = []
+    for item in portfolio:
+        if item["status"] == "holding":
+            try:
+                hist, _ = get_stock_data(item["symbol"], period="1d")
+                if hist is not None and not hist.empty:
+                    current_price = hist['Close'].iloc[-1]
+                    item["current_price"] = round(current_price, 2)
+                    item["current_value"] = round(current_price * item["quantity"], 2)
+                    item["invested_value"] = round(item["buy_price"] * item["quantity"], 2)
+                    item["profit_loss_pct"] = round((current_price - item["buy_price"]) / item["buy_price"] * 100, 2)
+                    
+                    # Check if target hit
+                    if current_price >= item["target_price"]:
+                        alerts.append({
+                            "type": "sell",
+                            "symbol": item["symbol"],
+                            "message": f"🎯 SELL ALERT: {item['symbol']} hit target! Current: ₹{current_price:.2f}, Target: ₹{item['target_price']:.2f}, Profit: {item['profit_loss_pct']:.1f}%",
+                            "current_price": current_price,
+                            "target_price": item["target_price"],
+                            "profit_pct": item["profit_loss_pct"]
+                        })
+            except Exception as e:
+                logger.error(f"Error updating {item['symbol']}: {e}")
+    
+    return {
+        "portfolio": portfolio,
+        "alerts": alerts,
+        "total_invested": sum(p.get("invested_value", 0) for p in portfolio if p["status"] == "holding"),
+        "total_current": sum(p.get("current_value", 0) for p in portfolio if p["status"] == "holding")
+    }
+
+@api_router.post("/stocks/portfolio/{entry_id}/sell")
+async def sell_from_portfolio(entry_id: str, sell_price: float, user: dict = Depends(get_current_user)):
+    """Mark a position as sold"""
+    entry = await db.portfolio.find_one({"id": entry_id, "user_id": user["_id"]})
+    if not entry:
+        raise HTTPException(status_code=404, detail="Portfolio entry not found")
+    
+    profit_loss = (sell_price - entry["buy_price"]) * entry["quantity"]
+    profit_loss_pct = (sell_price - entry["buy_price"]) / entry["buy_price"] * 100
+    
+    await db.portfolio.update_one(
+        {"id": entry_id},
+        {"$set": {
+            "status": "sold",
+            "sold_at": datetime.now(timezone.utc).isoformat(),
+            "sell_price": sell_price,
+            "profit_loss": round(profit_loss, 2),
+            "profit_loss_pct": round(profit_loss_pct, 2)
+        }}
+    )
+    
+    return {"message": "Position sold", "profit_loss": profit_loss, "profit_loss_pct": profit_loss_pct}
+
+@api_router.delete("/stocks/portfolio/{entry_id}")
+async def delete_portfolio_entry(entry_id: str, user: dict = Depends(get_current_user)):
+    """Delete a portfolio entry"""
+    result = await db.portfolio.delete_one({"id": entry_id, "user_id": user["_id"]})
+    if result.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Entry not found")
+    return {"message": "Entry deleted"}
+
 # ============== Agents Management ==============
 @api_router.get("/agents")
 async def get_agents(user: dict = Depends(get_current_user)):
@@ -482,6 +729,13 @@ async def get_agents(user: dict = Depends(get_current_user)):
                 "name": "Refund Agent",
                 "description": "Generate refund requests for Google Play transactions",
                 "icon": "refresh",
+                "status": "active"
+            },
+            {
+                "id": "stocks",
+                "name": "Stock Investor",
+                "description": "Track high-volume undervalued stocks with buy/sell alerts",
+                "icon": "trending-up",
                 "status": "active"
             }
         ]
