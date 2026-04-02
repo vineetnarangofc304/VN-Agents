@@ -1358,6 +1358,15 @@ body {
   font-weight: 600;
 }
 
+.undervalued-tag {
+  background: var(--accent);
+  color: white;
+  padding: 4px 10px;
+  border-radius: 12px;
+  font-size: 11px;
+  font-weight: 600;
+}
+
 /* Stock Modal */
 .stock-modal {
   position: fixed;

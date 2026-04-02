@@ -885,9 +885,9 @@ const Dashboard = () => {
 
             {/* Stock Scanner Section */}
             <div className="scanner-section">
-              <h2><Search size={20} /> Stock Scanner</h2>
+              <h2><Search size={20} /> Top Volume Movers</h2>
               <p className="criteria-info">
-                Scanning for: High volume (7d &gt; 1.5x 30d avg) + Price &lt; 60% of 52-week high
+                Sorted by shares traded today | Highlights: Price &lt; 60% of 52-week high
               </p>
 
               {loadingStocks ? (
@@ -900,9 +900,9 @@ const Dashboard = () => {
                   <div className="stock-header">
                     <span>Symbol</span>
                     <span>Price</span>
-                    <span>52W High</span>
+                    <span>Today's Volume</span>
+                    <span>7D Avg Vol</span>
                     <span>% of 52W</span>
-                    <span>Vol Momentum</span>
                     <span>Status</span>
                   </div>
                   {stocks.map((stock) => (
@@ -913,19 +913,22 @@ const Dashboard = () => {
                     >
                       <span className="stock-symbol">{stock.symbol}</span>
                       <span>₹{stock.current_price}</span>
-                      <span>₹{stock.week_52_high}</span>
+                      <span className={stock.high_volume_day ? "high-volume" : ""}>
+                        {stock.today_volume_formatted}
+                      </span>
+                      <span>{stock.avg_volume_7d_formatted}</span>
                       <span className={stock.price_vs_52w_pct < 60 ? "undervalued" : ""}>
                         {stock.price_vs_52w_pct}%
                       </span>
-                      <span className={stock.high_volume ? "high-volume" : ""}>
-                        {stock.volume_momentum}x
-                      </span>
                       <span>
-                        {stock.meets_criteria && stock.high_volume && (
+                        {stock.meets_criteria && stock.high_volume_day && (
                           <span className="buy-signal">BUY SIGNAL</span>
                         )}
-                        {stock.high_volume && !stock.meets_criteria && (
-                          <span className="watch">WATCH</span>
+                        {stock.high_volume_day && !stock.meets_criteria && (
+                          <span className="watch">HIGH VOL</span>
+                        )}
+                        {stock.meets_criteria && !stock.high_volume_day && (
+                          <span className="undervalued-tag">UNDERVALUED</span>
                         )}
                       </span>
                     </div>

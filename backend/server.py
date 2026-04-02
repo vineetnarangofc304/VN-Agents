@@ -514,32 +514,40 @@ def get_stock_news(symbol: str):
 
 @api_router.get("/stocks/scanner")
 async def scan_stocks(user: dict = Depends(get_current_user)):
-    """Scan for high volume stocks meeting criteria"""
+    """Scan for top volume stocks - sorted by today's trading volume"""
     results = []
     
-    for symbol in NSE_STOCKS[:20]:  # Limit to avoid timeout
+    for symbol in NSE_STOCKS:  # Scan all stocks
         try:
-            hist, info = get_stock_data(symbol)
+            hist, info = get_stock_data(symbol, period="3mo")
             if hist is None or hist.empty:
                 continue
             
-            # Calculate metrics
+            # Get today's/latest volume and price
+            today_volume = int(hist['Volume'].iloc[-1]) if not hist.empty else 0
             current_price = float(hist['Close'].iloc[-1]) if not hist.empty else 0
-            avg_volume_7d = float(hist['Volume'].tail(7).mean()) if len(hist) >= 7 else 0
-            avg_volume_30d = float(hist['Volume'].tail(30).mean()) if len(hist) >= 30 else 0
+            
+            # 7-day average volume for comparison
+            avg_volume_7d = int(hist['Volume'].tail(7).mean()) if len(hist) >= 7 else 0
             
             # 52-week high
             week_52_high = float(hist['High'].max()) if not hist.empty else 0
             price_vs_52w = (current_price / week_52_high * 100) if week_52_high > 0 else 0
             
-            # Volume momentum (7-day vs 30-day)
-            volume_momentum = (avg_volume_7d / avg_volume_30d) if avg_volume_30d > 0 else 0
-            
-            # Check if meets criteria: price < 60% of 52-week high
+            # Check criteria: price < 60% of 52-week high
             meets_criteria = bool(price_vs_52w < 60)
             
-            # High volume flag: 7-day volume > 1.5x 30-day average
-            high_volume = bool(volume_momentum > 1.5)
+            # High volume day: today's volume > 7-day average
+            high_volume_day = bool(today_volume > avg_volume_7d * 1.2) if avg_volume_7d > 0 else False
+            
+            # Format volume in lakhs/crores for display
+            def format_volume(vol):
+                if vol >= 10000000:  # 1 crore
+                    return f"{vol/10000000:.2f} Cr"
+                elif vol >= 100000:  # 1 lakh
+                    return f"{vol/100000:.2f} L"
+                else:
+                    return f"{vol:,}"
             
             results.append({
                 "symbol": symbol,
@@ -547,10 +555,11 @@ async def scan_stocks(user: dict = Depends(get_current_user)):
                 "current_price": round(current_price, 2),
                 "week_52_high": round(week_52_high, 2),
                 "price_vs_52w_pct": round(price_vs_52w, 1),
-                "avg_volume_7d": int(avg_volume_7d),
-                "avg_volume_30d": int(avg_volume_30d),
-                "volume_momentum": round(volume_momentum, 2),
-                "high_volume": high_volume,
+                "today_volume": today_volume,
+                "today_volume_formatted": format_volume(today_volume),
+                "avg_volume_7d": avg_volume_7d,
+                "avg_volume_7d_formatted": format_volume(avg_volume_7d),
+                "high_volume_day": high_volume_day,
                 "meets_criteria": meets_criteria,
                 "sector": info.get("sector", "N/A") if info else "N/A"
             })
@@ -558,15 +567,15 @@ async def scan_stocks(user: dict = Depends(get_current_user)):
             logger.error(f"Error processing {symbol}: {e}")
             continue
     
-    # Sort by volume momentum
-    results.sort(key=lambda x: x["volume_momentum"], reverse=True)
+    # Sort by today's volume (highest first) - TOP VOLUME MOVERS
+    results.sort(key=lambda x: x["today_volume"], reverse=True)
     
     return {
         "stocks": results,
         "scan_time": datetime.now(timezone.utc).isoformat(),
         "criteria": {
-            "price_below_52w_pct": 60,
-            "volume_momentum_threshold": 1.5
+            "description": "Top volume movers sorted by shares traded today",
+            "price_below_52w_pct": 60
         }
     }
 
