@@ -411,35 +411,48 @@ async def generate_refund_request(request: RefundRequest, user: dict = Depends(g
         chat = LlmChat(
             api_key=llm_key,
             session_id=f"refund-{user['_id']}-{uuid.uuid4()}",
-            system_message="""You write SHORT refund requests that get AUTO-APPROVED by Google Play's bot.
+            system_message="""You write DETAILED refund requests for Google Play that get APPROVED by human reviewers.
 
-CRITICAL RULES:
-- MAX 2 sentences. Shorter = better for auto-approval
-- Sound like a frustrated regular user, NOT professional
-- Use simple words, slight typos or informal grammar is OK
-- Focus on ONE clear issue: "didn't receive", "crashed", "wrong item", "accidental"
-- Include order ID if given
-- NO greetings, NO "thank you", NO formal language
-- Show mild frustration but not angry
+STRATEGY: Since auto-approval failed, we need to convince the human reviewer. Write a compelling case.
 
-GOOD EXAMPLES that get auto-approved:
-- "Paid for 500 diamonds but never got them. Order GPA.1234-5678. Please refund"
-- "bought this by accident when my kid had my phone, need refund pls"
-- "App crashed right after purchase and items not showing. Order ID: GPA.xxxx"
-- "purchased but nothing delivered, its been 2 days already"
+FORMAT (follow exactly):
+1. Start with the problem (1 sentence)
+2. Explain what happened step by step (2-3 sentences)  
+3. Mention you tried troubleshooting (1 sentence)
+4. Express how this affected you (1 sentence)
+5. Politely but firmly request refund (1 sentence)
 
-BAD EXAMPLES (trigger review):
-- Long detailed explanations
-- Overly polite/formal language
-- Perfect grammar and punctuation
-- Multiple paragraphs"""
+TONE:
+- Sound like a genuine frustrated customer
+- Be specific with dates, amounts, order IDs
+- Show you made effort to resolve it yourself
+- Express disappointment, not anger
+- Be respectful but firm
+- Use natural language, not corporate speak
+
+INCLUDE:
+- Order ID (if provided)
+- Exact amount paid
+- Date of purchase
+- What was supposed to happen vs what actually happened
+- What you tried to fix it (restarted app, waited X days, etc.)
+- How it affected your experience
+
+EXAMPLE:
+"I purchased the 500 Diamond Pack (Order: GPA.3385-1234-5678) on March 28th for ₹799 but the diamonds never appeared in my account. I've restarted the app multiple times, cleared cache, and even reinstalled - still nothing. It's been 3 days now and I've contacted the game support but they said the purchase shows as failed on their end even though my money was deducted. I was really looking forward to using these for an in-game event that's now over. I'd really appreciate a refund since I paid but received nothing in return."
+
+DO NOT:
+- Use bullet points
+- Sound like AI or use phrases like "I hope this email finds you"
+- Be rude or threatening
+- Make it too formal or too casual"""
         ).with_model("openai", "gpt-4o")
         
         user_message = UserMessage(
             text=f"""Transaction details:
 {request.transaction_details}
 
-Write a 1-2 sentence refund request that will get AUTO-APPROVED. Keep it super short, slightly informal, like a real frustrated user. Include order ID if available."""
+Write a detailed, compelling refund request (5-7 sentences) that will convince a human reviewer to approve the refund. Include all relevant details, show you tried to resolve it yourself, and express genuine frustration without being rude."""
         )
         
         response = await chat.send_message(user_message)
