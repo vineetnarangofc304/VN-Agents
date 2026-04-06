@@ -547,6 +547,27 @@ def get_stock_news(symbol: str):
         logger.error(f"Error fetching news for {symbol}: {e}")
         return []
 
+
+# Endpoint to serve sample infographics
+@api_router.get("/samples/infographic/{company}")
+async def get_sample_infographic(company: str):
+    """Serve sample infographic images"""
+    file_map = {
+        "hearclear": "hearclear_infographic.png",
+        "fundle": "fundle_infographic.png",
+        "tagnpay": "tagnpay_infographic.png"
+    }
+    
+    filename = file_map.get(company.lower())
+    if not filename:
+        raise HTTPException(status_code=404, detail="Company not found")
+    
+    file_path = UPLOAD_DIR / filename
+    if not file_path.exists():
+        raise HTTPException(status_code=404, detail="Infographic not found")
+    
+    return FileResponse(str(file_path), media_type="image/png")
+
 @api_router.get("/stocks/scanner")
 async def scan_stocks(user: dict = Depends(get_current_user), max_price: float = 100.0):
     """Scan for top volume NSE stocks under ₹100 - sorted by today's trading volume"""
