@@ -1,71 +1,81 @@
-# Personal Assistant Agents Platform - PRD
+# PRD — Agent Builder Platform
 
 ## Original Problem Statement
-Build a platform for personal assistant agents that perform various tasks across multiple platforms and channels. Each agent handles specific tasks, agents are modular and can be modified as needs evolve.
-
-## Architecture
-- **Backend**: FastAPI + MongoDB + JWT Auth (httpOnly cookies)
-- **Frontend**: React with AuthContext, Tailwind CSS
-- **PDF Processing**: PyPDF2 + ReportLab
+Build a platform containing multiple specialized personal assistant agents:
+1. **Invoicing Agent**: Download Google Play receipts, remove 2nd page, change page numbering, ZIP download.
+2. **Refund Request Agent**: Generate human-sounding refund requests for failed Google Play transactions.
+3. **Stock Market Investor**: Scan NSE stocks, filter top 50 by volume under INR 100, highlight undervalued.
+4. **LinkedIn Agent**: Manage content, infographics, scheduling, and messaging for personal profile and 3 company pages.
 
 ## User Personas
-- **Primary User**: Vineet (Admin) - manages invoices and future agents
+- **Vineet Narang** — Runs 3 companies: HearClear India (Audiology/Healthcare), Fundle.ai (Retail Data Intelligence for Malls), Tagnpay.ai (B2B Channel Loyalty for Manufacturers). Posts LinkedIn content from his profile.
+- **Abhinav Khanna** — Posts Fundle.ai content from his LinkedIn profile.
 
-## Core Requirements (Static)
-1. Agent-based architecture with left sidebar navigation
-2. Authentication system (JWT with httpOnly cookies)
-3. Modular design - add new agents over time
-
----
-
-## Agent 1: Invoicing Agent
-
-### Features Implemented (Jan 2026)
-- [x] Manual PDF upload (multi-file support)
-- [x] PDF Processing: Remove page 2, change "Page 1 of 2" → "Page 1 of 1"
-- [x] Store both original and edited versions
-- [x] Download individual (original/edited)
-- [x] Download all edited as ZIP
-- [x] Delete invoices
-- [x] Invoice list with status indicators
-
-### Technical Implementation
-- Upload endpoint: `POST /api/invoices/upload`
-- List endpoint: `GET /api/invoices`
-- Download original: `GET /api/invoices/{id}/original`
-- Download edited: `GET /api/invoices/{id}/edited`
-- Download all: `GET /api/invoices/download-all`
-- Delete: `DELETE /api/invoices/{id}`
-
----
+## Core Architecture
+- **Frontend**: React.js (single-page app with sidebar nav)
+- **Backend**: FastAPI with modular routes
+- **Database**: MongoDB (Motor async driver)
+- **LLM**: Emergent LLM (OpenAI GPT-4o via emergentintegrations)
+- **External**: yfinance (stocks), LinkedIn OAuth 2.0
 
 ## What's Been Implemented
-| Date | Feature | Status |
-|------|---------|--------|
-| Jan 2026 | Auth System (JWT + httpOnly cookies) | ✅ Complete |
-| Jan 2026 | Admin Seeding | ✅ Complete |
-| Jan 2026 | Invoicing Agent - Full MVP | ✅ Complete |
-| Jan 2026 | Dashboard with Sidebar Navigation | ✅ Complete |
 
----
+### Agent 1: Invoicing Agent [COMPLETE]
+- PDF upload, PyPDF2 page extraction, date-based filtering, ZIP download
+- Endpoints: POST /api/invoices/upload, GET /api/invoices, GET /api/invoices/download-all
+
+### Agent 2: Refund Request Agent [COMPLETE]
+- Emergent LLM generates detailed refund text from transaction details
+- Endpoints: POST /api/refund/generate, GET /api/refund/history
+
+### Agent 3: Stock Market Investor [COMPLETE]
+- yfinance integration, NSE stocks under INR 100, top 50 by volume, undervalued highlights
+- Portfolio tracking with buy/sell alerts
+- Endpoints: GET /api/stocks/scanner, GET /api/stocks/{symbol}/details, POST /api/stocks/portfolio/add
+
+### Agent 4: LinkedIn Agent [IN PROGRESS]
+- **Completed (April 8, 2026)**:
+  - LinkedIn OAuth 2.0 flow (auth URL generation, callback handling, token storage in MongoDB)
+  - Multi-account support (connect multiple LinkedIn profiles)
+  - Content generation for 3 companies (Fundle.ai, HearClear India, Tagnpay.ai) using Emergent LLM
+  - Post composer UI (generate, edit, publish)
+  - Post history tracking
+  - Auto-post scheduling config (enable/disable, interval selection)
+  - Settings page (account management, schedule config)
+  - Token refresh handling
+  - Error logging for permissions, token expiry, invalid URNs
+  
+- **Pending**:
+  - LinkedIn OAuth redirect URI needs to be added in LinkedIn Developer Portal
+  - Actual scheduled posting background task (APScheduler integration)
+  - Image/Document post support (2-step upload to LinkedIn)
+  - LinkUp API integration for messaging connections and auto-commenting
+  - Dynamic Gemini image generation for infographics
 
 ## Prioritized Backlog
 
 ### P0 (Next)
-- User-defined invoice text replacement (customizable "Page X of Y" patterns)
+- User must test LinkedIn OAuth connection flow (add redirect URI to LinkedIn app)
+- Implement background scheduler for auto-posting (APScheduler)
 
-### P1 (High Priority)
-- Batch processing progress indicator
-- Invoice preview before download
+### P1
+- LinkUp API integration (messaging, auto-commenting)
+- Dynamic infographic generation (Gemini Nano Banana)
+- Image/Document posting to LinkedIn
 
-### P2 (Future)
-- Agent 2: TBD (based on user needs)
-- Agent 3: TBD
-- Export to cloud storage (Google Drive integration)
+### P2
+- SMS/WhatsApp alerts for Stock Investor Agent
+- LinkedIn organization/company page posting (currently personal profile only)
+- LinkedIn post analytics and monitoring
 
----
+## Key Files
+- `/app/backend/server.py` — Main FastAPI app, auth, invoices, refunds, stocks
+- `/app/backend/routes/linkedin.py` — LinkedIn OAuth, posting, content generation
+- `/app/frontend/src/App.js` — Main React app, all agent views
+- `/app/frontend/src/components/LinkedInAgent.jsx` — LinkedIn Agent UI component
+- `/app/frontend/src/App.css` — All styling
 
-## Next Tasks
-1. Await user's next agent requirement
-2. Consider adding invoice preview feature
-3. Add customizable text replacement patterns
+## Known Issues
+- "Noidq" typo in processed invoices (source PDF issue, needs OCR to fix)
+- LinkedIn infographics currently static sample files
+- OAuth states stored in-memory (lost on restart) — acceptable for current usage

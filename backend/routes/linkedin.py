@@ -31,7 +31,7 @@ LINKEDIN_USERINFO_URL = "https://api.linkedin.com/v2/userinfo"
 LINKEDIN_POSTS_URL = "https://api.linkedin.com/rest/posts"
 LINKEDIN_API_VERSION = "202502"
 
-# In-memory state storage for OAuth CSRF
+# In-memory state storage for OAuth CSRF (short-lived, cleanup on server restart is acceptable)
 oauth_states = {}
 
 # Company content contexts
