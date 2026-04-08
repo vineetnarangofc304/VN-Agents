@@ -1,7 +1,8 @@
 import { useState, useEffect, createContext, useContext, useCallback, useRef } from "react";
 import "@/App.css";
 import axios from "axios";
-import { FileText, Upload, Download, Trash2, LogOut, Menu, X, CheckCircle, AlertCircle, Loader2, Receipt, RefreshCw, Mail, Copy, ExternalLink, Calendar, TrendingUp, Bell, DollarSign, Target, Plus, Search, ArrowUp, ArrowDown } from "lucide-react";
+import { FileText, Upload, Download, Trash2, LogOut, Menu, X, CheckCircle, AlertCircle, Loader2, Receipt, RefreshCw, Mail, Copy, ExternalLink, Calendar, TrendingUp, Bell, DollarSign, Target, Plus, Search, ArrowUp, ArrowDown, Linkedin } from "lucide-react";
+import LinkedInAgent from "./components/LinkedInAgent";
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
@@ -179,7 +180,8 @@ const Dashboard = () => {
   const agents = [
     { id: "invoicing", name: "Invoicing Agent", icon: Receipt },
     { id: "refund", name: "Refund Agent", icon: RefreshCw },
-    { id: "stocks", name: "Stock Investor", icon: TrendingUp }
+    { id: "stocks", name: "Stock Investor", icon: TrendingUp },
+    { id: "linkedin", name: "LinkedIn Agent", icon: Linkedin }
   ];
 
   const fetchInvoices = useCallback(async () => {
@@ -995,6 +997,9 @@ const Dashboard = () => {
             )}
           </div>
         )}
+
+        {/* LinkedIn Agent */}
+        {activeAgent === "linkedin" && <LinkedInAgent />}
       </main>
     </div>
   );

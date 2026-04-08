@@ -30,6 +30,7 @@ from PyPDF2 import PdfReader, PdfWriter
 from reportlab.pdfgen import canvas
 from reportlab.lib.pagesizes import letter
 from emergentintegrations.llm.chat import LlmChat, UserMessage
+from routes.linkedin import router as linkedin_router
 
 # MongoDB connection
 mongo_url = os.environ['MONGO_URL']
@@ -810,6 +811,13 @@ async def get_agents(user: dict = Depends(get_current_user)):
                 "description": "Track high-volume undervalued stocks with buy/sell alerts",
                 "icon": "trending-up",
                 "status": "active"
+            },
+            {
+                "id": "linkedin",
+                "name": "LinkedIn Agent",
+                "description": "Auto-generate and publish LinkedIn posts for your companies",
+                "icon": "linkedin",
+                "status": "active"
             }
         ]
     }
@@ -821,13 +829,15 @@ async def root():
 
 # Include the router in the main app
 app.include_router(api_router)
+app.include_router(linkedin_router)
 
 # CORS Configuration - must be specific origins for credentials to work
 frontend_url = os.environ.get('FRONTEND_URL', 'https://agent-builder-133.preview.emergentagent.com')
 cors_origins = [
     frontend_url,
     "https://agent-builder-133.preview.emergentagent.com",
-    "http://localhost:3000"
+    "http://localhost:3000",
+    "https://www.linkedin.com"
 ]
 
 app.add_middleware(
