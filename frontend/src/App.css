@@ -1,4 +1,6 @@
 /* ============== CSS Variables & Base ============== */
+#emergent-badge { display: none !important; }
+
 :root {
   --bg-dark: #0a0b0d;
   --bg-card: #12141a;
