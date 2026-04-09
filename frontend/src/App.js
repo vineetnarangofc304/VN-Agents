@@ -1,7 +1,7 @@
 import { useState, useEffect, createContext, useContext, useCallback, useRef } from "react";
 import "@/App.css";
 import axios from "axios";
-import { FileText, Upload, Download, Trash2, LogOut, Menu, X, CheckCircle, AlertCircle, Loader2, Receipt, RefreshCw, Mail, Copy, ExternalLink, Calendar, TrendingUp, Bell, DollarSign, Target, Plus, Search, ArrowUp, ArrowDown, Linkedin, BookOpen } from "lucide-react";
+import { FileText, Upload, Download, Trash2, LogOut, Menu, X, CheckCircle, AlertCircle, Loader2, Receipt, RefreshCw, Mail, Copy, ExternalLink, Calendar, TrendingUp, Bell, DollarSign, Target, Plus, Search, ArrowUp, ArrowDown, Linkedin, BookOpen, Eye, EyeOff } from "lucide-react";
 import LinkedInAgent from "./components/LinkedInAgent";
 import DirectoryAgent from "./components/DirectoryAgent";
 
@@ -75,6 +75,7 @@ const LoginPage = () => {
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -123,15 +124,25 @@ const LoginPage = () => {
 
           <div className="form-group">
             <label htmlFor="password">Password</label>
-            <input
-              id="password"
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              placeholder="Enter your password"
-              required
-              data-testid="login-password-input"
-            />
+            <div className="password-input-wrapper">
+              <input
+                id="password"
+                type={showPassword ? "text" : "password"}
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                placeholder="Enter your password"
+                required
+                data-testid="login-password-input"
+              />
+              <button
+                type="button"
+                className="password-toggle-btn"
+                onClick={() => setShowPassword(!showPassword)}
+                data-testid="password-toggle-btn"
+              >
+                {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+              </button>
+            </div>
           </div>
 
           <button
