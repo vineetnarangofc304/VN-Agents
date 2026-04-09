@@ -154,23 +154,9 @@ const DirectoryAgent = () => {
     window._dirSearchTimer = setTimeout(() => fetchCompanies(val), 400);
   };
 
-  const handleDownloadExcel = async () => {
-    try {
-      const params = searchQuery ? `?search=${encodeURIComponent(searchQuery)}` : "";
-      const res = await axios.get(`${API}/directory/download-excel${params}`, {
-        responseType: "blob"
-      });
-      const url = window.URL.createObjectURL(new Blob([res.data]));
-      const link = document.createElement("a");
-      link.href = url;
-      link.download = `G20_DIA_Exhibitors_${new Date().toISOString().split("T")[0]}.xlsx`;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      window.URL.revokeObjectURL(url);
-    } catch (err) {
-      setStatusMsg({ type: "error", text: "Download failed" });
-    }
+  const handleDownloadExcel = () => {
+    const params = searchQuery ? `?search=${encodeURIComponent(searchQuery)}` : "";
+    window.open(`${API}/directory/download-excel${params}`, "_blank");
   };
 
   const isExtracted = stats?.extracted;
