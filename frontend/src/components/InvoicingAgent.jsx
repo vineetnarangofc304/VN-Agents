@@ -9,11 +9,39 @@ const InvoicingAgent = () => {
   const [uploading, setUploading] = useState(false);
   const [loadingInvoices, setLoadingInvoices] = useState(true);
   const [dateFilter, setDateFilter] = useState("all");
+  const [authReady, setAuthReady] = useState(false);
   const fileInputRef = useRef(null);
+
+  // Auto-login with JWT cookie on mount
+  useEffect(() => {
+    const ensureAuth = async () => {
+      try {
+        // Check if already authenticated
+        const meRes = await axios.get(`${API}/auth/me`, { withCredentials: true });
+        if (meRes.data?.id) {
+          setAuthReady(true);
+          return;
+        }
+      } catch {
+        // Not authenticated, login
+      }
+      try {
+        await axios.post(`${API}/auth/login`, {
+          email: "vineetnarangofc@gmail.com",
+          password: "InvoiceAgent@2024!"
+        }, { withCredentials: true });
+        setAuthReady(true);
+      } catch (err) {
+        console.error("JWT login failed:", err);
+        setAuthReady(true); // Continue anyway, will show errors on API calls
+      }
+    };
+    ensureAuth();
+  }, []);
 
   const fetchInvoices = useCallback(async () => {
     try {
-      const response = await axios.get(`${API}/invoices`);
+      const response = await axios.get(`${API}/invoices`, { withCredentials: true });
       setInvoices(response.data.invoices || []);
     } catch (err) {
       console.error("Error fetching invoices:", err);
@@ -52,7 +80,7 @@ const InvoicingAgent = () => {
     return groups;
   }, {});
 
-  useEffect(() => { fetchInvoices(); }, [fetchInvoices]);
+  useEffect(() => { if (authReady) fetchInvoices(); }, [authReady, fetchInvoices]);
 
   const handleFileUpload = async (e) => {
     const files = e.target.files;
@@ -61,7 +89,7 @@ const InvoicingAgent = () => {
     const formData = new FormData();
     for (let i = 0; i < files.length; i++) formData.append("files", files[i]);
     try {
-      await axios.post(`${API}/invoices/upload`, formData, { headers: { "Content-Type": "multipart/form-data" } });
+      await axios.post(`${API}/invoices/upload`, formData, { headers: { "Content-Type": "multipart/form-data" }, withCredentials: true });
       await fetchInvoices();
     } catch (err) {
       alert(err.response?.data?.detail || "Upload failed");
@@ -73,7 +101,7 @@ const InvoicingAgent = () => {
 
   const handleDownload = async (invoice, type) => {
     try {
-      const response = await axios.get(`${API}/invoices/${invoice.id}/${type}`, { responseType: "blob" });
+      const response = await axios.get(`${API}/invoices/${invoice.id}/${type}`, { responseType: "blob", withCredentials: true });
       const url = window.URL.createObjectURL(new Blob([response.data]));
       const link = document.createElement("a");
       link.href = url;
@@ -89,7 +117,7 @@ const InvoicingAgent = () => {
 
   const handleDownloadAll = async () => {
     try {
-      const response = await axios.get(`${API}/invoices/download-all?filter=${dateFilter}`, { responseType: "blob" });
+      const response = await axios.get(`${API}/invoices/download-all?filter=${dateFilter}`, { responseType: "blob", withCredentials: true });
       const url = window.URL.createObjectURL(new Blob([response.data]));
       const link = document.createElement("a");
       link.href = url;
@@ -106,7 +134,7 @@ const InvoicingAgent = () => {
   const handleDelete = async (invoice) => {
     if (!window.confirm(`Delete "${invoice.original_filename}"?`)) return;
     try {
-      await axios.delete(`${API}/invoices/${invoice.id}`);
+      await axios.delete(`${API}/invoices/${invoice.id}`, { withCredentials: true });
       await fetchInvoices();
     } catch (err) {
       alert("Delete failed");
