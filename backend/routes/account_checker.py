@@ -35,6 +35,19 @@ EMAIL_RANGES = [
     {"prefix": "super", "start": 300, "end": 1100, "pad": 0, "domain": "gmail.com"},
 ]
 
+# Skip these veenu ranges — no valid accounts expected
+VEENU_SKIP_RANGES = [
+    (1150, 1999),
+    (2100, 2950),
+    (3100, 3950),
+    (4100, 4950),
+    (5100, 5950),
+    (6100, 6950),
+    (7100, 7950),
+    (8100, 8950),
+    (9100, 9950),
+]
+
 PASSWORD = "c304i109"
 active_jobs = {}
 
@@ -47,10 +60,19 @@ def generate_email(prefix, num, pad, domain):
     return f"{prefix}{num_str}@{domain}"
 
 
+def _is_veenu_skipped(num):
+    for skip_start, skip_end in VEENU_SKIP_RANGES:
+        if skip_start <= num <= skip_end:
+            return True
+    return False
+
+
 def generate_all_emails():
     emails = []
     for r in EMAIL_RANGES:
         for num in range(r["start"], r["end"] + 1):
+            if r["prefix"] == "veenu" and _is_veenu_skipped(num):
+                continue
             email = generate_email(r["prefix"], num, r["pad"], r["domain"])
             emails.append({"email": email, "prefix": r["prefix"], "num": num})
     return emails
@@ -59,7 +81,12 @@ def generate_all_emails():
 def count_total_emails():
     total = 0
     for r in EMAIL_RANGES:
-        total += r["end"] - r["start"] + 1
+        if r["prefix"] == "veenu":
+            for num in range(r["start"], r["end"] + 1):
+                if not _is_veenu_skipped(num):
+                    total += 1
+        else:
+            total += r["end"] - r["start"] + 1
     return total
 
 
