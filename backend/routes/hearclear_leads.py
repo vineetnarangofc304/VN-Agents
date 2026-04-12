@@ -128,93 +128,237 @@ active_crawl = {}
 
 # Seed URLs — verified data sources with phone numbers
 SEED_URLS = [
+    # RWA Directories
     {"url": "https://www.serwa.org.in/SERWA_Telephone_Directory.pdf", "category": "rwa", "category_name": "RWA / Resident Welfare Associations", "city": "Delhi"},
-    {"url": "https://www.esicncrpensioners.com/pdf/memberlist.pdf", "category": "senior", "category_name": "Senior Citizens & Elder Care", "city": "Delhi"},
-    {"url": "https://www.scribd.com/document/452887344/clubs-list-delhi", "category": "clubs", "category_name": "Club & Social Organizations", "city": "Delhi"},
-    {"url": "https://www.scribd.com/document/256455313/Delhi-ncr-Govt-Directory", "category": "govt", "category_name": "Government & PSU Employees", "city": "Delhi"},
-    {"url": "https://www.scribd.com/document/832910190/Govt-Teachers-Delhi-Jeetu", "category": "schools", "category_name": "Schools & Teachers", "city": "Delhi"},
-    {"url": "https://ddca.in/assets/backend/uploade/ddca-document/2021/08/agmelections/List_of_Members.pdf", "category": "clubs", "category_name": "Club & Social Organizations", "city": "Delhi"},
-    {"url": "https://www.scribd.com/document/697675425/Rwa-team-2022-24", "category": "rwa", "category_name": "RWA / Resident Welfare Associations", "city": "Delhi"},
-    {"url": "https://delhishelterboard.in/main/wp-content/uploads/2019/06/Online-Directory-2016-Delhi-Govt.pdf", "category": "govt", "category_name": "Government & PSU Employees", "city": "Delhi"},
-    {"url": "https://www.iiipicai.in/wp-content/uploads/2023/06/Professional-Members-Directory-as-on-14-06-2023.pdf", "category": "professional", "category_name": "Professional Directories", "city": "Delhi"},
-    {"url": "https://rotaryindia.org/Documents/ebulletin/Group683/directory_with_data22072023032046PM.pdf", "category": "clubs", "category_name": "Club & Social Organizations", "city": "Delhi"},
-    {"url": "https://www.pwa.in/wp-content/uploads/2023/04/Members-Directory-April-2023.pdf", "category": "professional", "category_name": "Professional Directories", "city": "Delhi"},
     {"url": "http://www.rwa17b.com/telephone-directory.html", "category": "rwa", "category_name": "RWA / Resident Welfare Associations", "city": "Delhi"},
     {"url": "https://ro.scribd.com/doc/258343370/Resident-Welfare-Society-Committe-Delhi-Contacts", "category": "rwa", "category_name": "RWA / Resident Welfare Associations", "city": "Delhi"},
     {"url": "https://www.rwadblocksaket.com/contactus.htm", "category": "rwa", "category_name": "RWA / Resident Welfare Associations", "city": "Delhi"},
+    {"url": "https://www.scribd.com/document/697675425/Rwa-team-2022-24", "category": "rwa", "category_name": "RWA / Resident Welfare Associations", "city": "Delhi"},
+    {"url": "https://es.scribd.com/document/543721592/RWA-List-South-Delhi", "category": "rwa", "category_name": "RWA / Resident Welfare Associations", "city": "Delhi"},
+    # Government
+    {"url": "https://delhishelterboard.in/main/wp-content/uploads/2019/06/Online-Directory-2016-Delhi-Govt.pdf", "category": "govt", "category_name": "Government & PSU Employees", "city": "Delhi"},
+    {"url": "https://www.scribd.com/document/256455313/Delhi-ncr-Govt-Directory", "category": "govt", "category_name": "Government & PSU Employees", "city": "Delhi"},
+    {"url": "https://www.scribd.com/document/832910190/Govt-Teachers-Delhi-Jeetu", "category": "schools", "category_name": "Schools & Teachers", "city": "Delhi"},
+    {"url": "https://documents.doptcirculars.nic.in/D2/D02adm/RWA.pdf", "category": "govt", "category_name": "Government & PSU Employees", "city": "Delhi"},
+    # Clubs
+    {"url": "https://www.scribd.com/document/452887344/clubs-list-delhi", "category": "clubs", "category_name": "Club & Social Organizations", "city": "Delhi"},
+    {"url": "https://ddca.in/assets/backend/uploade/ddca-document/2021/08/agmelections/List_of_Members.pdf", "category": "clubs", "category_name": "Club & Social Organizations", "city": "Delhi"},
     {"url": "https://e-clubhouse.org/sites/newdelhieast/page-7.php", "category": "clubs", "category_name": "Club & Social Organizations", "city": "Delhi"},
+    {"url": "https://delhigymkhana.org.in/wp-content/uploads/2025/01/delhigymkahapdf.pdf", "category": "clubs", "category_name": "Club & Social Organizations", "city": "Delhi"},
+    {"url": "https://www.scribd.com/document/377869455/Gymkhana-Delhi-Governing-Member-List", "category": "clubs", "category_name": "Club & Social Organizations", "city": "Delhi"},
+    {"url": "https://rotaryindia.org/Documents/ebulletin/Group683/directory_with_data22072023032046PM.pdf", "category": "clubs", "category_name": "Club & Social Organizations", "city": "Delhi"},
+    # Professional
+    {"url": "https://www.iiipicai.in/wp-content/uploads/2023/06/Professional-Members-Directory-as-on-14-06-2023.pdf", "category": "professional", "category_name": "Professional Directories", "city": "Delhi"},
+    {"url": "https://www.pwa.in/wp-content/uploads/2023/04/Members-Directory-April-2023.pdf", "category": "professional", "category_name": "Professional Directories", "city": "Delhi"},
+    {"url": "https://ldo.gov.in/WriteReadData/UserFiles/file/DGC%20memb%20Nov-17.pdf", "category": "clubs", "category_name": "Club & Social Organizations", "city": "Delhi"},
+    # Senior Citizens
+    {"url": "https://www.esicncrpensioners.com/pdf/memberlist.pdf", "category": "senior", "category_name": "Senior Citizens & Elder Care", "city": "Delhi"},
+    # PSU
+    {"url": "https://www.scribd.com/document/434001974/PSU-List", "category": "govt", "category_name": "Government & PSU Employees", "city": "Delhi"},
+]
+
+# ============ Comprehensive location & entity lists ============
+DELHI_COLONIES = [
+    "Saket", "Sheikh Sarai", "Vasant Kunj", "RK Puram", "Greater Kailash I", "Greater Kailash II",
+    "Defence Colony", "Lajpat Nagar", "South Extension", "Green Park", "Hauz Khas", "Safdarjung Enclave",
+    "Malviya Nagar", "Chittaranjan Park", "Kalkaji", "Nehru Place", "East of Kailash",
+    "Panchsheel Park", "Panchsheel Enclave", "Gulmohar Park", "Sarvapriya Vihar", "SDA",
+    "Vasant Vihar", "Munirka", "Mehrauli", "Chattarpur", "Sainik Farm",
+    "Dwarka Sector 1", "Dwarka Sector 2", "Dwarka Sector 3", "Dwarka Sector 4", "Dwarka Sector 5",
+    "Dwarka Sector 6", "Dwarka Sector 7", "Dwarka Sector 8", "Dwarka Sector 9", "Dwarka Sector 10",
+    "Dwarka Sector 11", "Dwarka Sector 12", "Dwarka Sector 13", "Dwarka Sector 14",
+    "Dwarka Sector 18", "Dwarka Sector 19", "Dwarka Sector 21", "Dwarka Sector 22", "Dwarka Sector 23",
+    "Rohini Sector 1", "Rohini Sector 2", "Rohini Sector 3", "Rohini Sector 4", "Rohini Sector 5",
+    "Rohini Sector 7", "Rohini Sector 8", "Rohini Sector 9", "Rohini Sector 11", "Rohini Sector 13",
+    "Rohini Sector 14", "Rohini Sector 15", "Rohini Sector 16", "Rohini Sector 24", "Rohini Sector 25",
+    "Pitampura", "Shalimar Bagh", "Paschim Vihar", "Janakpuri", "Vikaspuri", "Uttam Nagar",
+    "Rajouri Garden", "Tilak Nagar", "Punjabi Bagh", "Model Town", "Civil Lines",
+    "Preet Vihar", "Laxmi Nagar", "Mayur Vihar Phase 1", "Mayur Vihar Phase 2", "Mayur Vihar Phase 3",
+    "IP Extension", "Patparganj", "Vasundhara Enclave", "Vivek Vihar",
+    "Sarita Vihar", "Jasola", "Sukhdev Vihar", "Okhla", "Jamia Nagar",
+    "Alaknanda", "Navjivan Vihar", "Anand Niketan", "Westend Colony",
+    "Maharani Bagh", "Friends Colony", "Nizamuddin", "Jor Bagh", "Sundar Nagar",
+    "Naraina", "Moti Bagh", "Nauroji Nagar", "Kidwai Nagar", "Netaji Nagar",
+    "Lodhi Colony", "Pandara Road", "Jangpura", "Andrews Ganj",
+    "Yamuna Vihar", "Nand Nagri", "Dilshad Garden", "Shahdara",
+]
+
+GURGAON_AREAS = [
+    "Sector 1", "Sector 2", "Sector 3", "Sector 4", "Sector 5", "Sector 7", "Sector 9",
+    "Sector 10", "Sector 14", "Sector 15", "Sector 17", "Sector 21", "Sector 22", "Sector 23",
+    "Sector 28", "Sector 29", "Sector 31", "Sector 33", "Sector 38", "Sector 39",
+    "Sector 40", "Sector 42", "Sector 43", "Sector 44", "Sector 45", "Sector 46",
+    "Sector 47", "Sector 48", "Sector 49", "Sector 50", "Sector 51", "Sector 52", "Sector 53", "Sector 54",
+    "Sector 55", "Sector 56", "Sector 57", "Sector 58", "Sector 62",
+    "Sector 67", "Sector 69", "Sector 70", "Sector 72", "Sector 76", "Sector 77", "Sector 80",
+    "Sector 81", "Sector 82", "Sector 83", "Sector 84", "Sector 85", "Sector 86",
+    "DLF Phase 1", "DLF Phase 2", "DLF Phase 3", "DLF Phase 4", "DLF Phase 5",
+    "Sushant Lok Phase 1", "Sushant Lok Phase 2", "Sushant Lok Phase 3",
+    "South City 1", "South City 2", "Nirvana Country", "Palam Vihar",
+    "Malibu Town", "Suncity", "Ardee City", "Vatika City", "Emaar Palm Hills",
+    "Golf Course Road", "MG Road", "Sohna Road",
+]
+
+NOIDA_AREAS = [
+    "Sector 1", "Sector 2", "Sector 3", "Sector 4", "Sector 5", "Sector 6", "Sector 7",
+    "Sector 8", "Sector 9", "Sector 10", "Sector 11", "Sector 12", "Sector 14", "Sector 15",
+    "Sector 16", "Sector 17", "Sector 18", "Sector 19", "Sector 20", "Sector 21", "Sector 22", "Sector 23",
+    "Sector 25", "Sector 27", "Sector 29", "Sector 30", "Sector 31", "Sector 32", "Sector 33",
+    "Sector 34", "Sector 35", "Sector 36", "Sector 37", "Sector 38", "Sector 39",
+    "Sector 40", "Sector 41", "Sector 44", "Sector 45", "Sector 46", "Sector 47", "Sector 48",
+    "Sector 49", "Sector 50", "Sector 51", "Sector 52", "Sector 53", "Sector 54", "Sector 55", "Sector 56",
+    "Sector 57", "Sector 58", "Sector 59", "Sector 60", "Sector 61", "Sector 62", "Sector 63",
+    "Sector 70", "Sector 71", "Sector 72", "Sector 73", "Sector 74", "Sector 75", "Sector 76",
+    "Sector 77", "Sector 78", "Sector 79", "Sector 82",
+    "Sector 92", "Sector 93", "Sector 100", "Sector 104", "Sector 107",
+    "Sector 110", "Sector 115", "Sector 117", "Sector 118", "Sector 119",
+    "Sector 120", "Sector 121", "Sector 122", "Sector 128", "Sector 129",
+    "Sector 130", "Sector 131", "Sector 132", "Sector 133", "Sector 134", "Sector 135",
+    "Sector 137", "Sector 140", "Sector 142", "Sector 143", "Sector 144", "Sector 150",
+]
+
+CLUBS_DELHI_NCR = [
+    "Delhi Gymkhana Club", "Chelmsford Club", "India International Centre",
+    "India Habitat Centre", "Delhi Golf Club", "Roshanara Club",
+    "National Sports Club of India", "Panchsheel Club", "Jahanpanah Club",
+    "Siri Fort Sports Complex", "DDA Sports Complex", "ITC Maurya Club",
+    "Cosmopolitan Club Delhi", "Press Club of India", "PHD Chamber",
+    "Lions Club Delhi", "Rotary Club Delhi", "Rotary Club Gurgaon",
+    "Rotary Club Noida", "Lions Club Gurgaon", "Lions Club Noida",
+    "DLF Club", "DLF Golf and Country Club", "Karma Lakelands Club",
+    "Heritage Village Club", "Aravali Golf Club", "Classic Golf Resort",
+    "Golden Greens Golf Club", "Noida Golf Course",
+    "IIT Delhi Alumni Association", "IIM Alumni Association Delhi",
+    "All India Management Association", "PHD Chamber of Commerce",
+    "FICCI", "CII", "ASSOCHAM",
+]
+
+PSU_COMPANIES = [
+    "NTPC", "ONGC", "BHEL", "GAIL", "Indian Oil", "BPCL", "HPCL",
+    "Power Grid Corporation", "Coal India", "SAIL", "NHPC",
+    "NMDC", "NALCO", "CONCOR", "NBCC", "IRCON", "RITES",
+    "Engineers India Limited", "THDC India", "SJVN", "NLC India",
+    "Power Finance Corporation", "REC Limited", "IREDA",
+    "LIC", "GIC", "SBI", "Bank of Baroda", "Punjab National Bank",
+    "Canara Bank", "Union Bank", "Indian Bank", "Central Bank",
+    "Air India", "Indian Railways", "DMRC", "AAI",
+    "MTNL", "BSNL", "ITI Limited",
+    "HAL", "BEL", "BEML", "BDL", "MDL", "Garden Reach Shipbuilders",
+    "DRDO", "ISRO",
+    "Food Corporation of India", "Central Warehousing Corporation",
+    "HUDCO", "NBCC", "CPWD",
+]
+
+GOVT_DEPARTMENTS = [
+    "DDA", "MCD", "NDMC", "Delhi Jal Board", "Delhi Police",
+    "Delhi Development Authority", "DERC", "Delhi Metro",
+    "Delhi Transport Corporation", "Delhi Fire Service",
+    "Income Tax Department Delhi", "Customs Delhi",
+    "CGHS Delhi", "ESIC Delhi", "EPF Delhi",
+    "Noida Authority", "Greater Noida Authority", "YEIDA",
+    "HUDA Gurgaon", "MCG Gurgaon", "Haryana Police Gurgaon",
+    "District Court Delhi", "High Court Delhi",
 ]
 
 
 def build_search_queries():
-    """Generate search queries optimized for DuckDuckGo. Focus on pages with contact data, not just files."""
+    """Generate massive search query list covering all categories, localities, entities."""
     queries = []
-    
-    # Direct file search queries
-    file_keywords = [
-        "RWA directory phone numbers", "RWA members list contact",
-        "resident welfare association members mobile",
-        "housing society residents list phone",
-        "colony RWA office bearers contact",
-        "apartment owners association directory",
-        "club members directory phone", "club members list contact number",
-        "rotary club members list", "lions club directory",
-        "golf club members directory", "gymkhana members list",
-        "school teachers list phone number", "teachers directory contact",
-        "principal list phone", "school staff directory mobile",
-        "college faculty directory contact",
-        "government officers list phone", "government employees directory contact",
-        "PSU employees list phone number", "DDA officers directory",
-        "MCD officials list contact", "NDMC directory phone",
-        "electricity board officials phone", "municipal employees list",
-        "advocates directory phone", "lawyers list contact number",
-        "chartered accountants directory mobile",
-        "doctors directory phone number", "architects list contact",
-        "bar association members list",
-        "gurdwara committee members phone", "temple trust members contact",
-        "community association directory phone",
-        "traders association members phone", "market association directory",
-        "chamber of commerce members list phone",
-        "senior citizens association directory phone",
-        "retired officers list contact", "pensioners association directory",
-        "ex-servicemen list phone",
-    ]
-    
-    for kw in file_keywords:
-        for city in CITIES:
-            queries.append({"query": f"{kw} {city}", "category": _classify_query(kw), "category_name": _classify_query_name(kw), "city": city, "filetype": "web"})
-            # Also add PDF-specific variant
-            queries.append({"query": f"{kw} {city} pdf", "category": _classify_query(kw), "category_name": _classify_query_name(kw), "city": city, "filetype": "pdf"})
-    
+    seen = set()
+
+    def add(q, cat_id, cat_name, city):
+        if q not in seen:
+            seen.add(q)
+            queries.append({"query": q, "category": cat_id, "category_name": cat_name, "city": city, "filetype": "web"})
+
+    # 1. RWA queries — every colony/sector
+    for colony in DELHI_COLONIES:
+        add(f"RWA {colony} Delhi members phone directory", "rwa", "RWA / Resident Welfare Associations", "Delhi")
+        add(f"resident welfare association {colony} contact list", "rwa", "RWA / Resident Welfare Associations", "Delhi")
+
+    for area in GURGAON_AREAS:
+        add(f"RWA {area} Gurgaon members phone directory", "rwa", "RWA / Resident Welfare Associations", "Gurgaon")
+        add(f"resident welfare association {area} Gurgaon contact", "rwa", "RWA / Resident Welfare Associations", "Gurgaon")
+
+    for area in NOIDA_AREAS:
+        add(f"RWA {area} Noida members phone directory", "rwa", "RWA / Resident Welfare Associations", "Noida")
+        add(f"resident welfare association {area} Noida contact", "rwa", "RWA / Resident Welfare Associations", "Noida")
+
+    # General RWA
+    for city in CITIES:
+        add(f"RWA directory {city} phone numbers list", "rwa", "RWA / Resident Welfare Associations", city)
+        add(f"RWA office bearers {city} contact mobile", "rwa", "RWA / Resident Welfare Associations", city)
+        add(f"RWA president secretary {city} phone list", "rwa", "RWA / Resident Welfare Associations", city)
+        add(f"residential welfare association {city} members directory pdf", "rwa", "RWA / Resident Welfare Associations", city)
+        add(f"housing society directory {city} phone numbers", "rwa", "RWA / Resident Welfare Associations", city)
+        add(f"CGHS society {city} members list contact", "rwa", "RWA / Resident Welfare Associations", city)
+        add(f"cooperative housing society {city} residents directory", "rwa", "RWA / Resident Welfare Associations", city)
+
+    # 2. Club queries — every named club
+    for club in CLUBS_DELHI_NCR:
+        add(f"{club} members directory phone list", "clubs", "Club & Social Organizations", "Delhi")
+        add(f"{club} member contact numbers", "clubs", "Club & Social Organizations", "Delhi")
+
+    for city in CITIES:
+        add(f"club members directory {city} phone list", "clubs", "Club & Social Organizations", city)
+        add(f"sports club members list {city} contact", "clubs", "Club & Social Organizations", city)
+        add(f"social club directory {city} members phone", "clubs", "Club & Social Organizations", city)
+
+    # 3. PSU employee queries
+    for psu in PSU_COMPANIES:
+        add(f"{psu} employees directory phone list Delhi", "govt", "Government & PSU Employees", "Delhi")
+        add(f"{psu} staff contact numbers list", "govt", "Government & PSU Employees", "Delhi")
+        add(f"{psu} officers directory mobile number", "govt", "Government & PSU Employees", "Delhi")
+
+    # 4. Government department queries
+    for dept in GOVT_DEPARTMENTS:
+        add(f"{dept} officers directory phone list", "govt", "Government & PSU Employees", "Delhi")
+        add(f"{dept} employees contact numbers list", "govt", "Government & PSU Employees", "Delhi")
+        add(f"{dept} staff directory mobile", "govt", "Government & PSU Employees", "Delhi")
+
+    # 5. Schools & teachers
+    for city in CITIES:
+        add(f"school teachers directory {city} phone numbers", "schools", "Schools & Teachers", city)
+        add(f"government school teachers list {city} contact", "schools", "Schools & Teachers", city)
+        add(f"private school principals {city} phone directory", "schools", "Schools & Teachers", city)
+        add(f"education department {city} teachers list mobile", "schools", "Schools & Teachers", city)
+        add(f"college faculty directory {city} phone", "schools", "Schools & Teachers", city)
+        add(f"university professors list {city} contact numbers", "schools", "Schools & Teachers", city)
+
+    # 6. Professional directories
+    for city in CITIES:
+        add(f"chartered accountants directory {city} phone", "professional", "Professional Directories", city)
+        add(f"advocates lawyers list {city} contact numbers", "professional", "Professional Directories", city)
+        add(f"doctors directory {city} phone numbers list", "professional", "Professional Directories", city)
+        add(f"architects directory {city} members phone", "professional", "Professional Directories", city)
+        add(f"bar council members {city} contact list", "professional", "Professional Directories", city)
+        add(f"engineers association {city} members directory", "professional", "Professional Directories", city)
+        add(f"dental association {city} members phone list", "professional", "Professional Directories", city)
+
+    # 7. Senior citizens
+    for city in CITIES:
+        add(f"senior citizens association {city} members phone", "senior", "Senior Citizens & Elder Care", city)
+        add(f"retired employees association {city} directory", "senior", "Senior Citizens & Elder Care", city)
+        add(f"pensioners association {city} contact list", "senior", "Senior Citizens & Elder Care", city)
+        add(f"ex servicemen association {city} members phone", "senior", "Senior Citizens & Elder Care", city)
+        add(f"retired government officers {city} directory", "senior", "Senior Citizens & Elder Care", city)
+        add(f"old age welfare association {city} phone", "senior", "Senior Citizens & Elder Care", city)
+
+    # 8. Religious & community
+    for city in CITIES:
+        add(f"gurdwara committee {city} members phone list", "religious", "Religious & Community Organizations", city)
+        add(f"temple trust {city} committee members contact", "religious", "Religious & Community Organizations", city)
+        add(f"masjid committee {city} members directory", "religious", "Religious & Community Organizations", city)
+        add(f"church parish {city} members phone directory", "religious", "Religious & Community Organizations", city)
+
+    # 9. Business & trade
+    for city in CITIES:
+        add(f"traders association {city} members phone list", "business", "Business & Trade Associations", city)
+        add(f"market association {city} shopkeepers directory", "business", "Business & Trade Associations", city)
+        add(f"chamber of commerce {city} members contact", "business", "Business & Trade Associations", city)
+        add(f"industrial association {city} directory phone", "business", "Business & Trade Associations", city)
+
     return queries
-
-
-def _classify_query(kw):
-    """Map keyword to category ID."""
-    kw_lower = kw.lower()
-    if any(w in kw_lower for w in ['rwa', 'resident', 'colony', 'society', 'apartment', 'housing']):
-        return "rwa"
-    if any(w in kw_lower for w in ['club', 'rotary', 'lions', 'golf', 'gymkhana']):
-        return "clubs"
-    if any(w in kw_lower for w in ['school', 'teacher', 'principal', 'college', 'faculty']):
-        return "schools"
-    if any(w in kw_lower for w in ['government', 'psu', 'dda', 'mcd', 'ndmc', 'municipal', 'electricity']):
-        return "govt"
-    if any(w in kw_lower for w in ['advocate', 'lawyer', 'chartered', 'doctor', 'architect', 'bar association']):
-        return "professional"
-    if any(w in kw_lower for w in ['gurdwara', 'temple', 'church', 'community', 'masjid']):
-        return "religious"
-    if any(w in kw_lower for w in ['trader', 'market', 'chamber', 'commerce', 'shopkeeper', 'manufacturer']):
-        return "business"
-    if any(w in kw_lower for w in ['senior', 'retired', 'pensioner', 'ex-servicem']):
-        return "senior"
-    return "other"
-
-
-def _classify_query_name(kw):
-    cat_id = _classify_query(kw)
-    names = {c["id"]: c["name"] for c in CATEGORIES}
-    return names.get(cat_id, "Other")
 
 
 def extract_phones_from_text(text):
