@@ -33,6 +33,7 @@ from emergentintegrations.llm.chat import LlmChat, UserMessage
 from routes.linkedin import router as linkedin_router
 from routes.directory import router as directory_router
 from routes.account_checker import router as checker_router
+from routes.hearclear_leads import router as hearclear_leads_router
 
 # MongoDB connection
 mongo_url = os.environ['MONGO_URL']
@@ -849,6 +850,7 @@ app.include_router(api_router)
 app.include_router(linkedin_router)
 app.include_router(directory_router)
 app.include_router(checker_router)
+app.include_router(hearclear_leads_router)
 
 # CORS Configuration - must be specific origins for credentials to work
 frontend_url = os.environ.get('FRONTEND_URL', 'https://agent-builder-133.preview.emergentagent.com')

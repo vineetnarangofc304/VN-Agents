@@ -1,5 +1,5 @@
 import { BrowserRouter, Routes, Route } from "react-router-dom";
-import { Receipt, RefreshCw, TrendingUp, Linkedin, BookOpen, ShieldCheck } from "lucide-react";
+import { Receipt, RefreshCw, TrendingUp, Linkedin, BookOpen, ShieldCheck, Radar } from "lucide-react";
 
 import LandingPage from "./components/LandingPage";
 import AgentLogin from "./components/AgentLogin";
@@ -9,6 +9,7 @@ import StockAgent from "./components/StockAgent";
 import LinkedInAgent from "./components/LinkedInAgent";
 import DirectoryAgent from "./components/DirectoryAgent";
 import AccountChecker from "./components/AccountChecker";
+import CatchmentMining from "./components/CatchmentMining";
 
 import "./App.css";
 
@@ -51,6 +52,12 @@ const App = () => {
         <Route path="/checker" element={
           <AgentLogin agentName="Account Checker" agentIcon={ShieldCheck} agentColor="#ef4444">
             <AccountChecker />
+          </AgentLogin>
+        } />
+
+        <Route path="/catchment" element={
+          <AgentLogin agentName="Catchment Mining" agentIcon={Radar} agentColor="#14b8a6">
+            <CatchmentMining />
           </AgentLogin>
         } />
       </Routes>
