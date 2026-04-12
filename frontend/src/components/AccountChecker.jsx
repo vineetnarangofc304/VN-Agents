@@ -74,8 +74,13 @@ const AccountChecker = () => {
     setStatusMsg(null);
     try {
       const res = await axios.post(`${API}/checker/start`, { batch_size: 3 });
-      setStatusMsg({ type: "success", text: `Scan started! Testing ${res.data.total_emails.toLocaleString()} emails...` });
-      setScanStatus({ status: "running", total: res.data.total_emails, tested: 0, successful: 0 });
+      const remaining = res.data.remaining || 0;
+      const already = res.data.already_tested || 0;
+      const msg = already > 0
+        ? `Resuming scan! ${already.toLocaleString()} already tested, ${remaining.toLocaleString()} remaining...`
+        : `Scan started! Testing ${res.data.total_emails.toLocaleString()} emails...`;
+      setStatusMsg({ type: "success", text: msg });
+      setScanStatus({ status: "running", total: res.data.total_emails, tested: already, successful: totalSuccess, remaining });
     } catch (err) {
       setStatusMsg({ type: "error", text: err.response?.data?.detail || "Failed to start scan" });
     } finally {
@@ -154,7 +159,13 @@ const AccountChecker = () => {
             disabled={isStarting}
             data-testid="start-scan-btn"
           >
-            {isStarting ? <><Loader2 className="spin" size={18} /> Starting...</> : <><Play size={18} /> Start Scan</>}
+            {isStarting ? (
+              <><Loader2 className="spin" size={18} /> Starting...</>
+            ) : totalTested > 0 ? (
+              <><Play size={18} /> Resume Scan ({(totalEmails - totalTested).toLocaleString()} remaining)</>
+            ) : (
+              <><Play size={18} /> Start Scan</>
+            )}
           </button>
         ) : (
           <button className="ck-stop-btn" onClick={handleStop} data-testid="stop-scan-btn">
@@ -168,7 +179,9 @@ const AccountChecker = () => {
         <div className="ck-progress-section" data-testid="progress-section">
           <div className="ck-progress-header">
             <h2><Shield size={18} /> Scan Progress</h2>
-            <span className={`ck-status-badge ${scanStatus.status}`}>{scanStatus.status}</span>
+            <span className={`ck-status-badge ${scanStatus.status}`}>
+              {scanStatus.status === "resumable" ? "paused — ready to resume" : scanStatus.status}
+            </span>
           </div>
           <div className="ck-progress-bar-container">
             <div className="ck-progress-bar" style={{ width: `${progress}%` }} />
@@ -189,6 +202,10 @@ const AccountChecker = () => {
             <div className="ck-stat">
               <span className="ck-stat-num">{(scanStatus.failed || 0).toLocaleString()}</span>
               <span className="ck-stat-label">Failed</span>
+            </div>
+            <div className="ck-stat">
+              <span className="ck-stat-num">{(scanStatus.remaining !== undefined ? scanStatus.remaining : scanStatus.total - (scanStatus.tested || 0)).toLocaleString()}</span>
+              <span className="ck-stat-label">Remaining</span>
             </div>
             <div className="ck-stat">
               <span className="ck-stat-num">{progress}%</span>

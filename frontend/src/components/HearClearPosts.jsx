@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Copy, CheckCircle, Download, Loader2, Image, RefreshCw } from "lucide-react";
+import { Copy, CheckCircle, Download, Loader2, Image, RefreshCw, ChevronLeft, ChevronRight } from "lucide-react";
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 
@@ -27,7 +27,8 @@ DM me or comment below. Let's build this together.
 
 const HearClearPosts = () => {
   const [copied, setCopied] = useState(false);
-  const [infographicUrl, setInfographicUrl] = useState(null);
+  const [variations, setVariations] = useState([]);
+  const [currentIdx, setCurrentIdx] = useState(0);
   const [generating, setGenerating] = useState(false);
   const [error, setError] = useState(null);
 
@@ -37,7 +38,7 @@ const HearClearPosts = () => {
     setTimeout(() => setCopied(false), 2000);
   };
 
-  const handleGenerateInfographic = async () => {
+  const handleGenerateVariation = async () => {
     setGenerating(true);
     setError(null);
     try {
@@ -47,7 +48,12 @@ const HearClearPosts = () => {
         throw new Error(errData.detail || `Generation failed (${res.status})`);
       }
       const data = await res.json();
-      setInfographicUrl(`${process.env.REACT_APP_BACKEND_URL}${data.image_url}`);
+      const newUrl = `${process.env.REACT_APP_BACKEND_URL}${data.image_url}`;
+      setVariations(prev => {
+        const updated = [...prev, newUrl];
+        setCurrentIdx(updated.length - 1);
+        return updated;
+      });
     } catch (err) {
       setError(err.message || "Failed to generate infographic");
     } finally {
@@ -56,14 +62,16 @@ const HearClearPosts = () => {
   };
 
   const handleDownloadImage = () => {
-    if (!infographicUrl) return;
+    if (!variations[currentIdx]) return;
     const link = document.createElement("a");
-    link.href = infographicUrl;
-    link.download = "HearClear_Corporate_Infographic.png";
+    link.href = variations[currentIdx];
+    link.download = `HearClear_Infographic_v${currentIdx + 1}.png`;
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
   };
+
+  const hasVariations = variations.length > 0;
 
   return (
     <div className="hc-posts" data-testid="hearclear-posts">
@@ -78,22 +86,70 @@ const HearClearPosts = () => {
       <div className="hc-post-layout">
         {/* Infographic Area */}
         <div className="hc-infographic-container">
-          {infographicUrl ? (
+          {hasVariations ? (
             <>
               <img
-                src={infographicUrl}
-                alt="HearClear Corporate Infographic"
+                src={variations[currentIdx]}
+                alt={`HearClear Infographic — Variation ${currentIdx + 1}`}
                 className="hc-infographic"
                 data-testid="infographic-image"
               />
+              {/* Navigation for multiple variations */}
+              {variations.length > 1 && (
+                <div className="hc-variation-nav" data-testid="variation-nav">
+                  <button
+                    className="hc-nav-arrow"
+                    disabled={currentIdx === 0}
+                    onClick={() => setCurrentIdx(currentIdx - 1)}
+                    data-testid="prev-variation-btn"
+                  >
+                    <ChevronLeft size={18} />
+                  </button>
+                  <span className="hc-variation-label">
+                    Variation {currentIdx + 1} of {variations.length}
+                  </span>
+                  <button
+                    className="hc-nav-arrow"
+                    disabled={currentIdx === variations.length - 1}
+                    onClick={() => setCurrentIdx(currentIdx + 1)}
+                    data-testid="next-variation-btn"
+                  >
+                    <ChevronRight size={18} />
+                  </button>
+                </div>
+              )}
               <div className="hc-infographic-actions">
                 <button className="hc-download-img-btn" onClick={handleDownloadImage} data-testid="download-infographic-btn">
-                  <Download size={14} /> Download Infographic
+                  <Download size={14} /> Download
                 </button>
-                <button className="hc-regenerate-btn" onClick={handleGenerateInfographic} disabled={generating} data-testid="regenerate-infographic-btn">
-                  <RefreshCw size={14} /> Regenerate
+                <button
+                  className="hc-regenerate-btn"
+                  onClick={handleGenerateVariation}
+                  disabled={generating}
+                  data-testid="regenerate-infographic-btn"
+                >
+                  {generating ? (
+                    <><Loader2 size={14} className="spin" /> Generating...</>
+                  ) : (
+                    <><RefreshCw size={14} /> New Variation</>
+                  )}
                 </button>
               </div>
+              {/* Thumbnail strip */}
+              {variations.length > 1 && (
+                <div className="hc-thumbnail-strip" data-testid="thumbnail-strip">
+                  {variations.map((url, idx) => (
+                    <button
+                      key={idx}
+                      className={`hc-thumb ${idx === currentIdx ? "active" : ""}`}
+                      onClick={() => setCurrentIdx(idx)}
+                      data-testid={`thumb-${idx}`}
+                    >
+                      <img src={url} alt={`v${idx + 1}`} />
+                    </button>
+                  ))}
+                </div>
+              )}
             </>
           ) : (
             <div className="hc-infographic-placeholder" data-testid="infographic-placeholder">
@@ -111,7 +167,7 @@ const HearClearPosts = () => {
                   {error && <div className="hc-error" data-testid="infographic-error">{error}</div>}
                   <button
                     className="hc-generate-btn"
-                    onClick={handleGenerateInfographic}
+                    onClick={handleGenerateVariation}
                     data-testid="generate-infographic-btn"
                   >
                     <Image size={16} /> Generate Infographic
