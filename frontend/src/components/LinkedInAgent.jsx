@@ -3,8 +3,9 @@ import axios from "axios";
 import {
   Loader2, Send, RefreshCw, CheckCircle, AlertCircle,
   Link2, Unlink, Building2, Clock, Pencil, Copy, Zap,
-  ChevronDown, ExternalLink, History, Settings
+  ChevronDown, ExternalLink, History, Settings, Image
 } from "lucide-react";
+import HearClearPosts from "./HearClearPosts";
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 
@@ -18,7 +19,7 @@ const LinkedInAgent = () => {
   const [editableContent, setEditableContent] = useState("");
   const [postHistory, setPostHistory] = useState([]);
   const [loading, setLoading] = useState({ accounts: true, generating: false, posting: false });
-  const [view, setView] = useState("compose"); // compose | history | settings
+  const [view, setView] = useState("hearclear"); // hearclear | compose | history | settings
   const [topic, setTopic] = useState("");
   const [scheduleEnabled, setScheduleEnabled] = useState(false);
   const [scheduleInterval, setScheduleInterval] = useState(4);
@@ -184,6 +185,13 @@ const LinkedInAgent = () => {
         </div>
         <div className="linkedin-header-actions">
           <button
+            className={`view-tab ${view === "hearclear" ? "active" : ""}`}
+            onClick={() => setView("hearclear")}
+            data-testid="linkedin-tab-hearclear"
+          >
+            <Image size={16} /> HearClear
+          </button>
+          <button
             className={`view-tab ${view === "compose" ? "active" : ""}`}
             onClick={() => setView("compose")}
             data-testid="linkedin-tab-compose"
@@ -215,6 +223,9 @@ const LinkedInAgent = () => {
           <button className="li-dismiss" onClick={() => setStatusMsg(null)}>&times;</button>
         </div>
       )}
+
+      {/* ============ HearClear View ============ */}
+      {view === "hearclear" && <HearClearPosts />}
 
       {/* ============ Settings View ============ */}
       {view === "settings" && (
