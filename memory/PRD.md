@@ -1,63 +1,68 @@
-# PRD — Agent Builder Platform
+# PRD — Agent Hub Platform
 
-## Original Problem Statement
-Build a platform with multiple specialized personal assistant agents:
-1. **Invoicing Agent**: Download Google Play receipts, remove 2nd page, change page numbering, ZIP download.
-2. **Refund Request Agent**: Generate human-sounding refund requests for failed Google Play transactions.
-3. **Stock Market Investor**: Scan NSE stocks, filter top 50 by volume under INR 100, highlight undervalued.
-4. **LinkedIn Agent**: Manage content, infographics, scheduling, and messaging.
-5. **PDF Directory Extractor**: Extract company details from PDF directories into searchable table & Excel.
-6. **Account Checker**: Bulk-test DoubleDownCasino email logins, find active accounts.
+## Architecture
+- Each agent is **completely independent** — own URL, own login, own DB collections, own code
+- Landing page at `/` with 6 agent cards
+- Each agent accessible at its own URL: `/invoicing`, `/refund`, `/stocks`, `/linkedin`, `/directory`, `/checker`
+- Common password: `Agent@2024!`
+- React Router for URL-based routing
+- No shared sidebar or dashboard — each agent is standalone
 
-## Core Architecture
-- **Frontend**: React.js (sidebar nav, 6 agent components)
-- **Backend**: FastAPI with modular routes (/routes/linkedin.py, /routes/directory.py, /routes/account_checker.py)
-- **Database**: MongoDB
-- **LLM**: Emergent LLM (GPT-4o)
-- **Browser Automation**: Playwright (Account Checker)
-- **External**: yfinance (stocks), LinkedIn OAuth 2.0, pdfplumber (PDF extraction)
+## Tech Stack
+- Frontend: React.js + React Router v7
+- Backend: FastAPI with modular routes
+- Database: MongoDB (Motor async)
+- LLM: Emergent LLM (GPT-4o)
+- Browser Automation: Playwright
+- PDF: pdfplumber, PyPDF2, openpyxl
 
-## What's Been Implemented
+## Agents
 
-### Agent 1: Invoicing Agent [COMPLETE]
-### Agent 2: Refund Request Agent [COMPLETE]
-### Agent 3: Stock Market Investor [COMPLETE]
-### Agent 4: LinkedIn Agent [PARTIAL - OAuth parked]
-### Agent 5: PDF Directory Extractor [COMPLETE]
-### Agent 6: Account Checker [COMPLETE - April 12, 2026]
-- 9 email ranges configured (24,506 total combinations)
-- Playwright-based browser automation with 5 concurrent workers
-- Background scanning with real-time progress polling
-- Active accounts table with live updates
-- Excel download of successful logins
-- Start/Stop scan controls
+### 1. Invoicing Agent [COMPLETE] — `/invoicing`
+- PDF upload, page extraction, date filtering, ZIP download
 
-## Email Ranges
-- veenu001-9999, vinty300-1000, crazy300-1000, strike100-700
-- treaty0001-1000, vineet100-10000, vngnara500-1000, vininara300-600, super300-1100
-- All @gmail.com, password: c304i109
+### 2. Refund Agent [COMPLETE] — `/refund`
+- LLM-powered refund request generation
 
-## Prioritized Backlog
-### P0
-- LinkedIn OAuth (parked - needs user's LinkedIn app credentials with org permissions)
-- APScheduler for auto-posting
+### 3. Stock Investor [COMPLETE] — `/stocks`
+- NSE stocks under INR 100, top 50 volume, undervalued highlights, portfolio
 
-### P1
-- LinkUp API integration
-- Dynamic infographic generation (Gemini)
-- Image/Document posting to LinkedIn
+### 4. LinkedIn Agent [IN PROGRESS] — `/linkedin`
+- OAuth flow built, content generation for 3 companies, post composer
+- HearClear strategic posts generated (5 posts)
+- Infographics pending (image gen quota exceeded)
 
-### P2
-- SMS/WhatsApp alerts for Stock Agent
-- LinkedIn organization/company page posting
-- Post analytics
+### 5. PDF Extractor [COMPLETE] — `/directory`
+- 125 companies extracted from G20 DIA Summit PDF, searchable table, Excel download
+
+### 6. Account Checker [COMPLETE] — `/checker`
+- DDC bulk login checker, 9 ranges, 24,506 combinations, Playwright automation
 
 ## Key Files
-- `/app/backend/server.py` — Main app, auth, invoices, refunds, stocks
-- `/app/backend/routes/linkedin.py` — LinkedIn OAuth, posting, content gen
-- `/app/backend/routes/directory.py` — PDF extraction, companies API, Excel
-- `/app/backend/routes/account_checker.py` — DDC login checker
-- `/app/frontend/src/App.js` — Main React app
+- `/app/frontend/src/App.js` — React Router + agent routing
+- `/app/frontend/src/components/LandingPage.jsx`
+- `/app/frontend/src/components/AgentLogin.jsx`
+- `/app/frontend/src/components/InvoicingAgent.jsx`
+- `/app/frontend/src/components/RefundAgent.jsx`
+- `/app/frontend/src/components/StockAgent.jsx`
 - `/app/frontend/src/components/LinkedInAgent.jsx`
 - `/app/frontend/src/components/DirectoryAgent.jsx`
 - `/app/frontend/src/components/AccountChecker.jsx`
+- `/app/backend/server.py`
+- `/app/backend/routes/linkedin.py`
+- `/app/backend/routes/directory.py`
+- `/app/backend/routes/account_checker.py`
+
+## Backlog
+### P0
+- Generate HearClear infographics (quota resets daily)
+- LinkedIn OAuth connection test
+
+### P1
+- Fundle.ai and Tagnpay.ai strategic posts
+- LinkUp API for messaging/commenting
+- Auto-posting scheduler (APScheduler)
+
+### P2
+- SMS/WhatsApp stock alerts
+- LinkedIn org/company page posting

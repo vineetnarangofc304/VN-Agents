@@ -59,8 +59,95 @@ body {
   to { transform: rotate(360deg); }
 }
 
-/* ============== Login Page ============== */
-.login-container {
+/* ============== Landing Page ============== */
+.landing-container {
+  min-height: 100vh;
+  padding: 60px 40px;
+  background: var(--bg-dark);
+  max-width: 1200px;
+  margin: 0 auto;
+}
+
+.landing-header {
+  text-align: center;
+  margin-bottom: 48px;
+}
+
+.landing-header h1 {
+  font-size: 36px;
+  font-weight: 700;
+  color: var(--text-primary);
+  letter-spacing: -1px;
+  margin-bottom: 8px;
+}
+
+.landing-header p {
+  color: var(--text-secondary);
+  font-size: 16px;
+}
+
+.landing-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: 20px;
+}
+
+.landing-card {
+  position: relative;
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-lg);
+  padding: 28px 24px;
+  cursor: pointer;
+  transition: var(--transition);
+  overflow: hidden;
+}
+
+.landing-card:hover {
+  border-color: var(--text-muted);
+  transform: translateY(-2px);
+  box-shadow: var(--shadow);
+}
+
+.landing-card-icon {
+  width: 52px;
+  height: 52px;
+  border-radius: var(--radius-md);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 16px;
+}
+
+.landing-card h2 {
+  font-size: 18px;
+  font-weight: 600;
+  margin-bottom: 6px;
+  color: var(--text-primary);
+}
+
+.landing-card p {
+  font-size: 13px;
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
+
+.landing-card-arrow {
+  position: absolute;
+  top: 28px;
+  right: 24px;
+  font-size: 20px;
+  color: var(--text-muted);
+  transition: var(--transition);
+}
+
+.landing-card:hover .landing-card-arrow {
+  color: var(--text-primary);
+  transform: translateX(4px);
+}
+
+/* ============== Agent Login ============== */
+.agent-login-container {
   min-height: 100vh;
   display: flex;
   align-items: center;
@@ -69,43 +156,113 @@ body {
   background: linear-gradient(135deg, var(--bg-dark) 0%, #0d1117 100%);
 }
 
-.login-card {
+.agent-login-card {
   background: var(--bg-card);
   border: 1px solid var(--border-color);
   border-radius: var(--radius-lg);
   padding: 48px 40px;
   width: 100%;
-  max-width: 420px;
+  max-width: 380px;
+  text-align: center;
   box-shadow: var(--shadow);
 }
 
-.login-header {
-  text-align: center;
-  margin-bottom: 32px;
-}
-
-.login-icon {
+.agent-login-icon {
+  width: 64px;
+  height: 64px;
+  border-radius: var(--radius-md);
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 64px;
-  height: 64px;
-  background: var(--accent-muted);
-  border-radius: var(--radius-md);
-  color: var(--accent);
   margin-bottom: 20px;
 }
 
-.login-header h1 {
-  font-size: 24px;
+.agent-login-card h1 {
+  font-size: 22px;
   font-weight: 600;
-  margin-bottom: 8px;
-  letter-spacing: -0.5px;
+  margin-bottom: 6px;
+  color: var(--text-primary);
 }
 
-.login-header p {
+.agent-login-card > p {
   color: var(--text-secondary);
   font-size: 14px;
+  margin-bottom: 24px;
+}
+
+.agent-login-form {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.agent-login-form input {
+  width: 100%;
+  padding: 12px 16px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  color: var(--text-primary);
+  font-size: 14px;
+}
+
+.agent-login-form input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+/* ============== Agent Standalone Layout ============== */
+.agent-standalone {
+  min-height: 100vh;
+  background: var(--bg-dark);
+  display: flex;
+  flex-direction: column;
+}
+
+.agent-topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 24px;
+  background: var(--bg-card);
+  border-bottom: 1px solid var(--border-color);
+  position: sticky;
+  top: 0;
+  z-index: 100;
+}
+
+.agent-topbar-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.agent-logout-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 14px;
+  background: var(--bg-hover);
+  color: var(--text-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+  cursor: pointer;
+  transition: var(--transition);
+}
+
+.agent-logout-btn:hover {
+  color: var(--text-primary);
+}
+
+.agent-content-area {
+  flex: 1;
+  padding: 24px;
+  max-width: 1400px;
+  margin: 0 auto;
+  width: 100%;
 }
 
 .login-form {

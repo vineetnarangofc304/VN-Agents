@@ -176,6 +176,21 @@ async def get_me(user: dict = Depends(get_current_user)):
         "role": user.get("role", "user")
     }
 
+# ============== Agent Auth (Simple Password) ==============
+AGENT_PASSWORD = os.environ.get("AGENT_PASSWORD", "Agent@2024!")
+
+class AgentLoginRequest(BaseModel):
+    agent: str
+    password: str
+
+@api_router.post("/auth/agent-login")
+async def agent_login(request: AgentLoginRequest):
+    if request.password == AGENT_PASSWORD:
+        return {"success": True, "agent": request.agent}
+    raise HTTPException(status_code=401, detail="Invalid password")
+
+
+
 # ============== PDF Processing ==============
 def process_invoice_pdf(input_path: str, output_path: str) -> bool:
     """
