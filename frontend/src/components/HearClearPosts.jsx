@@ -1,7 +1,8 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Copy, CheckCircle, Download, Loader2, Image, RefreshCw, ChevronLeft, ChevronRight } from "lucide-react";
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
+const BASE = process.env.REACT_APP_BACKEND_URL;
 
 const UNIFIED_POST = `We're standing at the intersection of healthcare's biggest blind spot and India's largest untapped opportunity.
 
@@ -30,7 +31,34 @@ const HearClearPosts = () => {
   const [variations, setVariations] = useState([]);
   const [currentIdx, setCurrentIdx] = useState(0);
   const [generating, setGenerating] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+
+  // Load saved infographics on mount
+  useEffect(() => {
+    const loadSaved = async () => {
+      try {
+        const res = await fetch(`${API}/linkedin/infographics`);
+        if (res.ok) {
+          const data = await res.json();
+          const saved = (data.infographics || []).map(item => ({
+            imageUrl: `${BASE}${item.url}`,
+            downloadUrl: `${BASE}${item.download_url}`,
+            filename: item.filename
+          }));
+          if (saved.length > 0) {
+            setVariations(saved);
+            setCurrentIdx(0);
+          }
+        }
+      } catch (err) {
+        console.error("Failed to load saved infographics:", err);
+      } finally {
+        setLoading(false);
+      }
+    };
+    loadSaved();
+  }, []);
 
   const handleCopy = () => {
     navigator.clipboard.writeText(UNIFIED_POST);
@@ -48,10 +76,14 @@ const HearClearPosts = () => {
         throw new Error(errData.detail || `Generation failed (${res.status})`);
       }
       const data = await res.json();
-      const newUrl = `${process.env.REACT_APP_BACKEND_URL}${data.image_url}`;
+      const newItem = {
+        imageUrl: `${BASE}${data.image_url}`,
+        downloadUrl: `${BASE}${data.image_url.replace('/infographic/', '/infographic-download/')}`,
+        filename: data.image_url.split('/').pop()
+      };
       setVariations(prev => {
-        const updated = [...prev, newUrl];
-        setCurrentIdx(updated.length - 1);
+        const updated = [newItem, ...prev];
+        setCurrentIdx(0);
         return updated;
       });
     } catch (err) {
@@ -62,16 +94,24 @@ const HearClearPosts = () => {
   };
 
   const handleDownloadImage = () => {
-    if (!variations[currentIdx]) return;
-    const link = document.createElement("a");
-    link.href = variations[currentIdx];
-    link.download = `HearClear_Infographic_v${currentIdx + 1}.png`;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+    const current = variations[currentIdx];
+    if (!current) return;
+    // Use the dedicated download endpoint which sets Content-Disposition: attachment
+    window.open(current.downloadUrl, "_blank");
   };
 
   const hasVariations = variations.length > 0;
+  const currentImage = hasVariations ? variations[currentIdx] : null;
+
+  if (loading) {
+    return (
+      <div className="hc-posts" data-testid="hearclear-posts">
+        <div style={{ display: "flex", justifyContent: "center", padding: "60px 0", color: "var(--text-muted)" }}>
+          <Loader2 size={32} className="spin" />
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="hc-posts" data-testid="hearclear-posts">
@@ -89,7 +129,8 @@ const HearClearPosts = () => {
           {hasVariations ? (
             <>
               <img
-                src={variations[currentIdx]}
+                key={currentImage.imageUrl}
+                src={currentImage.imageUrl}
                 alt={`HearClear Infographic — Variation ${currentIdx + 1}`}
                 className="hc-infographic"
                 data-testid="infographic-image"
@@ -138,14 +179,14 @@ const HearClearPosts = () => {
               {/* Thumbnail strip */}
               {variations.length > 1 && (
                 <div className="hc-thumbnail-strip" data-testid="thumbnail-strip">
-                  {variations.map((url, idx) => (
+                  {variations.map((item, idx) => (
                     <button
-                      key={idx}
+                      key={item.filename}
                       className={`hc-thumb ${idx === currentIdx ? "active" : ""}`}
                       onClick={() => setCurrentIdx(idx)}
                       data-testid={`thumb-${idx}`}
                     >
-                      <img src={url} alt={`v${idx + 1}`} />
+                      <img src={item.imageUrl} alt={`v${idx + 1}`} />
                     </button>
                   ))}
                 </div>

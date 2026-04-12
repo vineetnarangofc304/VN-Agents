@@ -720,6 +720,36 @@ async def serve_infographic(filename: str):
     return FileResponse(str(filepath), media_type="image/png")
 
 
+@router.get("/infographic-download/{filename}")
+async def download_infographic(filename: str):
+    """Download a generated infographic as attachment."""
+    filepath = INFOGRAPHIC_DIR / filename
+    if not filepath.exists():
+        raise HTTPException(status_code=404, detail="Infographic not found")
+    return FileResponse(
+        str(filepath),
+        media_type="image/png",
+        filename=f"HearClear_{filename}",
+        headers={"Content-Disposition": f'attachment; filename="HearClear_{filename}"'}
+    )
+
+
+@router.get("/infographics")
+async def list_infographics():
+    """List all saved HearClear infographics."""
+    files = sorted(INFOGRAPHIC_DIR.glob("hearclear_unified_*.png"), key=lambda f: f.stat().st_mtime, reverse=True)
+    result = []
+    for f in files:
+        result.append({
+            "filename": f.name,
+            "url": f"/api/linkedin/infographic/{f.name}",
+            "download_url": f"/api/linkedin/infographic-download/{f.name}",
+            "created_at": datetime.fromtimestamp(f.stat().st_mtime, tz=timezone.utc).isoformat(),
+            "size_kb": round(f.stat().st_size / 1024, 1)
+        })
+    return {"infographics": result}
+
+
 # ============== Companies ==============
 @router.get("/companies")
 async def get_companies():
