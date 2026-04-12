@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import axios from "axios";
 import {
   Loader2, Play, Square, Download, CheckCircle, XCircle,
-  AlertCircle, RefreshCw, FileSpreadsheet, Key, Mail, Shield
+  AlertCircle, RefreshCw, FileSpreadsheet, Key, Mail, Shield, ExternalLink
 } from "lucide-react";
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
@@ -246,6 +246,7 @@ const AccountChecker = () => {
                   <th>Prefix</th>
                   <th>Number</th>
                   <th>Tested At</th>
+                  <th style={{ width: 90 }}>Action</th>
                 </tr>
               </thead>
               <tbody>
@@ -261,6 +262,15 @@ const AccountChecker = () => {
                     <td>{r.num}</td>
                     <td className="dir-cell-phone">
                       {r.tested_at ? new Date(r.tested_at).toLocaleString() : "-"}
+                    </td>
+                    <td>
+                      <button
+                        className="ck-login-btn"
+                        onClick={() => window.open(`${API}/checker/autologin?email=${encodeURIComponent(r.email)}`, '_blank')}
+                        data-testid={`login-btn-${idx}`}
+                      >
+                        <ExternalLink size={12} /> Login
+                      </button>
                     </td>
                   </tr>
                 ))}

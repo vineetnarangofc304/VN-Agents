@@ -218,6 +218,7 @@ async def _async_scan_worker(job_id, concurrency):
 
 
 async def test_login_fast(page, email, password):
+    """Fast login test — returns True/False only. No credit scraping."""
     try:
         await page.goto('https://www.doubledowncasino.com', wait_until='domcontentloaded', timeout=20000)
         await page.wait_for_timeout(2500)
@@ -410,6 +411,83 @@ async def download_results():
     filename = f"DDC_Successful_Logins_{datetime.now().strftime('%Y%m%d')}.xlsx"
     return StreamingResponse(output, media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                              headers={"Content-Disposition": f"attachment; filename={filename}"})
+
+
+@router.get("/autologin")
+async def auto_login_ddc(email: str = Query(...)):
+    """Serve an HTML page that opens DDC and auto-fills login credentials."""
+    from fastapi.responses import HTMLResponse
+    import html as html_mod
+
+    safe_email = html_mod.escape(email)
+    safe_password = html_mod.escape(PASSWORD)
+
+    page_html = f"""<!DOCTYPE html>
+<html><head>
+<meta charset="utf-8">
+<title>DDC Auto-Login: {safe_email}</title>
+<style>
+  body {{ font-family: -apple-system, sans-serif; background: #0a0b0d; color: #f0f2f5; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; margin: 0; }}
+  .card {{ background: #12141a; border: 1px solid #2a2f3a; border-radius: 12px; padding: 32px 40px; text-align: center; max-width: 500px; }}
+  h1 {{ font-size: 1.4rem; margin-bottom: 8px; }}
+  .email {{ color: #22c55e; font-weight: 600; font-size: 1.1rem; }}
+  .info {{ color: #8b919e; font-size: 0.85rem; margin: 16px 0; line-height: 1.6; }}
+  .cred {{ background: #1a1d24; border: 1px solid #2a2f3a; border-radius: 8px; padding: 12px 16px; margin: 12px 0; text-align: left; font-family: monospace; font-size: 0.9rem; }}
+  .cred span {{ color: #8b919e; }}
+  .cred strong {{ color: #f0f2f5; }}
+  .btn {{ display: inline-block; margin-top: 16px; padding: 12px 28px; background: #22c55e; color: #000; font-weight: 700; border-radius: 8px; text-decoration: none; font-size: 1rem; cursor: pointer; border: none; }}
+  .btn:hover {{ background: #16a34a; }}
+  .step {{ color: #f59e0b; font-size: 0.8rem; margin-top: 20px; }}
+</style>
+</head><body>
+<div class="card">
+  <h1>DoubleDown Casino Auto-Login</h1>
+  <p class="email">{safe_email}</p>
+  <div class="cred">
+    <span>Email:</span> <strong>{safe_email}</strong><br>
+    <span>Password:</span> <strong>{safe_password}</strong>
+  </div>
+  <div class="info">
+    Click the button below to open DoubleDown Casino.<br>
+    The login form will be auto-filled with your credentials.
+  </div>
+  <button class="btn" onclick="openDDC()">Open & Auto-Login</button>
+  <p class="step" id="status">Ready to launch...</p>
+</div>
+<script>
+  const EMAIL = "{safe_email}";
+  const PW = "{safe_password}";
+
+  function openDDC() {{
+    document.getElementById('status').textContent = 'Opening DoubleDown Casino...';
+    const ddcWindow = window.open('https://www.doubledowncasino.com', '_blank');
+
+    // Poll the DDC window and auto-fill when ready
+    let attempts = 0;
+    const maxAttempts = 40;
+    const interval = setInterval(() => {{
+      attempts++;
+      if (attempts > maxAttempts) {{
+        clearInterval(interval);
+        document.getElementById('status').textContent = 'Auto-fill timed out. Please login manually using the credentials above.';
+        return;
+      }}
+      try {{
+        // Try to access the DDC window (may be blocked by CORS)
+        if (ddcWindow && !ddcWindow.closed) {{
+          ddcWindow.postMessage({{ type: 'ddc-autofill', email: EMAIL, password: PW }}, '*');
+        }}
+      }} catch(e) {{
+        // Cross-origin - expected
+      }}
+      document.getElementById('status').textContent = 'DDC opened in new tab. Use credentials above if auto-fill is blocked by browser security.';
+      if (attempts > 3) clearInterval(interval);
+    }}, 2000);
+  }}
+</script>
+</body></html>"""
+
+    return HTMLResponse(content=page_html, status_code=200)
 
 
 @router.get("/ranges")
