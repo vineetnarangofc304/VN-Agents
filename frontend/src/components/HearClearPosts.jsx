@@ -119,18 +119,27 @@ const HearClearPosts = () => {
   const handleDownloadImage = async () => {
     if (!currentItem) return;
     try {
-      const response = await fetch(currentItem.downloadUrl);
+      // Use the image URL directly (not download URL) to avoid any routing issues
+      const imageUrl = currentItem.downloadUrl || currentItem.imageUrl;
+      const response = await fetch(imageUrl);
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
       const blob = await response.blob();
-      const url = window.URL.createObjectURL(blob);
+      const blobUrl = window.URL.createObjectURL(blob);
       const link = document.createElement("a");
-      link.href = url;
+      link.href = blobUrl;
       link.download = currentItem.filename || "HearClear_Infographic.png";
+      link.style.display = "none";
       document.body.appendChild(link);
       link.click();
-      document.body.removeChild(link);
-      window.URL.revokeObjectURL(url);
+      // Cleanup after a short delay
+      setTimeout(() => {
+        document.body.removeChild(link);
+        window.URL.revokeObjectURL(blobUrl);
+      }, 200);
     } catch (err) {
-      console.error("Download failed:", err);
+      console.error("Download failed, trying fallback:", err);
+      // Fallback: open image URL in new tab for manual save
+      window.open(currentItem.imageUrl, "_blank");
     }
   };
 

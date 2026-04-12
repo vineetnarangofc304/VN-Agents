@@ -1265,7 +1265,7 @@ async def download_infographic(filename: str):
 @router.get("/infographics")
 async def list_infographics():
     """List all saved HearClear infographics."""
-    files = sorted(INFOGRAPHIC_DIR.glob("hearclear_unified_*.png"), key=lambda f: f.stat().st_mtime, reverse=True)
+    files = sorted(INFOGRAPHIC_DIR.glob("hearclear_*.png"), key=lambda f: f.stat().st_mtime, reverse=True)
     result = []
     for f in files:
         result.append({
