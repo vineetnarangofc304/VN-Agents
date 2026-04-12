@@ -126,17 +126,95 @@ FILE_TYPES = ["pdf", "xls", "xlsx", "csv"]
 
 active_crawl = {}
 
+# Seed URLs — verified data sources with phone numbers
+SEED_URLS = [
+    {"url": "https://www.serwa.org.in/SERWA_Telephone_Directory.pdf", "category": "rwa", "category_name": "RWA / Resident Welfare Associations", "city": "Delhi"},
+    {"url": "https://www.esicncrpensioners.com/pdf/memberlist.pdf", "category": "senior", "category_name": "Senior Citizens & Elder Care", "city": "Delhi"},
+    {"url": "https://www.scribd.com/document/452887344/clubs-list-delhi", "category": "clubs", "category_name": "Club & Social Organizations", "city": "Delhi"},
+    {"url": "https://www.scribd.com/document/256455313/Delhi-ncr-Govt-Directory", "category": "govt", "category_name": "Government & PSU Employees", "city": "Delhi"},
+    {"url": "https://www.scribd.com/document/832910190/Govt-Teachers-Delhi-Jeetu", "category": "schools", "category_name": "Schools & Teachers", "city": "Delhi"},
+    {"url": "https://ddca.in/assets/backend/uploade/ddca-document/2021/08/agmelections/List_of_Members.pdf", "category": "clubs", "category_name": "Club & Social Organizations", "city": "Delhi"},
+    {"url": "https://www.scribd.com/document/697675425/Rwa-team-2022-24", "category": "rwa", "category_name": "RWA / Resident Welfare Associations", "city": "Delhi"},
+    {"url": "https://delhishelterboard.in/main/wp-content/uploads/2019/06/Online-Directory-2016-Delhi-Govt.pdf", "category": "govt", "category_name": "Government & PSU Employees", "city": "Delhi"},
+    {"url": "https://www.iiipicai.in/wp-content/uploads/2023/06/Professional-Members-Directory-as-on-14-06-2023.pdf", "category": "professional", "category_name": "Professional Directories", "city": "Delhi"},
+    {"url": "https://rotaryindia.org/Documents/ebulletin/Group683/directory_with_data22072023032046PM.pdf", "category": "clubs", "category_name": "Club & Social Organizations", "city": "Delhi"},
+    {"url": "https://www.pwa.in/wp-content/uploads/2023/04/Members-Directory-April-2023.pdf", "category": "professional", "category_name": "Professional Directories", "city": "Delhi"},
+    {"url": "http://www.rwa17b.com/telephone-directory.html", "category": "rwa", "category_name": "RWA / Resident Welfare Associations", "city": "Delhi"},
+    {"url": "https://ro.scribd.com/doc/258343370/Resident-Welfare-Society-Committe-Delhi-Contacts", "category": "rwa", "category_name": "RWA / Resident Welfare Associations", "city": "Delhi"},
+    {"url": "https://www.rwadblocksaket.com/contactus.htm", "category": "rwa", "category_name": "RWA / Resident Welfare Associations", "city": "Delhi"},
+    {"url": "https://e-clubhouse.org/sites/newdelhieast/page-7.php", "category": "clubs", "category_name": "Club & Social Organizations", "city": "Delhi"},
+]
+
 
 def build_search_queries():
-    """Generate all search query combinations."""
+    """Generate search queries optimized for DuckDuckGo. Focus on pages with contact data, not just files."""
     queries = []
-    for cat in CATEGORIES:
-        for kw in cat["keywords"]:
-            for city in CITIES:
-                for ft in FILE_TYPES:
-                    q = f'{kw} {city} filetype:{ft}'
-                    queries.append({"query": q, "category": cat["id"], "category_name": cat["name"], "city": city, "filetype": ft})
+    
+    # Direct file search queries
+    file_keywords = [
+        "RWA directory phone numbers", "RWA members list contact",
+        "resident welfare association members mobile",
+        "housing society residents list phone",
+        "colony RWA office bearers contact",
+        "apartment owners association directory",
+        "club members directory phone", "club members list contact number",
+        "rotary club members list", "lions club directory",
+        "golf club members directory", "gymkhana members list",
+        "school teachers list phone number", "teachers directory contact",
+        "principal list phone", "school staff directory mobile",
+        "college faculty directory contact",
+        "government officers list phone", "government employees directory contact",
+        "PSU employees list phone number", "DDA officers directory",
+        "MCD officials list contact", "NDMC directory phone",
+        "electricity board officials phone", "municipal employees list",
+        "advocates directory phone", "lawyers list contact number",
+        "chartered accountants directory mobile",
+        "doctors directory phone number", "architects list contact",
+        "bar association members list",
+        "gurdwara committee members phone", "temple trust members contact",
+        "community association directory phone",
+        "traders association members phone", "market association directory",
+        "chamber of commerce members list phone",
+        "senior citizens association directory phone",
+        "retired officers list contact", "pensioners association directory",
+        "ex-servicemen list phone",
+    ]
+    
+    for kw in file_keywords:
+        for city in CITIES:
+            queries.append({"query": f"{kw} {city}", "category": _classify_query(kw), "category_name": _classify_query_name(kw), "city": city, "filetype": "web"})
+            # Also add PDF-specific variant
+            queries.append({"query": f"{kw} {city} pdf", "category": _classify_query(kw), "category_name": _classify_query_name(kw), "city": city, "filetype": "pdf"})
+    
     return queries
+
+
+def _classify_query(kw):
+    """Map keyword to category ID."""
+    kw_lower = kw.lower()
+    if any(w in kw_lower for w in ['rwa', 'resident', 'colony', 'society', 'apartment', 'housing']):
+        return "rwa"
+    if any(w in kw_lower for w in ['club', 'rotary', 'lions', 'golf', 'gymkhana']):
+        return "clubs"
+    if any(w in kw_lower for w in ['school', 'teacher', 'principal', 'college', 'faculty']):
+        return "schools"
+    if any(w in kw_lower for w in ['government', 'psu', 'dda', 'mcd', 'ndmc', 'municipal', 'electricity']):
+        return "govt"
+    if any(w in kw_lower for w in ['advocate', 'lawyer', 'chartered', 'doctor', 'architect', 'bar association']):
+        return "professional"
+    if any(w in kw_lower for w in ['gurdwara', 'temple', 'church', 'community', 'masjid']):
+        return "religious"
+    if any(w in kw_lower for w in ['trader', 'market', 'chamber', 'commerce', 'shopkeeper', 'manufacturer']):
+        return "business"
+    if any(w in kw_lower for w in ['senior', 'retired', 'pensioner', 'ex-servicem']):
+        return "senior"
+    return "other"
+
+
+def _classify_query_name(kw):
+    cat_id = _classify_query(kw)
+    names = {c["id"]: c["name"] for c in CATEGORIES}
+    return names.get(cat_id, "Other")
 
 
 def extract_phones_from_text(text):
@@ -277,9 +355,9 @@ def run_crawl_worker(job_id):
 
 
 async def _async_crawl_worker(job_id):
-    """Async crawl: search → download → extract → store."""
+    """Async crawl: search → download → extract → store. Uses DuckDuckGo to avoid Google rate limits."""
     import requests
-    from googlesearch import search as gsearch
+    from duckduckgo_search import DDGS
 
     sync_client = MongoClient(mongo_url)
     sync_db = sync_client[db_name]
@@ -290,6 +368,11 @@ async def _async_crawl_worker(job_id):
     done_queries = set()
     for doc in sync_db.hc_crawl_queries.find({"status": "done"}, {"query": 1}):
         done_queries.add(doc["query"])
+    
+    # Also track already-processed URLs
+    processed_urls = set()
+    for doc in sync_db.hc_sources.find({}, {"url": 1}):
+        processed_urls.add(doc["url"])
     
     remaining = [q for q in all_queries if q["query"] not in done_queries]
     total_queries = len(all_queries)
@@ -315,6 +398,99 @@ async def _async_crawl_worker(job_id):
 
     logger.info(f"HearClear crawl {job_id}: {len(remaining)} queries remaining of {total_queries}")
 
+    # ========== PHASE 1: Process seed URLs first ==========
+    for seed in SEED_URLS:
+        if active_crawl.get(job_id, {}).get("status") != "running":
+            break
+        url = seed["url"]
+        if url in processed_urls:
+            continue
+        processed_urls.add(url)
+        active_crawl[job_id]["current_query"] = f"[SEED] {url[:60]}..."
+
+        try:
+            is_file = any(url.lower().endswith(f'.{ft}') for ft in FILE_TYPES)
+
+            resp = requests.get(url, timeout=30, headers={
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+            }, allow_redirects=True)
+            if resp.status_code != 200 or len(resp.content) < 200:
+                continue
+
+            contacts = []
+            filename = None
+
+            if is_file:
+                ext = "pdf"
+                for ft in FILE_TYPES:
+                    if url.lower().endswith(f'.{ft}'):
+                        ext = ft
+                        break
+                filename = f"seed_{uuid.uuid4().hex[:12]}.{ext}"
+                filepath = DOWNLOADS_DIR / filename
+                with open(filepath, "wb") as f:
+                    f.write(resp.content)
+                if ext == "pdf":
+                    contacts = extract_from_pdf(str(filepath))
+                elif ext in ["xls", "xlsx", "csv"]:
+                    contacts = extract_from_excel(str(filepath))
+            else:
+                # Web page
+                page_text = resp.text
+                phones = extract_phones_from_text(page_text)
+                if phones:
+                    import re as re_mod
+                    clean_text = re_mod.sub(r'<[^>]+>', ' ', page_text)
+                    contacts = extract_names_near_phones(clean_text, phones)
+                    found_phones = {c["phone"] for c in contacts}
+                    for p in phones:
+                        if p not in found_phones:
+                            contacts.append({"phone": p, "name": None, "email": None, "address": None})
+
+            if contacts:
+                source_doc = {
+                    "source_id": str(uuid.uuid4()),
+                    "url": url,
+                    "filename": filename,
+                    "file_type": "pdf" if is_file else "web",
+                    "file_size": len(resp.content),
+                    "category": seed["category"],
+                    "category_name": seed["category_name"],
+                    "city": seed["city"],
+                    "query": "SEED",
+                    "contacts_found": len(contacts),
+                    "downloaded_at": datetime.now(timezone.utc).isoformat()
+                }
+                sync_db.hc_sources.insert_one(source_doc)
+                active_crawl[job_id]["files_downloaded"] += 1
+
+                new_contacts = 0
+                for contact in contacts:
+                    phone = contact["phone"]
+                    if not sync_db.hc_leads.find_one({"phone": phone}):
+                        sync_db.hc_leads.insert_one({
+                            "phone": phone,
+                            "name": contact.get("name"),
+                            "email": contact.get("email"),
+                            "address": contact.get("address"),
+                            "source_url": url,
+                            "source_file": filename,
+                            "category": seed["category"],
+                            "category_name": seed["category_name"],
+                            "city": seed["city"],
+                            "added_at": datetime.now(timezone.utc).isoformat()
+                        })
+                        new_contacts += 1
+
+                active_crawl[job_id]["contacts_extracted"] = sync_db.hc_leads.count_documents({})
+                logger.info(f"SEED {url[:60]}: {new_contacts} new contacts from {len(contacts)} found")
+
+        except Exception as e:
+            logger.debug(f"Seed URL error {url[:60]}: {e}")
+
+    # ========== PHASE 2: DuckDuckGo search queries ==========
+    ddgs = DDGS()
+
     for qi, qdata in enumerate(remaining):
         if active_crawl.get(job_id, {}).get("status") != "running":
             break
@@ -324,18 +500,27 @@ async def _async_crawl_worker(job_id):
         active_crawl[job_id]["queries_remaining"] = len(remaining) - qi
 
         try:
-            # Search Google
+            # Search via DuckDuckGo
             urls_found = []
+            web_pages = []
             try:
-                for url in gsearch(query, num_results=10, lang="en"):
-                    if any(url.lower().endswith(f'.{ft}') for ft in FILE_TYPES):
-                        urls_found.append(url)
-                    elif any(f'filetype={ft}' in url.lower() or f'.{ft}' in url.lower() for ft in FILE_TYPES):
-                        urls_found.append(url)
-                time.sleep(2)  # Rate limit
+                results = ddgs.text(query, max_results=15, region="in-en")
+                for r in results:
+                    href = r.get("href", "")
+                    lower_href = href.lower()
+                    # Downloadable files
+                    if any(lower_href.endswith(f'.{ft}') for ft in FILE_TYPES):
+                        urls_found.append(href)
+                    elif any(f'.{ft}?' in lower_href or f'.{ft}#' in lower_href for ft in FILE_TYPES):
+                        urls_found.append(href.split('?')[0].split('#')[0])
+                    else:
+                        # Regular web page — scrape for phone numbers
+                        web_pages.append(href)
+                
+                time.sleep(3)
             except Exception as e:
-                logger.warning(f"Search error for '{query}': {e}")
-                time.sleep(5)
+                logger.warning(f"DDG search error for '{query}': {e}")
+                time.sleep(10)
 
             active_crawl[job_id]["files_found"] += len(urls_found)
 
@@ -344,23 +529,29 @@ async def _async_crawl_worker(job_id):
                     break
 
                 # Skip if already processed
-                if sync_db.hc_sources.find_one({"url": url}):
+                if url in processed_urls:
                     continue
+                processed_urls.add(url)
 
                 try:
                     # Download file
                     resp = requests.get(url, timeout=30, headers={
-                        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
-                    })
+                        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+                    }, allow_redirects=True)
                     if resp.status_code != 200 or len(resp.content) < 500:
                         continue
 
-                    # Determine file type
+                    # Determine file type from URL or content-type
                     ext = "pdf"
+                    content_type = resp.headers.get("content-type", "").lower()
                     for ft in FILE_TYPES:
                         if url.lower().endswith(f'.{ft}'):
                             ext = ft
                             break
+                    if "spreadsheet" in content_type or "excel" in content_type:
+                        ext = "xlsx"
+                    elif "csv" in content_type:
+                        ext = "csv"
                     
                     filename = f"{uuid.uuid4().hex[:12]}.{ext}"
                     filepath = DOWNLOADS_DIR / filename
@@ -430,6 +621,82 @@ async def _async_crawl_worker(job_id):
 
                 except Exception as e:
                     logger.debug(f"Download/extract error for {url}: {e}")
+                    continue
+
+            # Also scrape web pages for phone numbers directly
+            for page_url in web_pages[:5]:  # Limit to 5 pages per query
+                if active_crawl.get(job_id, {}).get("status") != "running":
+                    break
+                if page_url in processed_urls:
+                    continue
+                processed_urls.add(page_url)
+
+                try:
+                    resp = requests.get(page_url, timeout=15, headers={
+                        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+                    }, allow_redirects=True)
+                    if resp.status_code != 200:
+                        continue
+                    
+                    page_text = resp.text
+                    # Extract phone numbers from HTML text
+                    phones = extract_phones_from_text(page_text)
+                    if not phones:
+                        continue
+
+                    # Clean HTML to get text for name extraction
+                    import re as re_mod
+                    clean_text = re_mod.sub(r'<[^>]+>', ' ', page_text)
+                    contacts = extract_names_near_phones(clean_text, phones)
+                    found_phones = {c["phone"] for c in contacts}
+                    for p in phones:
+                        if p not in found_phones:
+                            contacts.append({"phone": p, "name": None, "email": None, "address": None})
+
+                    if contacts:
+                        # Store source
+                        source_doc = {
+                            "source_id": str(uuid.uuid4()),
+                            "url": page_url,
+                            "filename": None,
+                            "file_type": "web",
+                            "file_size": len(resp.content),
+                            "category": qdata["category"],
+                            "category_name": qdata["category_name"],
+                            "city": qdata["city"],
+                            "query": query,
+                            "contacts_found": len(contacts),
+                            "downloaded_at": datetime.now(timezone.utc).isoformat()
+                        }
+                        sync_db.hc_sources.insert_one(source_doc)
+                        active_crawl[job_id]["files_downloaded"] += 1
+
+                        new_contacts = 0
+                        for contact in contacts:
+                            phone = contact["phone"]
+                            existing = sync_db.hc_leads.find_one({"phone": phone})
+                            if not existing:
+                                lead_doc = {
+                                    "phone": phone,
+                                    "name": contact.get("name"),
+                                    "email": contact.get("email"),
+                                    "address": contact.get("address"),
+                                    "source_url": page_url,
+                                    "source_file": None,
+                                    "category": qdata["category"],
+                                    "category_name": qdata["category_name"],
+                                    "city": qdata["city"],
+                                    "added_at": datetime.now(timezone.utc).isoformat()
+                                }
+                                sync_db.hc_leads.insert_one(lead_doc)
+                                new_contacts += 1
+
+                        active_crawl[job_id]["contacts_extracted"] = sync_db.hc_leads.count_documents({})
+                        if new_contacts > 0:
+                            logger.info(f"Web page {page_url}: {new_contacts} new contacts from {len(contacts)} found")
+
+                except Exception as e:
+                    logger.debug(f"Web scrape error for {page_url}: {e}")
                     continue
 
         except Exception as e:

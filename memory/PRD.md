@@ -1,63 +1,53 @@
 # PRD — Multi-Agent Platform (Vineet Narang)
 
 ## Original Problem Statement
-Build a multi-agent platform serving 6 completely independent agents, each accessible via isolated URLs from a unified landing page hub. The agents handle: invoicing, refund generation, stock market scanning, LinkedIn content generation, PDF directory extraction, and account checking.
+Build a multi-agent platform serving 7 completely independent agents, each accessible via isolated URLs from a unified landing page hub.
 
 ## Architecture
-- **Frontend**: React (React Router v7), Shadcn-inspired dark theme
+- **Frontend**: React (React Router v7), dark theme
 - **Backend**: FastAPI (Python), MongoDB
-- **Routing**: Each agent has its own URL route (`/invoicing`, `/refund`, `/stocks`, `/linkedin`, `/directory`, `/checker`)
-- **Auth**: Shared password-based agent login wrapper (`AgentLogin.jsx`), JWT for invoice agent
-- **LLM**: Emergent LLM Key via `emergentintegrations` library
+- **Routing**: Each agent on its own URL (`/invoicing`, `/refund`, `/stocks`, `/linkedin`, `/directory`, `/checker`, `/catchment`)
+- **Auth**: Shared password-based agent login wrapper
+- **LLM**: Emergent LLM Key via `emergentintegrations`
 - **Image Generation**: Nano Banana (`gemini-3.1-flash-image-preview`) for infographics
 
 ## What's Been Implemented
 
-### Agent 1: Invoicing Agent (`/invoicing`)
-- PDF upload, first-page extraction, download original/edited, bulk ZIP download
-- Date filters (today, week, month, all)
+### Agent 1: Invoicing (`/invoicing`) - PDF upload/first-page extraction/bulk ZIP
+### Agent 2: Refund (`/refund`) - LLM-powered Google Play refund generator
+### Agent 3: Stock Investor (`/stocks`) - NSE scanner, portfolio tracker
+### Agent 4: LinkedIn (`/linkedin`)
+- OAuth 2.0, AI content gen, post to LinkedIn, scheduling
+- **HearClear tab**: 8 themed infographic generator (Market Disruptor, Dementia Connection, AI Revolution, Ecosystem Flywheel, Investor Thesis, Patient Experience, Audiologist Army, India Crisis Map)
+- Background generation with polling, persistent storage, download, thumbnails
 
-### Agent 2: Refund Agent (`/refund`)
-- LLM-powered Google Play refund request generator (GPT-4o)
-- History tracking
-
-### Agent 3: Stock Investor (`/stocks`)
-- NSE stock scanner (under ₹100, sorted by volume)
-- Stock details with price history, news, 52-week analysis
-- Portfolio tracker with buy/sell/alerts
-
-### Agent 4: LinkedIn Agent (`/linkedin`)
-- LinkedIn OAuth 2.0 integration (connect/disconnect accounts)
-- AI content generation for 3 companies (Fundle, HearClear, Tagnpay)
-- Post to LinkedIn via API
-- Post history
-- Auto-post scheduling
-- **HearClear Corporate One-Pager**: Unified Blue & Gold McKinsey-standard infographic generated via Nano Banana (`gemini-3.1-flash-image-preview`), with download and regenerate options. Accessible via "HearClear" tab.
-
-### Agent 5: PDF Directory Extractor (`/directory`)
-- Upload PDF, background job extracts structured data via pdfplumber
-- Excel download of extracted data
-
+### Agent 5: PDF Extractor (`/directory`) - PDF to Excel extraction
 ### Agent 6: Account Checker (`/checker`)
-- DoubleDownCasino account checker with concurrent login via APIs
-- Background job polling with results table
+- DDC email scanner with resume, persistent results, Login button per row
+- Credits capture planned as Phase 2
 
-### Platform
-- Unified landing page hub at `/`
-- Agent separation enforced (no shared sidebars)
-- No "Emergent" branding visible (CSS override)
-- Dark theme with CSS variables
+### Agent 7: Catchment Mining (`/catchment`) — NEW
+- Web crawler for Delhi NCR contact databases
+- 15 seed URLs (verified RWA, govt, clubs, professional, senior citizen directories)
+- DuckDuckGo search across 656 query combinations
+- 8 categories: RWA, Clubs, Schools, Govt, Professional, Religious, Business, Senior Citizens
+- Auto-extracts phone numbers, names, emails, addresses from PDFs, Excel, CSV, web pages
+- Start/stop/resume with persistent MongoDB storage
+- Search, filter by category/city, pagination, Excel export
 
 ## Prioritized Backlog
 
 ### P0
-- LinkUp API integration for LinkedIn messaging & auto-commenting
+- LinkUp API for LinkedIn messaging/auto-commenting
+- Continue expanding Catchment Mining seed URLs and search queries
 
 ### P1
-- SMS/WhatsApp alerts for Stock Investor Agent
+- SMS/WhatsApp alerts for Stock Investor
+- DDC credits capture (Phase 2 after full scan)
 
 ### P2
-- Fundle.ai specific LinkedIn posts & infographics
+- Fundle.ai LinkedIn posts & infographics
 
 ### Future
-- Continuous monitoring of LinkedIn posts/keywords/people
+- Continuous LinkedIn monitoring
+- Catchment Mining for more cities beyond Delhi NCR
