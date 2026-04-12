@@ -29,10 +29,16 @@ EMAIL_RANGES = [
     {"prefix": "crazy", "start": 300, "end": 1000, "pad": 0, "domain": "gmail.com"},
     {"prefix": "strike", "start": 100, "end": 700, "pad": 0, "domain": "gmail.com"},
     {"prefix": "treaty", "start": 1, "end": 1000, "pad": 4, "domain": "gmail.com"},
-    {"prefix": "vineet", "start": 100, "end": 10000, "pad": 0, "domain": "gmail.com"},
+    {"prefix": "vineet", "start": 100, "end": 999, "pad": 0, "domain": "gmail.com"},
+    {"prefix": "vineet", "start": 1000, "end": 1099, "pad": 0, "domain": "gmail.com"},
+    {"prefix": "vineet", "start": 2000, "end": 2099, "pad": 0, "domain": "gmail.com"},
+    {"prefix": "vineet", "start": 3000, "end": 3099, "pad": 0, "domain": "gmail.com"},
+    {"prefix": "vineet", "start": 5000, "end": 5099, "pad": 0, "domain": "gmail.com"},
+    {"prefix": "vineet", "start": 9000, "end": 9099, "pad": 0, "domain": "gmail.com"},
     {"prefix": "vngnara", "start": 500, "end": 1000, "pad": 0, "domain": "gmail.com"},
     {"prefix": "vininara", "start": 300, "end": 600, "pad": 0, "domain": "gmail.com"},
     {"prefix": "super", "start": 300, "end": 1100, "pad": 0, "domain": "gmail.com"},
+    {"prefix": "vinsum", "start": 300, "end": 1099, "pad": 0, "domain": "gmail.com"},
 ]
 
 # Skip these veenu ranges — no valid accounts expected
