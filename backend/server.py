@@ -32,6 +32,7 @@ from reportlab.lib.pagesizes import letter
 from emergentintegrations.llm.chat import LlmChat, UserMessage
 from routes.linkedin import router as linkedin_router
 from routes.directory import router as directory_router
+from routes.account_checker import router as checker_router
 
 # MongoDB connection
 mongo_url = os.environ['MONGO_URL']
@@ -832,6 +833,7 @@ async def root():
 app.include_router(api_router)
 app.include_router(linkedin_router)
 app.include_router(directory_router)
+app.include_router(checker_router)
 
 # CORS Configuration - must be specific origins for credentials to work
 frontend_url = os.environ.get('FRONTEND_URL', 'https://agent-builder-133.preview.emergentagent.com')

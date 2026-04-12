@@ -1,9 +1,10 @@
 import { useState, useEffect, createContext, useContext, useCallback, useRef } from "react";
 import "@/App.css";
 import axios from "axios";
-import { FileText, Upload, Download, Trash2, LogOut, Menu, X, CheckCircle, AlertCircle, Loader2, Receipt, RefreshCw, Mail, Copy, ExternalLink, Calendar, TrendingUp, Bell, DollarSign, Target, Plus, Search, ArrowUp, ArrowDown, Linkedin, BookOpen, Eye, EyeOff } from "lucide-react";
+import { FileText, Upload, Download, Trash2, LogOut, Menu, X, CheckCircle, AlertCircle, Loader2, Receipt, RefreshCw, Mail, Copy, ExternalLink, Calendar, TrendingUp, Bell, DollarSign, Target, Plus, Search, ArrowUp, ArrowDown, Linkedin, BookOpen, Eye, EyeOff, ShieldCheck } from "lucide-react";
 import LinkedInAgent from "./components/LinkedInAgent";
 import DirectoryAgent from "./components/DirectoryAgent";
+import AccountChecker from "./components/AccountChecker";
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
@@ -194,7 +195,8 @@ const Dashboard = () => {
     { id: "refund", name: "Refund Agent", icon: RefreshCw },
     { id: "stocks", name: "Stock Investor", icon: TrendingUp },
     { id: "linkedin", name: "LinkedIn Agent", icon: Linkedin },
-    { id: "directory", name: "PDF Extractor", icon: BookOpen }
+    { id: "directory", name: "PDF Extractor", icon: BookOpen },
+    { id: "checker", name: "Account Checker", icon: ShieldCheck }
   ];
 
   const fetchInvoices = useCallback(async () => {
@@ -1016,6 +1018,9 @@ const Dashboard = () => {
 
         {/* PDF Directory Extractor */}
         {activeAgent === "directory" && <DirectoryAgent />}
+
+        {/* Account Checker */}
+        {activeAgent === "checker" && <AccountChecker />}
       </main>
     </div>
   );
