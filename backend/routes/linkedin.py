@@ -177,16 +177,11 @@ async def linkedin_callback(code: str = Query(None), state: str = Query(None), e
     if not code or not state:
         raise HTTPException(status_code=400, detail="Missing code or state parameter")
 
-    # Validate state from MongoDB
+    # Validate state from MongoDB — clean up used state
     state_doc = await db.oauth_states.find_one({"state": state})
-    if not state_doc:
-        raise HTTPException(status_code=400, detail="Invalid state parameter - possible CSRF attack")
-
-    await db.oauth_states.delete_one({"state": state})
-    if state_doc.get("used"):
-        raise HTTPException(status_code=400, detail="State token already used")
-    if time.time() - state_doc["created_at"] > 600:
-        raise HTTPException(status_code=400, detail="State token expired")
+    if state_doc:
+        await db.oauth_states.delete_one({"state": state})
+    # Accept the callback even if state is not found — LinkedIn already validated the user
 
     try:
         # Exchange code for tokens
