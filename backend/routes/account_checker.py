@@ -65,8 +65,27 @@ active_credits_jobs = {}
 
 
 async def _scrape_credits(page, email, password):
-    """Login and scrape credits from DDC. Returns credits string or None."""
+    """Login and scrape credits from DDC by intercepting the lobby/game API. Returns credits string or None."""
     try:
+        credits_result = {"value": None}
+        
+        async def capture_credits(response):
+            url = response.url
+            if 'lobby/game' in url:
+                try:
+                    text = await response.text()
+                    import re as _re
+                    cash_match = _re.search(r'"cash"\s*:\s*(\d+)', text)
+                    psc_match = _re.search(r'"psc"\s*:\s*(\d+)', text)
+                    if cash_match:
+                        credits_result["value"] = cash_match.group(1)
+                    elif psc_match:
+                        credits_result["value"] = psc_match.group(1)
+                except Exception:
+                    pass
+
+        page.on('response', capture_credits)
+        
         await page.goto('https://www.doubledowncasino.com', wait_until='domcontentloaded', timeout=20000)
         await page.wait_for_timeout(2500)
 
@@ -79,6 +98,7 @@ async def _scrape_credits(page, email, password):
             await page.click('img[src*="email_connect"]', force=True, timeout=5000)
             await page.wait_for_timeout(800)
         except Exception:
+            page.remove_listener('response', capture_credits)
             return None
 
         try:
@@ -91,127 +111,20 @@ async def _scrape_credits(page, email, password):
             await page.fill('#emailID', email, timeout=3000)
             await page.fill('#pw', password, timeout=3000)
         except Exception:
+            page.remove_listener('response', capture_credits)
             return None
-
-        auth_result = {"success": False, "credits": None}
-        auth_event = asyncio.Event()
-
-        async def handle_response(response):
-            if 'authenticate/user' in response.url:
-                try:
-                    if response.status == 200:
-                        auth_result["success"] = True
-                        try:
-                            body = await response.json()
-                            # Try to extract credits from auth response
-                            for key in ["chips", "credits", "balance", "coin_balance"]:
-                                if body.get(key) is not None:
-                                    auth_result["credits"] = str(body[key])
-                                    break
-                            if not auth_result["credits"]:
-                                for nested_key in ["user", "data", "player", "account", "profile"]:
-                                    nested = body.get(nested_key, {})
-                                    if isinstance(nested, dict):
-                                        for ckey in ["chips", "credits", "balance", "coin_balance", "chip_balance", "coinBalance"]:
-                                            if nested.get(ckey) is not None:
-                                                auth_result["credits"] = str(nested[ckey])
-                                                break
-                                    if auth_result["credits"]:
-                                        break
-                        except Exception:
-                            pass
-                except Exception:
-                    pass
-                auth_event.set()
-
-        page.on('response', handle_response)
 
         try:
             await page.click('img[src*="green_login"]', force=True, timeout=3000)
         except Exception:
-            page.remove_listener('response', handle_response)
+            page.remove_listener('response', capture_credits)
             return None
 
-        try:
-            await asyncio.wait_for(auth_event.wait(), timeout=15.0)
-        except asyncio.TimeoutError:
-            pass
-
-        page.remove_listener('response', handle_response)
-
-        if not auth_result["success"]:
-            return None
-
-        # If credits found in API response, use those
-        if auth_result["credits"]:
-            return auth_result["credits"]
-
-        # Otherwise try scraping the page after login
-        await page.wait_for_timeout(4000)
-
-        # Try various selectors for credits display
-        for selector in [
-            '.chip-count', '.chips-count', '.coin-count', '.balance',
-            '[class*="chip"]', '[class*="coin"]', '[class*="balance"]',
-            '[class*="credit"]', '#chipCount', '#coinCount',
-            '.topbar-chips', '.header-chips', '.user-chips'
-        ]:
-            try:
-                el = await page.query_selector(selector)
-                if el:
-                    text = await el.inner_text()
-                    text = text.strip()
-                    if text and any(c.isdigit() for c in text):
-                        return text
-            except Exception:
-                continue
-
-        # Fallback: search for any element with chip/coin text
-        try:
-            credits_text = await page.evaluate("""
-                () => {
-                    const all = document.querySelectorAll('*');
-                    for (const el of all) {
-                        const text = el.innerText || '';
-                        const cls = (el.className || '').toLowerCase();
-                        if ((cls.includes('chip') || cls.includes('coin') || cls.includes('credit') || cls.includes('balance'))
-                            && text.trim() && /[\\d,]+/.test(text) && text.trim().length < 30) {
-                            return text.trim().split('\\n')[0];
-                        }
-                    }
-                    return null;
-                }
-            """)
-            if credits_text:
-                return credits_text
-        except Exception:
-            pass
-
-        # Last resort: screenshot the top-right area and look for numbers
-        try:
-            # Get all visible text with numbers near the top of the page
-            top_text = await page.evaluate("""
-                () => {
-                    const results = [];
-                    const all = document.querySelectorAll('*');
-                    for (const el of all) {
-                        const rect = el.getBoundingClientRect();
-                        if (rect.top < 100 && rect.right > window.innerWidth - 400) {
-                            const text = el.innerText || '';
-                            if (text.trim() && /[\\d,]{3,}/.test(text) && text.trim().length < 30) {
-                                results.push(text.trim());
-                            }
-                        }
-                    }
-                    return results.length > 0 ? results[0] : null;
-                }
-            """)
-            if top_text:
-                return top_text
-        except Exception:
-            pass
-
-        return "LOGIN_OK_CREDITS_UNKNOWN"
+        # Wait for the lobby/game API call that has the balance
+        await page.wait_for_timeout(12000)
+        
+        page.remove_listener('response', capture_credits)
+        return credits_result["value"]
 
     except Exception as e:
         logger.debug(f"Credits scrape error for {email}: {e}")
@@ -233,9 +146,13 @@ async def _async_credits_worker(job_id):
     sync_client = MongoClient(mongo_url)
     sync_db = sync_client[db_name]
 
-    # Get successful accounts without credits
+    # Get successful accounts without real credits (skip LOGIN_OK_CREDITS_UNKNOWN too)
     accounts = list(sync_db.login_results.find(
-        {"status": "success", "$or": [{"credits": {"$exists": False}}, {"credits": None}]},
+        {"status": "success", "$or": [
+            {"credits": {"$exists": False}},
+            {"credits": None},
+            {"credits": "LOGIN_OK_CREDITS_UNKNOWN"}
+        ]},
         {"email": 1}
     ))
 
@@ -813,7 +730,10 @@ async def get_credits_status():
         return active_credits_jobs[latest]
 
     total_success = await db.login_results.count_documents({"status": "success"})
-    with_credits = await db.login_results.count_documents({"status": "success", "credits": {"$exists": True, "$ne": None}})
+    with_credits = await db.login_results.count_documents({
+        "status": "success",
+        "credits": {"$exists": True, "$ne": None, "$ne": "LOGIN_OK_CREDITS_UNKNOWN"}
+    })
     pending = total_success - with_credits
 
     return {
