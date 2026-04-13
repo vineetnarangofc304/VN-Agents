@@ -771,25 +771,46 @@ PROMO_CODE_SOURCES = [
 
 
 async def _farm_single_account(page, email, password, promo_codes=None):
-    """Login to DDC, collect all free bonuses, redeem promo codes. Returns dict with results."""
+    """Login to DDC, collect all free bonuses via API interception. Returns dict with results."""
     result = {"chips_before": None, "chips_after": None, "bonuses_collected": [], "errors": []}
 
     try:
-        credits_captured = {"value": None}
+        session_info = {"session_id": None, "user_id": None, "base_url": None}
+        credits_captured = {"before": None, "after": None}
 
-        async def capture_credits(response):
-            if 'lobby/game' in response.url:
-                try:
+        async def capture_all(response):
+            url = response.url
+            try:
+                if 'lobby/game' in url:
                     text = await response.text()
                     import re as _re
                     cash_match = _re.search(r'"cash"\s*:\s*(\d+)', text)
+                    session_match = _re.search(r'"sessionId"\s*:\s*"([^"]+)"', text)
                     if cash_match:
-                        credits_captured["value"] = cash_match.group(1)
-                except Exception:
-                    pass
+                        if credits_captured["before"] is None:
+                            credits_captured["before"] = cash_match.group(1)
+                        credits_captured["after"] = cash_match.group(1)
+                    if session_match:
+                        session_info["session_id"] = session_match.group(1)
+                    # Extract base URL for httpbox calls
+                    if 'doubledowncasino2.com' in url:
+                        session_info["base_url"] = url.split('/v2/lobby')[0]
 
-        page.on('response', capture_credits)
+                elif 'lobby/meta' in url:
+                    text = await response.text()
+                    if 'rewardAvailable' in text:
+                        result["bonuses_collected"].append("meta_loaded")
 
+                elif 'httpbox/poll' in url:
+                    text = await response.text()
+                    if 'rewardAvailable' in text and 'true' in text:
+                        result["bonuses_collected"].append("reward_available")
+            except Exception:
+                pass
+
+        page.on('response', capture_all)
+
+        # Login flow
         await page.goto('https://www.doubledowncasino.com', wait_until='domcontentloaded', timeout=20000)
         await page.wait_for_timeout(2500)
 
@@ -802,8 +823,8 @@ async def _farm_single_account(page, email, password, promo_codes=None):
             await page.click('img[src*="email_connect"]', force=True, timeout=5000)
             await page.wait_for_timeout(800)
         except Exception:
-            page.remove_listener('response', capture_credits)
-            result["errors"].append("Could not find email connect button")
+            page.remove_listener('response', capture_all)
+            result["errors"].append("no_email_btn")
             return result
 
         try:
@@ -816,92 +837,133 @@ async def _farm_single_account(page, email, password, promo_codes=None):
             await page.fill('#emailID', email, timeout=3000)
             await page.fill('#pw', password, timeout=3000)
         except Exception:
-            page.remove_listener('response', capture_credits)
-            result["errors"].append("Could not fill login form")
+            page.remove_listener('response', capture_all)
+            result["errors"].append("no_form")
             return result
 
         try:
             await page.click('img[src*="green_login"]', force=True, timeout=3000)
         except Exception:
-            page.remove_listener('response', capture_credits)
-            result["errors"].append("Could not click login")
+            page.remove_listener('response', capture_all)
+            result["errors"].append("no_login_btn")
             return result
 
-        # Wait for game lobby to load and capture initial credits
+        # Wait for game lobby to load
         await page.wait_for_timeout(12000)
-        result["chips_before"] = credits_captured["value"]
+        result["chips_before"] = credits_captured["before"]
 
-        # 1. Try to collect Daily Wheel / any popup bonus
+        # Now try to claim rewards via the game's API by executing JS in page context
+        if session_info["session_id"] and session_info["base_url"]:
+            base = session_info["base_url"]
+            sid = session_info["session_id"]
+
+            # Try claiming league reward
+            try:
+                league_result = await page.evaluate(f"""
+                    async () => {{
+                        try {{
+                            const resp = await fetch('{base}/v3/league/reward', {{
+                                method: 'POST',
+                                headers: {{'Content-Type': 'application/x-www-form-urlencoded'}},
+                                body: 'xrid=' + Date.now()
+                            }});
+                            const text = await resp.text();
+                            return text.substring(0, 300);
+                        }} catch(e) {{ return 'error:' + e.message; }}
+                    }}
+                """)
+                if league_result and 'error' not in str(league_result).lower():
+                    result["bonuses_collected"].append(f"league_reward")
+                    logger.info(f"  League reward for {email}: {str(league_result)[:100]}")
+            except Exception:
+                pass
+
+            # Try claiming daily bonus / wheel spin
+            try:
+                daily_result = await page.evaluate(f"""
+                    async () => {{
+                        try {{
+                            const resp = await fetch('{base}/v2/daily/bonus', {{
+                                method: 'POST',
+                                headers: {{'Content-Type': 'application/x-www-form-urlencoded'}},
+                                body: 'xrid=' + Date.now()
+                            }});
+                            return await resp.text();
+                        }} catch(e) {{ return 'error:' + e.message; }}
+                    }}
+                """)
+                if daily_result and 'error' not in str(daily_result).lower():
+                    result["bonuses_collected"].append("daily_bonus")
+            except Exception:
+                pass
+
+            # Try SFS httpbox command for collecting gifts
+            try:
+                gift_cmd = '{"t":"xt","b":{"c":"collectGift","r":-1,"x":"casinoExtension","p":{}}}'
+                gift_result = await page.evaluate(f"""
+                    async () => {{
+                        try {{
+                            const resp = await fetch('{base}/httpbox/poll', {{
+                                method: 'POST',
+                                headers: {{'Content-Type': 'application/x-www-form-urlencoded'}},
+                                body: 'sfsHttp={sid}' + encodeURIComponent('{gift_cmd}') + '&ts=' + Date.now() + '&prevts=' + (Date.now()-20000) + '&xrid=' + Date.now()
+                            }});
+                            return await resp.text();
+                        }} catch(e) {{ return 'error:' + e.message; }}
+                    }}
+                """)
+                if gift_result and 'error' not in str(gift_result).lower():
+                    result["bonuses_collected"].append("gift_collect")
+            except Exception:
+                pass
+
+            # Try claiming wheel spin
+            try:
+                wheel_cmd = '{"t":"xt","b":{"c":"spinWheel","r":-1,"x":"casinoExtension","p":{}}}'
+                wheel_result = await page.evaluate(f"""
+                    async () => {{
+                        try {{
+                            const resp = await fetch('{base}/httpbox/poll', {{
+                                method: 'POST',
+                                headers: {{'Content-Type': 'application/x-www-form-urlencoded'}},
+                                body: 'sfsHttp={sid}' + encodeURIComponent('{wheel_cmd}') + '&ts=' + Date.now() + '&prevts=' + (Date.now()-20000) + '&xrid=' + Date.now()
+                            }});
+                            return await resp.text();
+                        }} catch(e) {{ return 'error:' + e.message; }}
+                    }}
+                """)
+                if wheel_result and 'error' not in str(wheel_result).lower():
+                    result["bonuses_collected"].append("wheel_spin")
+            except Exception:
+                pass
+
+        # Wait and re-check balance
+        await page.wait_for_timeout(5000)
+
+        # Get final balance by reloading
+        credits_captured["after"] = None
         try:
-            # Look for collect/claim buttons in the game overlay
-            for selector in [
-                'img[src*="collect"]', 'img[src*="claim"]', 'img[src*="spin"]',
-                'img[src*="daily"]', 'img[src*="wheel"]', 'img[src*="bonus"]',
-                'img[src*="accept"]', 'img[src*="ok_btn"]', 'img[src*="close"]'
-            ]:
-                try:
-                    btn = await page.query_selector(selector)
-                    if btn:
-                        await btn.click(force=True)
-                        await page.wait_for_timeout(2000)
-                        result["bonuses_collected"].append(f"Clicked: {selector}")
-                except Exception:
-                    continue
-        except Exception as e:
-            result["errors"].append(f"Bonus collection: {e}")
-
-        # 2. Try redeeming promo codes via the Code Share button
-        if promo_codes:
-            for code in promo_codes[:5]:  # Max 5 codes per session
-                try:
-                    # Navigate to code redemption - try BUY CHIPS button
-                    buy_btn = await page.query_selector('img[src*="buy"], img[src*="chips"], a:has-text("BUY")')
-                    if buy_btn:
-                        await buy_btn.click(force=True)
-                        await page.wait_for_timeout(2000)
-
-                    # Look for code input
-                    code_input = await page.query_selector('input[name*="code"], input[placeholder*="code"], #promoCode, #codeInput')
-                    if code_input:
-                        await code_input.fill(code)
-                        await page.wait_for_timeout(500)
-                        # Submit
-                        submit_btn = await page.query_selector('img[src*="submit"], img[src*="redeem"], button:has-text("Redeem"), button:has-text("Submit")')
-                        if submit_btn:
-                            await submit_btn.click(force=True)
-                            await page.wait_for_timeout(3000)
-                            result["bonuses_collected"].append(f"Code: {code}")
-                except Exception:
-                    continue
-
-        # 3. Try collecting time bonus (hourly chip collection)
-        try:
-            time_bonus = await page.query_selector('img[src*="time"], img[src*="clock"], img[src*="hourly"]')
-            if time_bonus:
-                await time_bonus.click(force=True)
-                await page.wait_for_timeout(2000)
-                result["bonuses_collected"].append("Time bonus")
+            reload_result = await page.evaluate(f"""
+                async () => {{
+                    try {{
+                        const resp = await fetch('{session_info["base_url"]}/v2/lobby/game', {{
+                            method: 'POST',
+                            headers: {{'Content-Type': 'application/x-www-form-urlencoded'}},
+                            body: 'language=en&xrid=' + Date.now()
+                        }});
+                        return await resp.text();
+                    }} catch(e) {{ return ''; }}
+                }}
+            """) if session_info["base_url"] else ""
+            import re as _re
+            cash_match = _re.search(r'"cash"\s*:\s*(\d+)', reload_result or "")
+            if cash_match:
+                credits_captured["after"] = cash_match.group(1)
         except Exception:
             pass
 
-        # Wait and capture final credits
-        await page.wait_for_timeout(3000)
-
-        # Reset capture for fresh read
-        credits_captured["value"] = None
-        # Reload lobby to get updated balance
-        try:
-            await page.goto('https://www.doubledowncasino.com', wait_until='domcontentloaded', timeout=15000)
-            await page.wait_for_timeout(3000)
-            play_btn = await page.query_selector('img[src*="playnow"]')
-            if play_btn:
-                await play_btn.click(force=True)
-                await page.wait_for_timeout(10000)
-        except Exception:
-            pass
-
-        result["chips_after"] = credits_captured["value"]
-        page.remove_listener('response', capture_credits)
+        result["chips_after"] = credits_captured["after"] or credits_captured["before"]
+        page.remove_listener('response', capture_all)
 
     except Exception as e:
         result["errors"].append(str(e))
@@ -994,10 +1056,14 @@ async def _async_farm_worker(job_id):
                 # Update DB with farming results
                 update = {
                     "last_farmed_at": datetime.now(timezone.utc).isoformat(),
-                    "farm_bonuses": farm_result["bonuses_collected"]
+                    "farm_bonuses": farm_result["bonuses_collected"],
+                    "farm_errors": farm_result["errors"]
                 }
+                if farm_result["chips_before"]:
+                    update["credits_before_farm"] = farm_result["chips_before"]
                 if farm_result["chips_after"]:
                     update["credits"] = farm_result["chips_after"]
+                    update["credits_after_farm"] = farm_result["chips_after"]
                     update["credits_updated_at"] = datetime.now(timezone.utc).isoformat()
                 elif farm_result["chips_before"]:
                     update["credits"] = farm_result["chips_before"]

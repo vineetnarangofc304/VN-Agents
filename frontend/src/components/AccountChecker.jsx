@@ -258,6 +258,8 @@ const AccountChecker = () => {
                   <th style={{ width: 40 }}>#</th>
                   <th>Email</th>
                   <th style={{ width: 110 }}>Credits</th>
+                  <th style={{ width: 100 }}>Pre-Farm</th>
+                  <th style={{ width: 100 }}>Post-Farm</th>
                   <th style={{ width: 140 }}>Last Farmed</th>
                   <th style={{ width: 80 }}>Action</th>
                 </tr>
@@ -272,6 +274,25 @@ const AccountChecker = () => {
                         <span style={{ color: "#f59e0b", fontWeight: 700, fontSize: "0.9rem" }}>{formatCredits(r.credits)}</span>
                       ) : (
                         <span style={{ color: "var(--text-muted)", fontSize: "0.75rem" }}>pending</span>
+                      )}
+                    </td>
+                    <td>
+                      {formatCredits(r.credits_before_farm) ? (
+                        <span style={{ fontSize: "0.8rem", color: "var(--text-secondary)" }}>{formatCredits(r.credits_before_farm)}</span>
+                      ) : (
+                        <span style={{ color: "var(--text-muted)", fontSize: "0.7rem" }}>—</span>
+                      )}
+                    </td>
+                    <td>
+                      {formatCredits(r.credits_after_farm) ? (
+                        <span style={{ fontSize: "0.8rem", color: parseInt(r.credits_after_farm) > parseInt(r.credits_before_farm || "0") ? "#16a34a" : "var(--text-secondary)" }}>
+                          {formatCredits(r.credits_after_farm)}
+                          {parseInt(r.credits_after_farm) > parseInt(r.credits_before_farm || "0") && (
+                            <span style={{ color: "#16a34a", fontSize: "0.65rem", marginLeft: 4 }}>+{formatCredits(String(parseInt(r.credits_after_farm) - parseInt(r.credits_before_farm || "0")))}</span>
+                          )}
+                        </span>
+                      ) : (
+                        <span style={{ color: "var(--text-muted)", fontSize: "0.7rem" }}>—</span>
                       )}
                     </td>
                     <td>
