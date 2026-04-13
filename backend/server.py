@@ -916,3 +916,103 @@ async def startup_event():
 @app.on_event("shutdown")
 async def shutdown_db_client():
     client.close()
+
+
+# ============== Scheduled Posts Worker ==============
+import asyncio as _asyncio
+
+async def _scheduled_posts_worker():
+    """Background task that checks for and publishes scheduled posts."""
+    await _asyncio.sleep(10)  # Wait for startup
+    while True:
+        try:
+            from datetime import datetime, timezone
+            now = datetime.now(timezone.utc)
+            # Find posts that are due
+            due_posts = await db.scheduled_posts.find({
+                "status": "scheduled",
+                "scheduled_at": {"$lte": now.isoformat()}
+            }).to_list(10)
+
+            for post in due_posts:
+                try:
+                    import httpx
+                    # Use the linkedin post endpoint internally
+                    from routes.linkedin import get_valid_token, LINKEDIN_POSTS_URL, LINKEDIN_API_VERSION, INFOGRAPHIC_DIR
+                    access_token, person_urn = await get_valid_token(post["account_id"])
+
+                    headers = {
+                        "Authorization": f"Bearer {access_token}",
+                        "Content-Type": "application/json",
+                        "X-Restli-Protocol-Version": "2.0.0",
+                        "LinkedIn-Version": LINKEDIN_API_VERSION
+                    }
+
+                    image_urn = None
+                    # Upload image if provided
+                    if post.get("image_path"):
+                        image_file = Path(post["image_path"])
+                        if image_file.exists():
+                            init_payload = {"initializeUploadRequest": {"owner": person_urn}}
+                            async with httpx.AsyncClient() as http_client:
+                                init_resp = await http_client.post(
+                                    "https://api.linkedin.com/rest/images?action=initializeUpload",
+                                    json=init_payload, headers=headers
+                                )
+                            if init_resp.status_code in [200, 201]:
+                                init_data = init_resp.json()
+                                upload_url = init_data["value"]["uploadUrl"]
+                                image_urn = init_data["value"]["image"]
+                                with open(image_file, "rb") as f:
+                                    image_bytes = f.read()
+                                async with httpx.AsyncClient() as http_client:
+                                    await http_client.put(upload_url, content=image_bytes, headers={
+                                        "Authorization": f"Bearer {access_token}",
+                                        "Content-Type": "application/octet-stream",
+                                        "LinkedIn-Version": LINKEDIN_API_VERSION
+                                    }, timeout=60.0)
+
+                    payload = {
+                        "author": person_urn,
+                        "commentary": post["content"],
+                        "visibility": "PUBLIC",
+                        "distribution": {"feedDistribution": "MAIN_FEED", "targetEntities": [], "thirdPartyDistributionChannels": []},
+                        "lifecycleState": "PUBLISHED",
+                        "isReshareDisabledByAuthor": False
+                    }
+                    if image_urn:
+                        payload["content"] = {"media": {"id": image_urn}}
+
+                    async with httpx.AsyncClient() as http_client:
+                        response = await http_client.post(LINKEDIN_POSTS_URL, json=payload, headers=headers)
+
+                    post_id = response.headers.get("x-restli-id", "")
+                    if response.status_code in [200, 201]:
+                        await db.scheduled_posts.update_one(
+                            {"_id": post["_id"]},
+                            {"$set": {"status": "published", "post_id": post_id, "published_at": now.isoformat()}}
+                        )
+                        logger.info(f"Scheduled post published: {post_id}")
+                    else:
+                        await db.scheduled_posts.update_one(
+                            {"_id": post["_id"]},
+                            {"$set": {"status": "failed", "error": response.text[:500]}}
+                        )
+                        logger.error(f"Scheduled post failed: {response.text[:200]}")
+
+                except Exception as e:
+                    logger.error(f"Scheduled post error: {e}")
+                    await db.scheduled_posts.update_one(
+                        {"_id": post["_id"]},
+                        {"$set": {"status": "failed", "error": str(e)[:500]}}
+                    )
+
+        except Exception as e:
+            logger.error(f"Scheduler worker error: {e}")
+
+        await _asyncio.sleep(60)  # Check every minute
+
+
+@app.on_event("startup")
+async def start_scheduler():
+    _asyncio.create_task(_scheduled_posts_worker())
