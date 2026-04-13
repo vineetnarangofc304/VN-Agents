@@ -542,16 +542,30 @@ async def get_scan_status():
 
 
 @router.get("/results")
-async def get_results(status_filter: str = Query("success"), limit: int = 100, page: int = 1):
+async def get_results(status_filter: str = Query("success"), limit: int = 5000, sort_by: str = Query("credits")):
     query = {}
     if status_filter != "all":
         query["status"] = status_filter
-    skip = (page - 1) * limit
-    results = await db.login_results.find(query, {"_id": 0}).sort("tested_at", -1).skip(skip).limit(limit).to_list(limit)
+
+    # Sort: credits descending (numeric), then by tested_at
+    if sort_by == "credits":
+        # Custom sort: accounts with numeric credits first (desc), then unknown, then none
+        results = await db.login_results.find(query, {"_id": 0}).to_list(limit)
+        def credits_sort_key(r):
+            c = r.get("credits")
+            if c is None or c == "LOGIN_OK_CREDITS_UNKNOWN":
+                return -1
+            try:
+                return int(c)
+            except (ValueError, TypeError):
+                return 0
+        results.sort(key=credits_sort_key, reverse=True)
+    else:
+        results = await db.login_results.find(query, {"_id": 0}).sort("tested_at", -1).to_list(limit)
+
     total_success = await db.login_results.count_documents({"status": "success"})
     total_tested = await db.login_results.count_documents({})
-    total_matching = await db.login_results.count_documents(query)
-    return {"results": results, "total_success": total_success, "total_tested": total_tested, "total_matching": total_matching, "page": page, "per_page": limit}
+    return {"results": results, "total_success": total_success, "total_tested": total_tested}
 
 
 @router.post("/reset")
@@ -576,7 +590,7 @@ async def download_results():
     header_fill = PatternFill(start_color='1F4E79', end_color='1F4E79', fill_type='solid')
     thin_border = Border(left=Side(style='thin'), right=Side(style='thin'), top=Side(style='thin'), bottom=Side(style='thin'))
 
-    headers = ['#', 'Email', 'Prefix', 'Number', 'Tested At']
+    headers = ['#', 'Email', 'Prefix', 'Number', 'Credits', 'Last Farmed', 'Tested At']
     for col, header in enumerate(headers, 1):
         cell = ws.cell(row=1, column=col, value=header)
         cell.font = header_font
@@ -584,14 +598,16 @@ async def download_results():
         cell.border = thin_border
 
     for idx, r in enumerate(results, 2):
-        values = [idx - 1, r.get('email', ''), r.get('prefix', ''), r.get('num', ''), r.get('tested_at', '')]
+        values = [idx - 1, r.get('email', ''), r.get('prefix', ''), r.get('num', ''), r.get('credits', ''), r.get('last_farmed_at', ''), r.get('tested_at', '')]
         for col, v in enumerate(values, 1):
             cell = ws.cell(row=idx, column=col, value=v)
             cell.border = thin_border
 
     ws.column_dimensions['B'].width = 35
     ws.column_dimensions['C'].width = 15
-    ws.column_dimensions['E'].width = 25
+    ws.column_dimensions['E'].width = 15
+    ws.column_dimensions['F'].width = 25
+    ws.column_dimensions['G'].width = 25
     ws.freeze_panes = 'A2'
 
     output = io.BytesIO()
@@ -742,3 +758,302 @@ async def get_credits_status():
         "with_credits": with_credits,
         "pending": pending
     }
+
+
+# ============== Chip Farmer ==============
+active_farm_jobs = {}
+
+PROMO_CODE_SOURCES = [
+    "https://gamehunters.club/doubledown-casino-free-slots/share-links",
+    "https://www.giftseize.io/games/doubledown-casino-promo-codes-free-chips",
+    "https://thegamereward.com/double-down-casino-codes/",
+]
+
+
+async def _farm_single_account(page, email, password, promo_codes=None):
+    """Login to DDC, collect all free bonuses, redeem promo codes. Returns dict with results."""
+    result = {"chips_before": None, "chips_after": None, "bonuses_collected": [], "errors": []}
+
+    try:
+        credits_captured = {"value": None}
+
+        async def capture_credits(response):
+            if 'lobby/game' in response.url:
+                try:
+                    text = await response.text()
+                    import re as _re
+                    cash_match = _re.search(r'"cash"\s*:\s*(\d+)', text)
+                    if cash_match:
+                        credits_captured["value"] = cash_match.group(1)
+                except Exception:
+                    pass
+
+        page.on('response', capture_credits)
+
+        await page.goto('https://www.doubledowncasino.com', wait_until='domcontentloaded', timeout=20000)
+        await page.wait_for_timeout(2500)
+
+        play_btn = await page.query_selector('img[src*="playnow"]')
+        if play_btn:
+            await play_btn.click(force=True)
+            await page.wait_for_timeout(2000)
+
+        try:
+            await page.click('img[src*="email_connect"]', force=True, timeout=5000)
+            await page.wait_for_timeout(800)
+        except Exception:
+            page.remove_listener('response', capture_credits)
+            result["errors"].append("Could not find email connect button")
+            return result
+
+        try:
+            await page.click('img[src*="email_dailog_login"]', force=True, timeout=3000)
+            await page.wait_for_timeout(400)
+        except Exception:
+            pass
+
+        try:
+            await page.fill('#emailID', email, timeout=3000)
+            await page.fill('#pw', password, timeout=3000)
+        except Exception:
+            page.remove_listener('response', capture_credits)
+            result["errors"].append("Could not fill login form")
+            return result
+
+        try:
+            await page.click('img[src*="green_login"]', force=True, timeout=3000)
+        except Exception:
+            page.remove_listener('response', capture_credits)
+            result["errors"].append("Could not click login")
+            return result
+
+        # Wait for game lobby to load and capture initial credits
+        await page.wait_for_timeout(12000)
+        result["chips_before"] = credits_captured["value"]
+
+        # 1. Try to collect Daily Wheel / any popup bonus
+        try:
+            # Look for collect/claim buttons in the game overlay
+            for selector in [
+                'img[src*="collect"]', 'img[src*="claim"]', 'img[src*="spin"]',
+                'img[src*="daily"]', 'img[src*="wheel"]', 'img[src*="bonus"]',
+                'img[src*="accept"]', 'img[src*="ok_btn"]', 'img[src*="close"]'
+            ]:
+                try:
+                    btn = await page.query_selector(selector)
+                    if btn:
+                        await btn.click(force=True)
+                        await page.wait_for_timeout(2000)
+                        result["bonuses_collected"].append(f"Clicked: {selector}")
+                except Exception:
+                    continue
+        except Exception as e:
+            result["errors"].append(f"Bonus collection: {e}")
+
+        # 2. Try redeeming promo codes via the Code Share button
+        if promo_codes:
+            for code in promo_codes[:5]:  # Max 5 codes per session
+                try:
+                    # Navigate to code redemption - try BUY CHIPS button
+                    buy_btn = await page.query_selector('img[src*="buy"], img[src*="chips"], a:has-text("BUY")')
+                    if buy_btn:
+                        await buy_btn.click(force=True)
+                        await page.wait_for_timeout(2000)
+
+                    # Look for code input
+                    code_input = await page.query_selector('input[name*="code"], input[placeholder*="code"], #promoCode, #codeInput')
+                    if code_input:
+                        await code_input.fill(code)
+                        await page.wait_for_timeout(500)
+                        # Submit
+                        submit_btn = await page.query_selector('img[src*="submit"], img[src*="redeem"], button:has-text("Redeem"), button:has-text("Submit")')
+                        if submit_btn:
+                            await submit_btn.click(force=True)
+                            await page.wait_for_timeout(3000)
+                            result["bonuses_collected"].append(f"Code: {code}")
+                except Exception:
+                    continue
+
+        # 3. Try collecting time bonus (hourly chip collection)
+        try:
+            time_bonus = await page.query_selector('img[src*="time"], img[src*="clock"], img[src*="hourly"]')
+            if time_bonus:
+                await time_bonus.click(force=True)
+                await page.wait_for_timeout(2000)
+                result["bonuses_collected"].append("Time bonus")
+        except Exception:
+            pass
+
+        # Wait and capture final credits
+        await page.wait_for_timeout(3000)
+
+        # Reset capture for fresh read
+        credits_captured["value"] = None
+        # Reload lobby to get updated balance
+        try:
+            await page.goto('https://www.doubledowncasino.com', wait_until='domcontentloaded', timeout=15000)
+            await page.wait_for_timeout(3000)
+            play_btn = await page.query_selector('img[src*="playnow"]')
+            if play_btn:
+                await play_btn.click(force=True)
+                await page.wait_for_timeout(10000)
+        except Exception:
+            pass
+
+        result["chips_after"] = credits_captured["value"]
+        page.remove_listener('response', capture_credits)
+
+    except Exception as e:
+        result["errors"].append(str(e))
+
+    return result
+
+
+def _fetch_promo_codes():
+    """Scrape latest promo codes from collector sites."""
+    import requests
+    import re
+    codes = []
+    try:
+        # Try gamehunters.club for share links
+        resp = requests.get(PROMO_CODE_SOURCES[0], timeout=15, headers={
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+        })
+        if resp.status_code == 200:
+            # Extract share link IDs
+            links = re.findall(r'share-links/click/(\d+)', resp.text)
+            for link_id in links[:10]:
+                codes.append(f"https://gamehunters.club/doubledown-casino-free-slots/share-links/click/{link_id}")
+    except Exception as e:
+        logger.debug(f"Promo code fetch error: {e}")
+
+    try:
+        # Try giftseize for actual codes
+        resp = requests.get(PROMO_CODE_SOURCES[1], timeout=15, headers={
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+        })
+        if resp.status_code == 200:
+            import re
+            code_matches = re.findall(r'[A-Z0-9]{6,20}', resp.text)
+            for c in code_matches[:10]:
+                if len(c) >= 8 and not c.startswith('HTTP'):
+                    codes.append(c)
+    except Exception:
+        pass
+
+    return codes
+
+
+def run_farm_worker(job_id):
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    loop.run_until_complete(_async_farm_worker(job_id))
+    loop.close()
+
+
+async def _async_farm_worker(job_id):
+    """Farm chips for all successful accounts."""
+    os.environ['PLAYWRIGHT_BROWSERS_PATH'] = '/pw-browsers'
+    from playwright.async_api import async_playwright
+
+    sync_client = MongoClient(mongo_url)
+    sync_db = sync_client[db_name]
+
+    accounts = list(sync_db.login_results.find({"status": "success"}, {"email": 1}))
+    total = len(accounts)
+
+    # Fetch promo codes
+    promo_codes = _fetch_promo_codes()
+    logger.info(f"Chip Farm: {total} accounts, {len(promo_codes)} promo codes found")
+
+    active_farm_jobs[job_id] = {
+        "status": "running",
+        "total": total,
+        "processed": 0,
+        "chips_gained": 0,
+        "current_email": "",
+        "promo_codes_found": len(promo_codes),
+        "started_at": datetime.now(timezone.utc).isoformat()
+    }
+
+    try:
+        async with async_playwright() as p:
+            browser = await p.chromium.launch(headless=True)
+            context = await browser.new_context(viewport={'width': 1920, 'height': 1080})
+            page = await context.new_page()
+
+            for i, account in enumerate(accounts):
+                if active_farm_jobs.get(job_id, {}).get("status") != "running":
+                    break
+
+                email = account["email"]
+                active_farm_jobs[job_id]["current_email"] = email
+
+                farm_result = await _farm_single_account(page, email, PASSWORD, promo_codes)
+
+                # Update DB with farming results
+                update = {
+                    "last_farmed_at": datetime.now(timezone.utc).isoformat(),
+                    "farm_bonuses": farm_result["bonuses_collected"]
+                }
+                if farm_result["chips_after"]:
+                    update["credits"] = farm_result["chips_after"]
+                    update["credits_updated_at"] = datetime.now(timezone.utc).isoformat()
+                elif farm_result["chips_before"]:
+                    update["credits"] = farm_result["chips_before"]
+                    update["credits_updated_at"] = datetime.now(timezone.utc).isoformat()
+
+                # Calculate gain
+                before = int(farm_result["chips_before"] or 0)
+                after = int(farm_result["chips_after"] or farm_result["chips_before"] or 0)
+                if after > before:
+                    active_farm_jobs[job_id]["chips_gained"] += (after - before)
+
+                sync_db.login_results.update_one({"email": email}, {"$set": update})
+                active_farm_jobs[job_id]["processed"] = i + 1
+
+                if farm_result["chips_after"]:
+                    logger.info(f"Farmed {email}: {farm_result['chips_before']} → {farm_result['chips_after']} | Bonuses: {farm_result['bonuses_collected']}")
+
+            await context.close()
+            await browser.close()
+
+    except Exception as e:
+        logger.error(f"Farm error: {e}")
+        active_farm_jobs[job_id]["error"] = str(e)
+    finally:
+        sync_client.close()
+
+    if active_farm_jobs[job_id]["status"] == "running":
+        active_farm_jobs[job_id]["status"] = "completed"
+    active_farm_jobs[job_id]["completed_at"] = datetime.now(timezone.utc).isoformat()
+
+
+@router.post("/farm/start")
+async def start_chip_farm():
+    for jid, job in active_farm_jobs.items():
+        if job["status"] == "running":
+            return {"message": "Farm already running", "job_id": jid, "status": job}
+
+    total = await db.login_results.count_documents({"status": "success"})
+    job_id = str(uuid.uuid4())
+    thread = threading.Thread(target=run_farm_worker, args=(job_id,), daemon=True)
+    thread.start()
+    return {"job_id": job_id, "total_accounts": total, "status": "started"}
+
+
+@router.post("/farm/stop")
+async def stop_chip_farm():
+    for jid, job in active_farm_jobs.items():
+        if job["status"] == "running":
+            job["status"] = "stopped"
+            return {"message": "Farm stopped", "job_id": jid}
+    return {"message": "No active farm"}
+
+
+@router.get("/farm/status")
+async def get_farm_status():
+    if active_farm_jobs:
+        latest = max(active_farm_jobs.keys(), key=lambda k: active_farm_jobs[k].get("started_at", ""))
+        return active_farm_jobs[latest]
+    return {"status": "idle"}
