@@ -113,6 +113,8 @@ class LinkedInPostRequest(BaseModel):
     post_type: str = "text"
     link_url: Optional[str] = None
     link_title: Optional[str] = None
+    image_path: Optional[str] = None  # Local file path to infographic
+    link_title: Optional[str] = None
 
 class ContentGenerateRequest(BaseModel):
     company: str
@@ -401,10 +403,78 @@ async def get_valid_token(account_id: str) -> tuple:
 # ============== Posting ==============
 @router.post("/post")
 async def create_linkedin_post(request: LinkedInPostRequest):
-    """Post content to LinkedIn personal profile."""
+    """Post content to LinkedIn personal profile, with optional image."""
     access_token, person_urn = await get_valid_token(request.account_id)
 
-    # Build payload based on post type
+    headers = {
+        "Authorization": f"Bearer {access_token}",
+        "Content-Type": "application/json",
+        "X-Restli-Protocol-Version": "2.0.0",
+        "LinkedIn-Version": LINKEDIN_API_VERSION
+    }
+
+    image_urn = None
+
+    # Upload image if provided
+    if request.image_path:
+        image_file = Path(request.image_path)
+        if not image_file.exists():
+            # Try relative to infographics dir
+            image_file = INFOGRAPHIC_DIR / request.image_path
+        if not image_file.exists():
+            raise HTTPException(status_code=400, detail=f"Image file not found: {request.image_path}")
+
+        try:
+            # Step 1: Initialize upload
+            init_payload = {
+                "initializeUploadRequest": {
+                    "owner": person_urn
+                }
+            }
+            async with httpx.AsyncClient() as http_client:
+                init_resp = await http_client.post(
+                    "https://api.linkedin.com/rest/images?action=initializeUpload",
+                    json=init_payload,
+                    headers=headers
+                )
+
+            if init_resp.status_code not in [200, 201]:
+                logger.error(f"Image init failed [{init_resp.status_code}]: {init_resp.text}")
+                raise HTTPException(status_code=500, detail=f"Image upload init failed: {init_resp.text[:200]}")
+
+            init_data = init_resp.json()
+            upload_url = init_data["value"]["uploadUrl"]
+            image_urn = init_data["value"]["image"]
+
+            # Step 2: Upload binary
+            with open(image_file, "rb") as f:
+                image_bytes = f.read()
+
+            async with httpx.AsyncClient() as http_client:
+                upload_resp = await http_client.put(
+                    upload_url,
+                    content=image_bytes,
+                    headers={
+                        "Authorization": f"Bearer {access_token}",
+                        "Content-Type": "application/octet-stream",
+                        "LinkedIn-Version": LINKEDIN_API_VERSION
+                    },
+                    timeout=60.0
+                )
+
+            if upload_resp.status_code not in [200, 201]:
+                logger.error(f"Image upload failed [{upload_resp.status_code}]: {upload_resp.text}")
+                raise HTTPException(status_code=500, detail=f"Image binary upload failed: {upload_resp.text[:200]}")
+
+            logger.info(f"Image uploaded to LinkedIn: {image_urn}")
+
+        except HTTPException:
+            raise
+        except Exception as e:
+            logger.error(f"Image upload error: {e}")
+            raise HTTPException(status_code=500, detail=f"Image upload error: {str(e)}")
+
+    # Build post payload
     payload = {
         "author": person_urn,
         "commentary": request.content,
@@ -418,8 +488,15 @@ async def create_linkedin_post(request: LinkedInPostRequest):
         "isReshareDisabledByAuthor": False
     }
 
-    # Add link content if provided
-    if request.post_type == "link" and request.link_url:
+    # Add image content if uploaded
+    if image_urn:
+        payload["content"] = {
+            "media": {
+                "id": image_urn
+            }
+        }
+    # Add link content if provided (and no image)
+    elif request.post_type == "link" and request.link_url:
         payload["content"] = {
             "article": {
                 "source": request.link_url,
