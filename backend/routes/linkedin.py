@@ -135,7 +135,12 @@ async def linkedin_auth():
         raise HTTPException(status_code=500, detail="LinkedIn Client ID not configured")
 
     state = secrets.token_urlsafe(32)
-    oauth_states[state] = {"created_at": time.time(), "used": False}
+    # Store in MongoDB so it survives server restarts
+    await db.oauth_states.insert_one({
+        "state": state,
+        "created_at": time.time(),
+        "used": False
+    })
 
     scopes = "openid profile w_member_social"
     params = (
@@ -171,14 +176,15 @@ async def linkedin_callback(code: str = Query(None), state: str = Query(None), e
     if not code or not state:
         raise HTTPException(status_code=400, detail="Missing code or state parameter")
 
-    # Validate state
-    if state not in oauth_states:
+    # Validate state from MongoDB
+    state_doc = await db.oauth_states.find_one({"state": state})
+    if not state_doc:
         raise HTTPException(status_code=400, detail="Invalid state parameter - possible CSRF attack")
 
-    state_data = oauth_states.pop(state)
-    if state_data["used"]:
+    await db.oauth_states.delete_one({"state": state})
+    if state_doc.get("used"):
         raise HTTPException(status_code=400, detail="State token already used")
-    if time.time() - state_data["created_at"] > 600:
+    if time.time() - state_doc["created_at"] > 600:
         raise HTTPException(status_code=400, detail="State token expired")
 
     try:
