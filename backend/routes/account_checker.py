@@ -625,14 +625,16 @@ async def get_scan_status():
 
 
 @router.get("/results")
-async def get_results(status_filter: str = Query("success"), limit: int = 500):
+async def get_results(status_filter: str = Query("success"), limit: int = 100, page: int = 1):
     query = {}
     if status_filter != "all":
         query["status"] = status_filter
-    results = await db.login_results.find(query, {"_id": 0}).sort("tested_at", -1).to_list(limit)
+    skip = (page - 1) * limit
+    results = await db.login_results.find(query, {"_id": 0}).sort("tested_at", -1).skip(skip).limit(limit).to_list(limit)
     total_success = await db.login_results.count_documents({"status": "success"})
     total_tested = await db.login_results.count_documents({})
-    return {"results": results, "total_success": total_success, "total_tested": total_tested}
+    total_matching = await db.login_results.count_documents(query)
+    return {"results": results, "total_success": total_success, "total_tested": total_tested, "total_matching": total_matching, "page": page, "per_page": limit}
 
 
 @router.post("/reset")

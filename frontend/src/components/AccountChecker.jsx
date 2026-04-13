@@ -18,6 +18,9 @@ const AccountChecker = () => {
   const [isStarting, setIsStarting] = useState(false);
   const [creditsStatus, setCreditsStatus] = useState(null);
   const [creditsStarting, setCreditsStarting] = useState(false);
+  const [page, setPage] = useState(1);
+  const [totalMatching, setTotalMatching] = useState(0);
+  const perPage = 50;
   const pollRef = useRef(null);
 
   const fetchRanges = useCallback(async () => {
@@ -42,14 +45,15 @@ const AccountChecker = () => {
 
   const fetchResults = useCallback(async () => {
     try {
-      const res = await axios.get(`${API}/checker/results?status_filter=success&limit=500`);
+      const res = await axios.get(`${API}/checker/results?status_filter=success&limit=${perPage}&page=${page}`);
       setResults(res.data.results || []);
       setTotalSuccess(res.data.total_success || 0);
       setTotalTested(res.data.total_tested || 0);
+      setTotalMatching(res.data.total_matching || 0);
     } catch (err) {
       console.error("Results fetch error:", err);
     }
-  }, []);
+  }, [page]);
 
   const fetchCreditsStatus = useCallback(async () => {
     try {
@@ -315,9 +319,18 @@ const AccountChecker = () => {
       <div className="ck-results-section" data-testid="results-section">
         <div className="ck-results-header">
           <h2><CheckCircle size={18} /> Active Accounts ({totalSuccess})</h2>
-          {totalTested > 0 && (
-            <span className="ck-tested-info">{totalTested} tested so far</span>
-          )}
+          <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+            {totalTested > 0 && (
+              <span className="ck-tested-info">{totalTested} tested so far</span>
+            )}
+            {totalMatching > perPage && (
+              <div className="hcl-pagination" data-testid="pagination">
+                <button className="hcl-page-btn" disabled={page <= 1} onClick={() => setPage(page - 1)}>&lt;</button>
+                <span>Page {page} of {Math.ceil(totalMatching / perPage)}</span>
+                <button className="hcl-page-btn" disabled={page * perPage >= totalMatching} onClick={() => setPage(page + 1)}>&gt;</button>
+              </div>
+            )}
+          </div>
         </div>
         {results.length === 0 ? (
           <div className="ck-empty">
@@ -344,7 +357,7 @@ const AccountChecker = () => {
               <tbody>
                 {results.map((r, idx) => (
                   <tr key={r.email} className="dir-row" data-testid={`result-row-${idx}`}>
-                    <td className="dir-cell-num">{idx + 1}</td>
+                    <td className="dir-cell-num">{(page - 1) * perPage + idx + 1}</td>
                     <td>
                       <span className="ck-email-success">
                         <CheckCircle size={14} /> {r.email}
