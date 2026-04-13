@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import axios from "axios";
 import {
   Loader2, Play, Square, Download, CheckCircle, XCircle,
-  AlertCircle, RefreshCw, FileSpreadsheet, Key, Mail, Shield, ExternalLink
+  AlertCircle, RefreshCw, FileSpreadsheet, Key, Mail, Shield, ExternalLink, Coins
 } from "lucide-react";
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
@@ -16,6 +16,8 @@ const AccountChecker = () => {
   const [totalTested, setTotalTested] = useState(0);
   const [statusMsg, setStatusMsg] = useState(null);
   const [isStarting, setIsStarting] = useState(false);
+  const [creditsStatus, setCreditsStatus] = useState(null);
+  const [creditsStarting, setCreditsStarting] = useState(false);
   const pollRef = useRef(null);
 
   const fetchRanges = useCallback(async () => {
@@ -49,25 +51,35 @@ const AccountChecker = () => {
     }
   }, []);
 
+  const fetchCreditsStatus = useCallback(async () => {
+    try {
+      const res = await axios.get(`${API}/checker/credits/status`);
+      setCreditsStatus(res.data);
+      return res.data;
+    } catch (err) { return null; }
+  }, []);
+
   useEffect(() => {
     fetchRanges();
     fetchStatus();
     fetchResults();
-  }, [fetchRanges, fetchStatus, fetchResults]);
+    fetchCreditsStatus();
+  }, [fetchRanges, fetchStatus, fetchResults, fetchCreditsStatus]);
 
   // Poll when scan is running
   useEffect(() => {
-    if (scanStatus?.status === "running") {
+    if (scanStatus?.status === "running" || creditsStatus?.status === "running") {
       pollRef.current = setInterval(async () => {
         const s = await fetchStatus();
         await fetchResults();
-        if (s && s.status !== "running") {
+        await fetchCreditsStatus();
+        if (s && s.status !== "running" && creditsStatus?.status !== "running") {
           clearInterval(pollRef.current);
         }
       }, 3000);
       return () => clearInterval(pollRef.current);
     }
-  }, [scanStatus?.status, fetchStatus, fetchResults]);
+  }, [scanStatus?.status, creditsStatus?.status, fetchStatus, fetchResults, fetchCreditsStatus]);
 
   const handleStart = async () => {
     setIsStarting(true);
@@ -101,7 +113,31 @@ const AccountChecker = () => {
     window.open(`${API}/checker/download`, "_blank");
   };
 
+  const handleStartCredits = async () => {
+    setCreditsStarting(true);
+    try {
+      const res = await axios.post(`${API}/checker/credits/start`);
+      setStatusMsg({ type: "success", text: `Credits scan started — ${res.data.pending_accounts} accounts to process` });
+      fetchCreditsStatus();
+    } catch (err) {
+      setStatusMsg({ type: "error", text: "Failed to start credits scan" });
+    } finally {
+      setCreditsStarting(false);
+    }
+  };
+
+  const handleStopCredits = async () => {
+    try {
+      await axios.post(`${API}/checker/credits/stop`);
+      setStatusMsg({ type: "success", text: "Credits scan stopped" });
+      fetchCreditsStatus();
+    } catch (err) {
+      setStatusMsg({ type: "error", text: "Failed to stop credits scan" });
+    }
+  };
+
   const isRunning = scanStatus?.status === "running";
+  const isCreditsRunning = creditsStatus?.status === "running";
   const progress = scanStatus?.total > 0 ? ((scanStatus?.tested || 0) / scanStatus.total * 100).toFixed(1) : 0;
 
   return (
@@ -172,7 +208,62 @@ const AccountChecker = () => {
             <Square size={18} /> Stop Scan
           </button>
         )}
+
+        {/* Credits Scan Button */}
+        {totalSuccess > 0 && (
+          !isCreditsRunning ? (
+            <button
+              className="ck-start-btn"
+              onClick={handleStartCredits}
+              disabled={creditsStarting}
+              data-testid="start-credits-btn"
+              style={{ marginLeft: 8, background: "#f59e0b" }}
+            >
+              {creditsStarting ? (
+                <><Loader2 className="spin" size={18} /> Starting Credits...</>
+              ) : (
+                <><Coins size={18} /> Scan Credits ({creditsStatus?.pending || "?"} pending)</>
+              )}
+            </button>
+          ) : (
+            <button className="ck-stop-btn" onClick={handleStopCredits} data-testid="stop-credits-btn" style={{ marginLeft: 8 }}>
+              <Square size={18} /> Stop Credits
+            </button>
+          )
+        )}
       </div>
+
+      {/* Credits Progress */}
+      {creditsStatus && creditsStatus.status === "running" && (
+        <div className="ck-progress-section" data-testid="credits-progress" style={{ borderColor: "#f59e0b" }}>
+          <div className="ck-progress-header">
+            <h2><Coins size={18} /> Credits Scan</h2>
+            <span className="ck-status-badge running">running</span>
+          </div>
+          <div className="ck-progress-bar-container">
+            <div className="ck-progress-bar" style={{ width: `${creditsStatus.total > 0 ? (creditsStatus.processed / creditsStatus.total * 100).toFixed(1) : 0}%`, background: "#f59e0b" }} />
+          </div>
+          <div className="ck-progress-stats">
+            <div className="ck-stat">
+              <span className="ck-stat-num">{creditsStatus.processed || 0}</span>
+              <span className="ck-stat-label">Processed</span>
+            </div>
+            <div className="ck-stat">
+              <span className="ck-stat-num">{creditsStatus.total || 0}</span>
+              <span className="ck-stat-label">Total</span>
+            </div>
+            <div className="ck-stat success">
+              <span className="ck-stat-num">{creditsStatus.credits_found || 0}</span>
+              <span className="ck-stat-label">Credits Found</span>
+            </div>
+          </div>
+          {creditsStatus.current_email && (
+            <div className="ck-current-email">
+              <Loader2 className="spin" size={14} /> Scraping: {creditsStatus.current_email}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Progress */}
       {scanStatus && scanStatus.status !== "idle" && (
@@ -245,6 +336,7 @@ const AccountChecker = () => {
                   <th>Email</th>
                   <th>Prefix</th>
                   <th>Number</th>
+                  <th>Credits</th>
                   <th>Tested At</th>
                   <th style={{ width: 90 }}>Action</th>
                 </tr>
@@ -260,6 +352,13 @@ const AccountChecker = () => {
                     </td>
                     <td>{r.prefix}</td>
                     <td>{r.num}</td>
+                    <td>
+                      {r.credits ? (
+                        <span style={{ color: "#f59e0b", fontWeight: 600 }}>{r.credits}</span>
+                      ) : (
+                        <span style={{ color: "var(--text-muted)" }}>—</span>
+                      )}
+                    </td>
                     <td className="dir-cell-phone">
                       {r.tested_at ? new Date(r.tested_at).toLocaleString() : "-"}
                     </td>
