@@ -143,12 +143,13 @@ async def linkedin_auth():
     })
 
     scopes = "openid profile w_member_social"
+    from urllib.parse import quote
     params = (
         f"response_type=code"
         f"&client_id={LINKEDIN_CLIENT_ID}"
-        f"&redirect_uri={LINKEDIN_REDIRECT_URI}"
+        f"&redirect_uri={quote(LINKEDIN_REDIRECT_URI, safe='')}"
         f"&state={state}"
-        f"&scope={scopes}"
+        f"&scope={quote(scopes, safe='')}"
     )
     auth_url = f"{LINKEDIN_AUTH_URL}?{params}"
     return {"auth_url": auth_url, "state": state}
