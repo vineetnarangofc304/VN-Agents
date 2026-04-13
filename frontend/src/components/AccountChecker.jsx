@@ -236,7 +236,7 @@ const AccountChecker = () => {
           <div className="ck-progress-stats">
             <div className="ck-stat"><span className="ck-stat-num">{farmStatus.processed || 0}/{farmStatus.total || 0}</span><span className="ck-stat-label">Accounts</span></div>
             <div className="ck-stat success"><span className="ck-stat-num">{(farmStatus.chips_gained || 0).toLocaleString()}</span><span className="ck-stat-label">Chips Gained</span></div>
-            <div className="ck-stat"><span className="ck-stat-num">{farmStatus.promo_codes_found || 0}</span><span className="ck-stat-label">Promo Codes</span></div>
+            <div className="ck-stat"><span className="ck-stat-num">{farmStatus.promo_links_found || 0}</span><span className="ck-stat-label">Promo Links</span></div>
           </div>
           {farmStatus.current_email && <div className="ck-current-email"><Loader2 className="spin" size={14} /> Farming: {farmStatus.current_email}</div>}
         </div>

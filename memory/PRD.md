@@ -18,36 +18,52 @@ Build a multi-agent platform serving 7 completely independent agents, each acces
 ### Agent 3: Stock Investor (`/stocks`) - NSE scanner, portfolio tracker
 ### Agent 4: LinkedIn (`/linkedin`)
 - OAuth 2.0, AI content gen, post to LinkedIn, scheduling
-- **HearClear tab**: 8 themed infographic generator (Market Disruptor, Dementia Connection, AI Revolution, Ecosystem Flywheel, Investor Thesis, Patient Experience, Audiologist Army, India Crisis Map)
-- Background generation with polling, persistent storage, download, thumbnails
+- HearClear + Fundle.ai infographics (Nano Banana generation)
+- 6-hour background scheduler for auto-posting
 
 ### Agent 5: PDF Extractor (`/directory`) - PDF to Excel extraction
 ### Agent 6: Account Checker (`/checker`)
-- DDC email scanner with resume, persistent results, Login button per row
-- Credits capture planned as Phase 2
+- DDC email scanner with resume (860 active accounts found from 8,746 emails)
+- Credits capture via Playwright `/v2/lobby/game` interception
+- **Chip Farming (v2)**: Complete rewrite with Bearer token auth approach
+  - Promo link scraping from 6 fan sites (344+ links per scan)
+  - DWS (Daily Wheel Service) API discovered: `/dws/client/v2/ack/dailyspin/{key}`
+  - Bearer JWT token capture and direct Python HTTP API calls
+  - Terms popup acceptance handler
+  - Coordinate-based UI click for COLLECT and time bonus
+  - Gain tracking against DB-stored baseline
+  - Proven: daily wheel adds ~100K-500K chips per account per day
 
-### Agent 7: Catchment Mining (`/catchment`) — NEW
+### Agent 7: Catchment Mining (`/catchment`)
 - Web crawler for Delhi NCR contact databases
-- 15 seed URLs (verified RWA, govt, clubs, professional, senior citizen directories)
-- DuckDuckGo search across 656 query combinations
-- 8 categories: RWA, Clubs, Schools, Govt, Professional, Religious, Business, Senior Citizens
-- Auto-extracts phone numbers, names, emails, addresses from PDFs, Excel, CSV, web pages
-- Start/stop/resume with persistent MongoDB storage
-- Search, filter by category/city, pagination, Excel export
+- 15 seed URLs, 656 query combinations
+- Auto-extracts phone, name, email from PDFs/Excel/web pages
+
+## DDC Chip Farming Architecture (Discovered)
+- Auth: Bearer JWT token from `/v2/authenticate/user` response
+- Game API base: `https://ap-{shard}.doubledowncasino2.com` (dynamic per user)
+- Session ID format: `lg-{uuid}-{shard}-{session_hash}`
+- DWS key: extracted from offcanvas iframe URL `a_l_skey` param
+- SFS httpbox: commands go to `/httpbox/{commandName}` NOT `/httpbox/poll`
+- Daily wheel: auto-spins on login, COLLECT via `/dws/client/v2/ack/dailyspin/{key}`
+- Terms popup: blocks game on first login, must be dismissed first
 
 ## Prioritized Backlog
 
-### P0
-- LinkUp API for LinkedIn messaging/auto-commenting
-- Continue expanding Catchment Mining seed URLs and search queries
+### P0 (In Progress)
+- Improve DDC daily wheel COLLECT reliability (timing/coordinates)
+- DDC promo code claiming via SFS redeemPromo or browser navigation
 
 ### P1
-- SMS/WhatsApp alerts for Stock Investor
-- DDC credits capture (Phase 2 after full scan)
+- LinkUp API for LinkedIn messaging/auto-commenting
+- DDC farming scheduled at 3 PM IST daily
+- Deploy for 24/7 operation
 
 ### P2
-- Fundle.ai LinkedIn posts & infographics
+- SMS/WhatsApp alerts for Stock Investor
+- Catchment Mining search improvements (rate limits)
+- Continuous LinkedIn monitoring
 
 ### Future
-- Continuous LinkedIn monitoring
-- Catchment Mining for more cities beyond Delhi NCR
+- Catchment Mining for more cities
+- DDC advanced farming (bingo, chest opens, coin boost)

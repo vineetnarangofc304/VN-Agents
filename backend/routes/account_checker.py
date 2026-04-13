@@ -4,6 +4,11 @@ import logging
 import threading
 import asyncio
 import io
+import re
+import json
+import time as _time
+import requests as http_req
+from urllib.parse import urlparse, quote
 from datetime import datetime, timezone
 from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import StreamingResponse
@@ -763,54 +768,101 @@ async def get_credits_status():
 # ============== Chip Farmer ==============
 active_farm_jobs = {}
 
-PROMO_CODE_SOURCES = [
+PROMO_LINK_SOURCES = [
+    "https://ddpcshares.com",
     "https://gamehunters.club/doubledown-casino-free-slots/share-links",
     "https://www.giftseize.io/games/doubledown-casino-promo-codes-free-chips",
     "https://thegamereward.com/double-down-casino-codes/",
+    "https://peoplesgamezgiftexchange.com/doubledown-casino-free-chips/gifts",
+    "https://fanaticspoint.com/doubledown-casino-free-chips/",
 ]
 
 
-async def _farm_single_account(page, email, password, promo_codes=None):
-    """Login to DDC, collect all free bonuses via API interception. Returns dict with results."""
+def _scrape_promo_links():
+    """Scrape DDC free chip share links from fan sites. Returns list of collectable URLs."""
+    promo_urls = set()
+    req_headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+    }
+    url_patterns = [
+        r'https?://play\.doubledowncasino\.com/\?[^"\s<>\')]+',
+        r'https?://ddc\.fan/[^"\s<>\')]+',
+        r'https?://link\.doubledowncasino\.com/[^"\s<>\')]+',
+    ]
+
+    for source_url in PROMO_LINK_SOURCES:
+        try:
+            resp = http_req.get(source_url, timeout=15, headers=req_headers, allow_redirects=True)
+            if resp.status_code == 200:
+                text = resp.text
+                for pattern in url_patterns:
+                    matches = re.findall(pattern, text)
+                    promo_urls.update(matches)
+
+                # GameHunters: extract click-through link IDs
+                if 'gamehunters' in source_url:
+                    click_ids = re.findall(r'share-links/click/(\d+)', text)
+                    for cid in click_ids[:25]:
+                        promo_urls.add(f"https://gamehunters.club/doubledown-casino-free-slots/share-links/click/{cid}")
+
+                # Extract standalone promo IDs (pid=XXXXX) and build collection URLs
+                pid_matches = re.findall(r'pid[=-]([A-Z0-9]{5,10})', text)
+                for code in pid_matches:
+                    promo_urls.add(
+                        f"https://play.doubledowncasino.com/?link=SLOTSLOBBY.pid-{code}.cid-100549&lobby=slots&pid={code}&cid=100549"
+                    )
+        except Exception as e:
+            logger.debug(f"Promo scrape error for {source_url}: {e}")
+
+    logger.info(f"Scraped {len(promo_urls)} DDC promo links from {len(PROMO_LINK_SOURCES)} sources")
+    return list(promo_urls)
+
+
+async def _farm_single_account(page, context, email, password, promo_links=None):
+    """Login to DDC and collect free chips via UI interaction + Bearer-token API calls.
+
+    Discovered approach:
+    1. Login via Playwright, intercept network for Bearer token + session data
+    2. Accept Terms popup (agreement iframe)
+    3. Collect daily wheel via /dws/client/v2/ack/dailyspin/{session_key}
+    4. Click UI elements (COLLECT button, time bonus) at known coordinates
+    5. Use Bearer token for direct REST API calls
+    """
     result = {"chips_before": None, "chips_after": None, "bonuses_collected": [], "errors": []}
 
     try:
-        session_info = {"session_id": None, "user_id": None, "base_url": None}
-        credits_captured = {"before": None, "after": None}
+        captured = {
+            "base_url": None, "session_id": None, "credits": None,
+            "bearer_token": None, "dws_key": None,
+        }
 
-        async def capture_all(response):
+        async def on_request(request):
+            url = request.url
+            if 'doubledowncasino2.com' in url:
+                auth = request.headers.get('authorization', '')
+                if auth.startswith('Bearer ') and not captured["bearer_token"]:
+                    captured["bearer_token"] = auth[7:]
+
+        async def on_response(response):
             url = response.url
             try:
-                if 'lobby/game' in url:
+                if 'lobby/game' in url and 'doubledowncasino' in url:
                     text = await response.text()
-                    import re as _re
-                    cash_match = _re.search(r'"cash"\s*:\s*(\d+)', text)
-                    session_match = _re.search(r'"sessionId"\s*:\s*"([^"]+)"', text)
+                    cash_match = re.search(r'"cash"\s*:\s*(\d+)', text)
+                    session_match = re.search(r'"sessionId"\s*:\s*"([^"]+)"', text)
                     if cash_match:
-                        if credits_captured["before"] is None:
-                            credits_captured["before"] = cash_match.group(1)
-                        credits_captured["after"] = cash_match.group(1)
+                        captured["credits"] = cash_match.group(1)
                     if session_match:
-                        session_info["session_id"] = session_match.group(1)
-                    # Extract base URL for httpbox calls
-                    if 'doubledowncasino2.com' in url:
-                        session_info["base_url"] = url.split('/v2/lobby')[0]
-
-                elif 'lobby/meta' in url:
-                    text = await response.text()
-                    if 'rewardAvailable' in text:
-                        result["bonuses_collected"].append("meta_loaded")
-
-                elif 'httpbox/poll' in url:
-                    text = await response.text()
-                    if 'rewardAvailable' in text and 'true' in text:
-                        result["bonuses_collected"].append("reward_available")
+                        captured["session_id"] = session_match.group(1)
+                    parsed = urlparse(url)
+                    captured["base_url"] = f"{parsed.scheme}://{parsed.netloc}"
             except Exception:
                 pass
 
-        page.on('response', capture_all)
+        page.on('request', on_request)
+        page.on('response', on_response)
 
-        # Login flow
+        # === LOGIN ===
         await page.goto('https://www.doubledowncasino.com', wait_until='domcontentloaded', timeout=20000)
         await page.wait_for_timeout(2500)
 
@@ -823,8 +875,9 @@ async def _farm_single_account(page, email, password, promo_codes=None):
             await page.click('img[src*="email_connect"]', force=True, timeout=5000)
             await page.wait_for_timeout(800)
         except Exception:
-            page.remove_listener('response', capture_all)
             result["errors"].append("no_email_btn")
+            page.remove_listener('request', on_request)
+            page.remove_listener('response', on_response)
             return result
 
         try:
@@ -837,173 +890,143 @@ async def _farm_single_account(page, email, password, promo_codes=None):
             await page.fill('#emailID', email, timeout=3000)
             await page.fill('#pw', password, timeout=3000)
         except Exception:
-            page.remove_listener('response', capture_all)
             result["errors"].append("no_form")
+            page.remove_listener('request', on_request)
+            page.remove_listener('response', on_response)
             return result
 
         try:
             await page.click('img[src*="green_login"]', force=True, timeout=3000)
         except Exception:
-            page.remove_listener('response', capture_all)
             result["errors"].append("no_login_btn")
+            page.remove_listener('request', on_request)
+            page.remove_listener('response', on_response)
             return result
 
-        # Wait for game lobby to load
-        await page.wait_for_timeout(12000)
-        result["chips_before"] = credits_captured["before"]
+        # Wait for lobby to load
+        await page.wait_for_timeout(15000)
+        result["chips_before"] = captured["credits"]
 
-        # Now try to claim rewards via the game's API by executing JS in page context
-        if session_info["session_id"] and session_info["base_url"]:
-            base = session_info["base_url"]
-            sid = session_info["session_id"]
+        # === ACCEPT TERMS POPUP ===
+        # The terms popup blocks the daily wheel. Must be dismissed first.
+        terms_dismissed = False
+        for frame in page.frames:
+            if 'agreement' in frame.url or 'Terms' in frame.url:
+                terms_dismissed = True
+                # Click accept area multiple times at different positions
+                for y in [760, 780, 800, 740]:
+                    await page.mouse.click(960, y)
+                    await page.wait_for_timeout(1000)
+                break
 
-            # Try claiming league reward
+        # Wait for daily wheel to load AFTER terms dismissal
+        if terms_dismissed:
+            await page.wait_for_timeout(10000)
+            result["bonuses_collected"].append("terms_accepted")
+        else:
+            await page.wait_for_timeout(5000)
+
+        # Extract DWS session key from offcanvas iframe URL
+        for frame in page.frames:
+            if 'offcanvas' in frame.url:
+                m = re.search(r'a_l_skey=([^&]+)', frame.url)
+                if m:
+                    captured["dws_key"] = m.group(1)
+                break
+
+        # === PHASE 1: CLICK UI ELEMENTS ===
+        # The daily wheel appears centered with a COLLECT button at bottom
+        # Try multiple positions for COLLECT button over several seconds
+        for y in [760, 780, 800, 750, 720, 850]:
+            await page.mouse.click(960, y)
+            await page.wait_for_timeout(1500)
+
+        # Click time bonus Collect at top-right area
+        for x, y in [(1550, 65), (1580, 75), (1600, 80), (1620, 70)]:
+            await page.mouse.click(x, y)
+            await page.wait_for_timeout(1000)
+
+        # === PHASE 2: DIRECT API CALLS with Bearer JWT token ===
+        if captured["base_url"] and captured["bearer_token"]:
+            base = captured["base_url"]
+            token = captured["bearer_token"]
+
+            session = http_req.Session()
+            session.headers.update({
+                "Authorization": f"Bearer {token}",
+                "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
+                "Accept": "application/json",
+                "x-requested-with": "XMLHttpRequest",
+                "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                "Origin": "https://www.doubledowncasino2.com",
+                "Referer": "https://www.doubledowncasino2.com/",
+            })
+
+            xrid = str(int(_time.time() * 1000))
+
+            # Collect daily wheel via DWS endpoint
+            if captured.get("dws_key"):
+                try:
+                    resp = session.post(
+                        f"{base}/dws/client/v2/ack/dailyspin/{captured['dws_key']}",
+                        data=f"xrid={xrid}", timeout=10
+                    )
+                    logger.info(f"  DWS dailyspin for {email}: status={resp.status_code} body={resp.text[:200]}")
+                    if resp.status_code == 200:
+                        result["bonuses_collected"].append("daily_wheel_dws")
+                except Exception:
+                    pass
+
+            # League reward
             try:
-                league_result = await page.evaluate(f"""
-                    async () => {{
-                        try {{
-                            const resp = await fetch('{base}/v3/league/reward', {{
-                                method: 'POST',
-                                headers: {{'Content-Type': 'application/x-www-form-urlencoded'}},
-                                body: 'xrid=' + Date.now()
-                            }});
-                            const text = await resp.text();
-                            return text.substring(0, 300);
-                        }} catch(e) {{ return 'error:' + e.message; }}
-                    }}
-                """)
-                if league_result and 'error' not in str(league_result).lower():
-                    result["bonuses_collected"].append(f"league_reward")
-                    logger.info(f"  League reward for {email}: {str(league_result)[:100]}")
+                resp = session.post(f"{base}/v3/league/reward", data=f"xrid={xrid}", timeout=10)
+                if resp.status_code == 200 and len(resp.text) > 10:
+                    result["bonuses_collected"].append("league_reward")
             except Exception:
                 pass
 
-            # Try claiming daily bonus / wheel spin
+            # SFS commands via /httpbox/{command} (NOT /httpbox/poll)
+            if captured.get("session_id"):
+                sid = captured["session_id"]
+                for label, cmd, params in [
+                    ("sfs_jackpot_info", "getJackpotCurrentInfo", {"gameIdList": []}),
+                ]:
+                    try:
+                        params_json = json.dumps(params)
+                        json_cmd = f'{{"t":"xt","b":{{"c":"{cmd}","r":-1,"x":"casinoExtension","p":{params_json}}}}}'
+                        encoded = quote(json_cmd)
+                        payload = f"sfsHttp={sid}{encoded}&xrid={xrid}"
+                        resp = session.post(f"{base}/httpbox/{cmd}", data=payload, timeout=10)
+                        if resp.status_code == 200 and len(resp.text) > 10:
+                            result["bonuses_collected"].append(label)
+                    except Exception:
+                        pass
+
+            # Get updated balance
             try:
-                daily_result = await page.evaluate(f"""
-                    async () => {{
-                        try {{
-                            const resp = await fetch('{base}/v2/daily/bonus', {{
-                                method: 'POST',
-                                headers: {{'Content-Type': 'application/x-www-form-urlencoded'}},
-                                body: 'xrid=' + Date.now()
-                            }});
-                            return await resp.text();
-                        }} catch(e) {{ return 'error:' + e.message; }}
-                    }}
-                """)
-                if daily_result and 'error' not in str(daily_result).lower():
-                    result["bonuses_collected"].append("daily_bonus")
+                resp = session.post(f"{base}/v2/lobby/game", data=f"language=en&xrid={xrid}", timeout=10)
+                if resp.status_code == 200:
+                    cash_m = re.search(r'"cash"\s*:\s*(\d+)', resp.text)
+                    if cash_m:
+                        result["chips_after"] = cash_m.group(1)
+                        logger.info(f"  Post-farm balance for {email}: {cash_m.group(1)}")
             except Exception:
                 pass
 
-            # Try SFS httpbox command for collecting gifts
-            try:
-                gift_cmd = '{"t":"xt","b":{"c":"collectGift","r":-1,"x":"casinoExtension","p":{}}}'
-                gift_result = await page.evaluate(f"""
-                    async () => {{
-                        try {{
-                            const resp = await fetch('{base}/httpbox/poll', {{
-                                method: 'POST',
-                                headers: {{'Content-Type': 'application/x-www-form-urlencoded'}},
-                                body: 'sfsHttp={sid}' + encodeURIComponent('{gift_cmd}') + '&ts=' + Date.now() + '&prevts=' + (Date.now()-20000) + '&xrid=' + Date.now()
-                            }});
-                            return await resp.text();
-                        }} catch(e) {{ return 'error:' + e.message; }}
-                    }}
-                """)
-                if gift_result and 'error' not in str(gift_result).lower():
-                    result["bonuses_collected"].append("gift_collect")
-            except Exception:
-                pass
+        # Wait for any async balance updates
+        await page.wait_for_timeout(3000)
 
-            # Try claiming wheel spin
-            try:
-                wheel_cmd = '{"t":"xt","b":{"c":"spinWheel","r":-1,"x":"casinoExtension","p":{}}}'
-                wheel_result = await page.evaluate(f"""
-                    async () => {{
-                        try {{
-                            const resp = await fetch('{base}/httpbox/poll', {{
-                                method: 'POST',
-                                headers: {{'Content-Type': 'application/x-www-form-urlencoded'}},
-                                body: 'sfsHttp={sid}' + encodeURIComponent('{wheel_cmd}') + '&ts=' + Date.now() + '&prevts=' + (Date.now()-20000) + '&xrid=' + Date.now()
-                            }});
-                            return await resp.text();
-                        }} catch(e) {{ return 'error:' + e.message; }}
-                    }}
-                """)
-                if wheel_result and 'error' not in str(wheel_result).lower():
-                    result["bonuses_collected"].append("wheel_spin")
-            except Exception:
-                pass
+        # Final balance
+        if not result["chips_after"]:
+            result["chips_after"] = captured.get("credits") or result["chips_before"]
 
-        # Wait and re-check balance
-        await page.wait_for_timeout(5000)
-
-        # Get final balance by reloading
-        credits_captured["after"] = None
-        try:
-            reload_result = await page.evaluate(f"""
-                async () => {{
-                    try {{
-                        const resp = await fetch('{session_info["base_url"]}/v2/lobby/game', {{
-                            method: 'POST',
-                            headers: {{'Content-Type': 'application/x-www-form-urlencoded'}},
-                            body: 'language=en&xrid=' + Date.now()
-                        }});
-                        return await resp.text();
-                    }} catch(e) {{ return ''; }}
-                }}
-            """) if session_info["base_url"] else ""
-            import re as _re
-            cash_match = _re.search(r'"cash"\s*:\s*(\d+)', reload_result or "")
-            if cash_match:
-                credits_captured["after"] = cash_match.group(1)
-        except Exception:
-            pass
-
-        result["chips_after"] = credits_captured["after"] or credits_captured["before"]
-        page.remove_listener('response', capture_all)
+        page.remove_listener('request', on_request)
+        page.remove_listener('response', on_response)
 
     except Exception as e:
-        result["errors"].append(str(e))
+        result["errors"].append(str(e)[:200])
 
     return result
-
-
-def _fetch_promo_codes():
-    """Scrape latest promo codes from collector sites."""
-    import requests
-    import re
-    codes = []
-    try:
-        # Try gamehunters.club for share links
-        resp = requests.get(PROMO_CODE_SOURCES[0], timeout=15, headers={
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
-        })
-        if resp.status_code == 200:
-            # Extract share link IDs
-            links = re.findall(r'share-links/click/(\d+)', resp.text)
-            for link_id in links[:10]:
-                codes.append(f"https://gamehunters.club/doubledown-casino-free-slots/share-links/click/{link_id}")
-    except Exception as e:
-        logger.debug(f"Promo code fetch error: {e}")
-
-    try:
-        # Try giftseize for actual codes
-        resp = requests.get(PROMO_CODE_SOURCES[1], timeout=15, headers={
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
-        })
-        if resp.status_code == 200:
-            import re
-            code_matches = re.findall(r'[A-Z0-9]{6,20}', resp.text)
-            for c in code_matches[:10]:
-                if len(c) >= 8 and not c.startswith('HTTP'):
-                    codes.append(c)
-    except Exception:
-        pass
-
-    return codes
 
 
 def run_farm_worker(job_id):
@@ -1014,7 +1037,7 @@ def run_farm_worker(job_id):
 
 
 async def _async_farm_worker(job_id):
-    """Farm chips for all successful accounts."""
+    """Farm chips for all successful accounts using direct API calls + share links."""
     os.environ['PLAYWRIGHT_BROWSERS_PATH'] = '/pw-browsers'
     from playwright.async_api import async_playwright
 
@@ -1024,9 +1047,9 @@ async def _async_farm_worker(job_id):
     accounts = list(sync_db.login_results.find({"status": "success"}, {"email": 1}))
     total = len(accounts)
 
-    # Fetch promo codes
-    promo_codes = _fetch_promo_codes()
-    logger.info(f"Chip Farm: {total} accounts, {len(promo_codes)} promo codes found")
+    # Scrape promo links once for all accounts
+    promo_links = _scrape_promo_links()
+    logger.info(f"Chip Farm: {total} accounts, {len(promo_links)} promo links found")
 
     active_farm_jobs[job_id] = {
         "status": "running",
@@ -1034,9 +1057,14 @@ async def _async_farm_worker(job_id):
         "processed": 0,
         "chips_gained": 0,
         "current_email": "",
-        "promo_codes_found": len(promo_codes),
+        "promo_links_found": len(promo_links),
         "started_at": datetime.now(timezone.utc).isoformat()
     }
+
+    if total == 0:
+        active_farm_jobs[job_id]["status"] = "completed"
+        sync_client.close()
+        return
 
     try:
         async with async_playwright() as p:
@@ -1051,7 +1079,11 @@ async def _async_farm_worker(job_id):
                 email = account["email"]
                 active_farm_jobs[job_id]["current_email"] = email
 
-                farm_result = await _farm_single_account(page, email, PASSWORD, promo_codes)
+                # Get stored credits from DB BEFORE farming (true baseline)
+                stored_doc = sync_db.login_results.find_one({"email": email}, {"credits": 1})
+                stored_credits = int(stored_doc.get("credits") or 0) if stored_doc else 0
+
+                farm_result = await _farm_single_account(page, context, email, PASSWORD, promo_links)
 
                 # Update DB with farming results
                 update = {
@@ -1059,27 +1091,28 @@ async def _async_farm_worker(job_id):
                     "farm_bonuses": farm_result["bonuses_collected"],
                     "farm_errors": farm_result["errors"]
                 }
-                if farm_result["chips_before"]:
-                    update["credits_before_farm"] = farm_result["chips_before"]
-                if farm_result["chips_after"]:
-                    update["credits"] = farm_result["chips_after"]
-                    update["credits_after_farm"] = farm_result["chips_after"]
-                    update["credits_updated_at"] = datetime.now(timezone.utc).isoformat()
-                elif farm_result["chips_before"]:
-                    update["credits"] = farm_result["chips_before"]
+                # Store pre-farm credits from DB (not from session which includes daily wheel)
+                update["credits_before_farm"] = str(stored_credits)
+
+                new_credits = farm_result["chips_after"] or farm_result["chips_before"]
+                if new_credits:
+                    update["credits"] = new_credits
+                    update["credits_after_farm"] = new_credits
                     update["credits_updated_at"] = datetime.now(timezone.utc).isoformat()
 
-                # Calculate gain
-                before = int(farm_result["chips_before"] or 0)
-                after = int(farm_result["chips_after"] or farm_result["chips_before"] or 0)
-                if after > before:
-                    active_farm_jobs[job_id]["chips_gained"] += (after - before)
+                # Calculate gain against DB-stored baseline (catches daily wheel auto-apply)
+                after = int(new_credits or 0)
+                gain = after - stored_credits if after > stored_credits else 0
+                if gain > 0:
+                    active_farm_jobs[job_id]["chips_gained"] += gain
 
                 sync_db.login_results.update_one({"email": email}, {"$set": update})
                 active_farm_jobs[job_id]["processed"] = i + 1
 
-                if farm_result["chips_after"]:
-                    logger.info(f"Farmed {email}: {farm_result['chips_before']} → {farm_result['chips_after']} | Bonuses: {farm_result['bonuses_collected']}")
+                logger.info(f"Farmed {email}: {stored_credits} -> {after} (gain: +{gain:,}) | Bonuses: {farm_result['bonuses_collected']}")
+
+                # Clear cookies between accounts to avoid session leakage
+                await context.clear_cookies()
 
             await context.close()
             await browser.close()
