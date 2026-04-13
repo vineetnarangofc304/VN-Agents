@@ -48,7 +48,12 @@ EMAIL_RANGES = [
     {"prefix": "vngnara", "start": 500, "end": 1000, "pad": 0, "domain": "gmail.com"},
     {"prefix": "vininara", "start": 300, "end": 600, "pad": 0, "domain": "gmail.com"},
     {"prefix": "super", "start": 300, "end": 1100, "pad": 0, "domain": "gmail.com"},
-    {"prefix": "vinsum", "start": 300, "end": 1099, "pad": 0, "domain": "gmail.com"},
+    {"prefix": "vinsum", "start": 300, "end": 399, "pad": 0, "domain": "gmail.com"},
+    {"prefix": "vinsum", "start": 500, "end": 599, "pad": 0, "domain": "gmail.com"},
+    {"prefix": "vinsum", "start": 600, "end": 699, "pad": 0, "domain": "gmail.com"},
+    {"prefix": "vinsum", "start": 900, "end": 999, "pad": 0, "domain": "gmail.com"},
+    {"prefix": "vinsum", "start": 1000, "end": 1099, "pad": 0, "domain": "gmail.com"},
+    {"prefix": "vinci", "start": 300, "end": 1099, "pad": 0, "domain": "gmail.com"},
 ]
 
 # Skip these veenu ranges — no valid accounts expected
