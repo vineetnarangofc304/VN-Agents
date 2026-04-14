@@ -9,7 +9,7 @@ from reportlab.pdfgen import canvas
 from reportlab.lib.pagesizes import letter
 
 class InvoiceAgentAPITester:
-    def __init__(self, base_url="https://agent-builder-133.preview.emergentagent.com"):
+    def __init__(self, base_url="https://automation-platform-10.preview.emergentagent.com"):
         self.base_url = base_url
         self.api_url = f"{base_url}/api"
         self.session = requests.Session()
