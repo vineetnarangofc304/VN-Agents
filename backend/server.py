@@ -1341,19 +1341,31 @@ DESIGN SPECIFICATIONS:
 
 @app.on_event("startup")
 async def start_scheduler():
-    # Ensure Playwright browsers are installed
+    # Ensure Playwright browsers are installed (non-blocking)
     try:
         import subprocess
         pw_path = os.environ.get('PLAYWRIGHT_BROWSERS_PATH', '/pw-browsers')
+        os.environ['PLAYWRIGHT_BROWSERS_PATH'] = pw_path
         if not os.path.exists(pw_path) or not os.listdir(pw_path):
-            logger.info("Installing Playwright browsers...")
-            os.environ['PLAYWRIGHT_BROWSERS_PATH'] = pw_path
-            subprocess.run(["python", "-m", "playwright", "install", "chromium"], check=True, timeout=120)
-            logger.info("Playwright browsers installed")
+            logger.info("Installing Playwright browsers in background...")
+            # Run in background thread to not block startup
+            import threading
+            def _install_pw():
+                try:
+                    subprocess.run(["python", "-m", "playwright", "install", "--with-deps", "chromium"],
+                                   check=False, timeout=300, capture_output=True)
+                    logger.info("Playwright browsers installed")
+                except Exception as e:
+                    logger.warning(f"Playwright install failed: {e}")
+            threading.Thread(target=_install_pw, daemon=True).start()
         else:
             logger.info(f"Playwright browsers found at {pw_path}")
     except Exception as e:
         logger.warning(f"Playwright browser install check: {e}")
+
+    # Ensure upload directories exist
+    for d in ["uploads", "uploads/infographics"]:
+        os.makedirs(ROOT_DIR / d, exist_ok=True)
 
     _asyncio.create_task(_scheduled_posts_worker())
     _asyncio.create_task(_auto_post_generator())
