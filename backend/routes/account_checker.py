@@ -958,43 +958,46 @@ async def _farm_single_account(page, context, email, password):
             except Exception:
                 pass
 
-        # === SPIN DAILY WHEEL + COLLECT ALL POPUPS ===
-        # Wheel is center-screen. Click to spin, wait, then collect.
-        await page.mouse.click(960, 540)
-        await page.wait_for_timeout(1000)
-        await page.mouse.click(960, 500)
-        await page.wait_for_timeout(7000)
+        # === ACCEPT TERMS + SPIN WHEEL + COLLECT ALL ===
+        # Game is PixiJS canvas — all UI elements are sprites at unknown exact coords.
+        # Grid-click approach: systematically click across the game area to hit
+        # ACCEPT, SPIN, COLLECT, SKIP, OK, X-close buttons wherever they are.
 
-        # COLLECT button can be center-bottom OR right-side of popup
-        for x, y in [
-            (960, 850), (960, 830), (960, 800), (960, 780), (960, 760),
-            (1350, 850), (1350, 830), (1300, 850), (1400, 850),  # right-side COLLECT
-        ]:
-            await page.mouse.click(x, y)
-            await page.wait_for_timeout(500)
+        # Round 1: Terms ACCEPT area (center of viewport, various Y positions)
+        for y in range(700, 1050, 40):
+            for x in range(850, 1100, 60):
+                await page.mouse.click(x, y)
+                await page.wait_for_timeout(100)
+        await page.wait_for_timeout(8000)  # Wait for wheel to spin after ACCEPT
 
+        # Round 2: COLLECT wheel result + weekly rewards + any popup buttons
+        for y in range(650, 1050, 30):
+            for x in [960, 1350, 480, 1100, 800]:
+                await page.mouse.click(x, y)
+                await page.wait_for_timeout(80)
         await page.wait_for_timeout(3000)
 
-        # === DISMISS ALL SUBSEQUENT POPUPS (5 rounds) ===
-        for _ in range(5):
-            # X close buttons (top-right of modals)
-            for x, y in [(1280, 290), (1260, 300), (1300, 280), (1250, 310), (1320, 270)]:
-                await page.mouse.click(x, y)
-                await page.wait_for_timeout(300)
-            # Center + right-side COLLECT/OK/SKIP buttons
-            for x, y in [
-                (960, 760), (960, 780), (960, 800), (960, 850),
-                (1350, 850), (1350, 800), (1300, 850),  # right-side green COLLECT
-                (960, 700), (960, 650),
-            ]:
-                await page.mouse.click(x, y)
-                await page.wait_for_timeout(300)
-            await page.wait_for_timeout(1500)
+        # Round 3: X close buttons + remaining popups
+        for _ in range(3):
+            # X close buttons (top-right area of modals)
+            for x in range(1200, 1400, 40):
+                for y in range(250, 350, 30):
+                    await page.mouse.click(x, y)
+                    await page.wait_for_timeout(60)
+            # Center + right COLLECT/OK buttons
+            for y in range(700, 900, 30):
+                for x in [960, 1350, 1300, 480, 500]:
+                    await page.mouse.click(x, y)
+                    await page.wait_for_timeout(60)
+            # SKIP button area
+            await page.mouse.click(688, 243)
+            await page.wait_for_timeout(100)
+            await page.wait_for_timeout(2000)
 
-        # Time bonus Collect in top bar
-        for x, y in [(1550, 65), (1580, 75), (1600, 80)]:
+        # Round 4: Time bonus in top bar
+        for x, y in [(1550, 65), (1580, 70), (1600, 80)]:
             await page.mouse.click(x, y)
-            await page.wait_for_timeout(500)
+            await page.wait_for_timeout(300)
 
         await page.wait_for_timeout(3000)
 
