@@ -1054,38 +1054,71 @@ async def _auto_post_generator():
                     if not llm_key:
                         continue
 
+                    # Pick a topic from the rotation to ensure diversity
+                    import random as _rnd
+                    FUNDLE_TOPIC_PILLARS = [
+                        "Deep drill-down analytics: how real-time sales reporting and BI dashboards are transforming how mall operators make decisions. Talk about ADSR (Automated Daily Sales Reporting), footfall-to-conversion ratios, tenant performance benchmarking.",
+                        "Customer segmentation and cohorting: how first-party data enables malls and brands to build micro-cohorts based on spend patterns, visit frequency, category affinity. Share real segmentation strategies that drive 3-5x better campaign ROI.",
+                        "Campaign management across SMS, WhatsApp, Meta, RCS with intelligent fallback mechanisms. Explain omnichannel orchestration — how the right message reaches the right customer on the right channel, and what happens when one channel fails.",
+                        "Loyalty point distribution, earning rules, and conversion mechanics. Break down how modern loyalty goes beyond earn-and-burn — dynamic multipliers, tier-based rewards, brand-funded coalition points, instant redemption at POS.",
+                        "AI-powered personalization in retail loyalty — how machine learning models predict what a shopper wants before they know it. How Fundle.ai uses GPT-driven personalization to deliver hyper-relevant offers. Don't name competitors, focus on the AI differentiation.",
+                        "Mall media monetisation and retail media networks: how physical retail spaces are becoming media channels. Digital screens, geo-targeted notifications, brand-sponsored experiences — the new revenue layer for malls.",
+                        "First-party data ownership vs walled gardens: why malls and retailers must own their customer data instead of depending on Google/Meta. The strategic advantage of cross-ecosystem intelligence across malls, brands, and consumers.",
+                        "The D2C-meets-offline revolution: how FundleXperiences brings digital engagement (games, rewards, bill-based activations) into physical retail. Consumer engagement that doesn't require an app download.",
+                        "Mall-wide e-commerce with loyalty-integrated checkout: bridging online and offline retail. How a unified commerce platform changes the economics of mall retail.",
+                        "Unit economics of retail loyalty: CAC vs LTV, repeat purchase rates, basket size uplift from loyalty members vs non-members. Data-backed insights on why loyalty infrastructure pays for itself.",
+                    ]
+
+                    # Track used topics to avoid repetition
+                    recent_posts = await db.linkedin_posts.find(
+                        {"company": company, "auto_generated": True},
+                        {"topic_pillar": 1}
+                    ).sort("published_at", -1).limit(5).to_list(5)
+                    recent_topics = [p.get("topic_pillar", -1) for p in recent_posts]
+
+                    # Pick a topic not used in last 5 posts
+                    available = [i for i in range(len(FUNDLE_TOPIC_PILLARS)) if i not in recent_topics]
+                    if not available:
+                        available = list(range(len(FUNDLE_TOPIC_PILLARS)))
+                    topic_idx = _rnd.choice(available)
+                    topic = FUNDLE_TOPIC_PILLARS[topic_idx]
+
                     chat = LlmChat(
                         api_key=llm_key,
                         session_id=f"auto-linkedin-{company}-{uuid.uuid4()}",
-                        system_message=f"""You are a LinkedIn content strategist for {ctx['name']}. 
-Write engaging, professional LinkedIn posts that drive engagement and thought leadership.
+                        system_message=f"""You are Abhinav Khanna, Chief Business Officer at Fundle.ai — a Retail Intelligence Platform powering malls, brands, and consumers through unified data, AI insights, and monetisation rails.
+
+You write LinkedIn posts as a seasoned retail-tech leader with deep domain expertise. You've worked at Paytm and understand India's retail ecosystem intimately.
 
 Company: {ctx['name']}
-Tagline: {ctx['tagline']}
-Description: {ctx['description']}
+Tagline: {ctx['tagline']}  
 Products: {', '.join(ctx['products'])}
 Value Props: {', '.join(ctx['value_props'])}
 Target Audience: {ctx['target_audience']}
 
-RULES:
-- Write in first person as a founder/leader sharing insights
-- Be conversational yet professional
-- Use short paragraphs (1-2 lines each) 
-- Include a hook in the first line
-- Add 2-3 relevant emojis (not overdo)
-- End with a thought-provoking question or call-to-action
-- Include 3-5 relevant hashtags at the end
-- Post length: 150-300 words ideal
-- Share real industry insights, trends, or lessons
-- DO NOT sound like AI
-- Mix between: industry insights, product updates, customer stories, thought leadership"""
+WRITING STYLE:
+- First person, founder voice — confident, insightful, never salesy
+- Open with a provocative stat, counterintuitive insight, or bold claim
+- Short paragraphs (1-3 lines max) for mobile readability
+- Weave in real data points and industry benchmarks
+- Show deep domain knowledge — you've seen this from the inside
+- End with a thought-provoking question that invites comments
+- 2-3 emojis max (subtle, not decorative)
+- 3-5 SEO-friendly hashtags at the end
+- 150-300 words — punchy, not verbose
+- NEVER sound like AI. Sound like a real person sharing hard-won insights.
+- NEVER use phrases like "In today's rapidly evolving" or "Did you know"
+- Don't name competitors. Focus on the problem and the Fundle approach."""
                     ).with_model("openai", "gpt-4o")
 
                     user_msg = UserMessage(
-                        text=f"""Write a LinkedIn post for {ctx['name']}.
-Choose a relevant trending topic.
+                        text=f"""Write a LinkedIn post on this specific topic:
+
+{topic}
+
+Make it keyword-rich and SEO-friendly. Include specific numbers/data where possible (industry benchmarks, percentages, ROI figures).
 Use these hashtags where appropriate: {ctx['hashtags']}
-Write ONLY the post content. No meta text."""
+Write ONLY the post content. No meta commentary."""
                     )
                     content = await chat.send_message(user_msg)
 
@@ -1190,7 +1223,9 @@ Design requirements:
                             "company": company,
                             "content": content,
                             "published_at": now.isoformat(),
-                            "auto_generated": True
+                            "auto_generated": True,
+                            "topic_pillar": topic_idx,
+                            "has_image": image_urn is not None
                         })
                         await db.linkedin_accounts.update_one(
                             {"account_id": account["account_id"]},
