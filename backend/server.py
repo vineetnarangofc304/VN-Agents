@@ -937,7 +937,6 @@ async def _scheduled_posts_worker():
             for post in due_posts:
                 try:
                     import httpx
-                    # Use the linkedin post endpoint internally
                     from routes.linkedin import get_valid_token, LINKEDIN_POSTS_URL, LINKEDIN_API_VERSION, INFOGRAPHIC_DIR
                     access_token, person_urn = await get_valid_token(post["account_id"])
 
@@ -949,7 +948,6 @@ async def _scheduled_posts_worker():
                     }
 
                     image_urn = None
-                    # Upload image if provided
                     if post.get("image_path"):
                         image_file = Path(post["image_path"])
                         if image_file.exists():
@@ -1013,6 +1011,137 @@ async def _scheduled_posts_worker():
         await _asyncio.sleep(60)  # Check every minute
 
 
+async def _auto_post_generator():
+    """Background task that auto-generates and publishes LinkedIn posts on schedule."""
+    await _asyncio.sleep(30)  # Wait for startup
+    while True:
+        try:
+            accounts = await db.linkedin_accounts.find({"schedule_enabled": True}).to_list(20)
+            now = datetime.now(timezone.utc)
+
+            for account in accounts:
+                interval = account.get("schedule_interval_hours", 6)
+                last_post_at = account.get("last_auto_post_at")
+
+                # Check if enough time has passed since last auto-post
+                if last_post_at:
+                    try:
+                        last_dt = datetime.fromisoformat(last_post_at.replace("Z", "+00:00")) if isinstance(last_post_at, str) else last_post_at
+                        hours_since = (now - last_dt).total_seconds() / 3600
+                        if hours_since < interval:
+                            continue
+                    except Exception:
+                        pass
+
+                # Pick company from rotation
+                rotation = account.get("companies_rotation", [account.get("selected_company", "fundle")])
+                last_company = account.get("last_auto_company")
+                if last_company and last_company in rotation:
+                    idx = (rotation.index(last_company) + 1) % len(rotation)
+                else:
+                    idx = 0
+                company = rotation[idx] if rotation else "fundle"
+
+                logger.info(f"Auto-generating LinkedIn post for {account['name']} ({company})")
+
+                try:
+                    from routes.linkedin import COMPANY_CONTEXTS, get_valid_token, LINKEDIN_POSTS_URL, LINKEDIN_API_VERSION
+                    ctx = COMPANY_CONTEXTS.get(company)
+                    if not ctx:
+                        continue
+
+                    llm_key = os.environ.get("EMERGENT_LLM_KEY")
+                    if not llm_key:
+                        continue
+
+                    chat = LlmChat(
+                        api_key=llm_key,
+                        session_id=f"auto-linkedin-{company}-{uuid.uuid4()}",
+                        system_message=f"""You are a LinkedIn content strategist for {ctx['name']}. 
+Write engaging, professional LinkedIn posts that drive engagement and thought leadership.
+
+Company: {ctx['name']}
+Tagline: {ctx['tagline']}
+Description: {ctx['description']}
+Products: {', '.join(ctx['products'])}
+Value Props: {', '.join(ctx['value_props'])}
+Target Audience: {ctx['target_audience']}
+
+RULES:
+- Write in first person as a founder/leader sharing insights
+- Be conversational yet professional
+- Use short paragraphs (1-2 lines each) 
+- Include a hook in the first line
+- Add 2-3 relevant emojis (not overdo)
+- End with a thought-provoking question or call-to-action
+- Include 3-5 relevant hashtags at the end
+- Post length: 150-300 words ideal
+- Share real industry insights, trends, or lessons
+- DO NOT sound like AI
+- Mix between: industry insights, product updates, customer stories, thought leadership"""
+                    ).with_model("openai", "gpt-4o")
+
+                    user_msg = UserMessage(
+                        text=f"""Write a LinkedIn post for {ctx['name']}.
+Choose a relevant trending topic.
+Use these hashtags where appropriate: {ctx['hashtags']}
+Write ONLY the post content. No meta text."""
+                    )
+                    content = await chat.send_message(user_msg)
+
+                    # Publish directly
+                    import httpx
+                    access_token, person_urn = await get_valid_token(account["account_id"])
+                    headers = {
+                        "Authorization": f"Bearer {access_token}",
+                        "Content-Type": "application/json",
+                        "X-Restli-Protocol-Version": "2.0.0",
+                        "LinkedIn-Version": LINKEDIN_API_VERSION
+                    }
+                    payload = {
+                        "author": person_urn,
+                        "commentary": content,
+                        "visibility": "PUBLIC",
+                        "distribution": {"feedDistribution": "MAIN_FEED", "targetEntities": [], "thirdPartyDistributionChannels": []},
+                        "lifecycleState": "PUBLISHED",
+                        "isReshareDisabledByAuthor": False
+                    }
+                    async with httpx.AsyncClient() as http_client:
+                        response = await http_client.post(LINKEDIN_POSTS_URL, json=payload, headers=headers)
+
+                    if response.status_code in [200, 201]:
+                        post_id = response.headers.get("x-restli-id", "")
+                        await db.linkedin_posts.insert_one({
+                            "post_id": post_id,
+                            "account_id": account["account_id"],
+                            "company": company,
+                            "content": content,
+                            "published_at": now.isoformat(),
+                            "auto_generated": True
+                        })
+                        await db.linkedin_accounts.update_one(
+                            {"account_id": account["account_id"]},
+                            {"$set": {
+                                "last_auto_post_at": now.isoformat(),
+                                "last_auto_company": company,
+                                "last_sync_status": "auto_post_published",
+                                "last_sync_at": now.isoformat()
+                            }}
+                        )
+                        logger.info(f"Auto-post published for {account['name']} ({company}): {post_id}")
+                    else:
+                        logger.error(f"Auto-post failed for {account['name']}: {response.status_code} {response.text[:200]}")
+
+                except Exception as e:
+                    logger.error(f"Auto-post generation error for {account['name']}: {e}")
+
+        except Exception as e:
+            logger.error(f"Auto-post generator error: {e}")
+
+        await _asyncio.sleep(300)  # Check every 5 minutes
+
+
 @app.on_event("startup")
 async def start_scheduler():
     _asyncio.create_task(_scheduled_posts_worker())
+    _asyncio.create_task(_auto_post_generator())
