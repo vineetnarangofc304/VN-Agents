@@ -236,23 +236,42 @@ def process_invoice_pdf(input_path: str, output_path: str) -> bool:
     """
     Process invoice PDF:
     1. Keep only the first page
-    2. The page number correction is visual only - we just remove page 2
+    2. Fix "Page 1 of 2" footer to "Page 1 of 1"
     """
     try:
         reader = PdfReader(input_path)
         writer = PdfWriter()
-        
+
         if len(reader.pages) == 0:
             return False
-        
-        # Just keep the first page - no modifications to avoid font corruption
+
         first_page = reader.pages[0]
+        page_width = float(first_page.mediabox.width)
+        page_height = float(first_page.mediabox.height)
+
+        # Create overlay to fix page number
+        overlay_buf = io.BytesIO()
+        c = canvas.Canvas(overlay_buf, pagesize=(page_width, page_height))
+        # White rectangle over the "Page 1 of 2" area (bottom-right footer)
+        # Typical invoice footer is at y=20-40, right side
+        c.setFillColorRGB(1, 1, 1)  # white
+        c.rect(page_width - 200, 0, 200, 45, fill=1, stroke=0)
+        # Write corrected page number
+        c.setFillColorRGB(0.4, 0.4, 0.4)
+        c.setFont("Helvetica", 8)
+        c.drawRightString(page_width - 30, 20, "Page 1 of 1")
+        c.save()
+
+        overlay_buf.seek(0)
+        overlay_reader = PdfReader(overlay_buf)
+        overlay_page = overlay_reader.pages[0]
+
+        first_page.merge_page(overlay_page)
         writer.add_page(first_page)
-        
-        # Write directly without any overlay/merge operations
+
         with open(output_path, "wb") as f:
             writer.write(f)
-        
+
         return True
     except Exception as e:
         logger.error(f"Error processing PDF: {e}")
