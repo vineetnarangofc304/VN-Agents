@@ -1122,7 +1122,7 @@ Write ONLY the post content. No meta commentary."""
                     )
                     content = await chat.send_message(user_msg)
 
-                    # Generate Fundle infographic using Nano Banana
+                    # Generate Fundle infographic using Nano Banana with logo reference
                     import httpx
                     import base64 as _b64
                     image_path = None
@@ -1130,28 +1130,60 @@ Write ONLY the post content. No meta commentary."""
                         infographic_chat = LlmChat(
                             api_key=llm_key,
                             session_id=f"auto-infographic-{company}-{uuid.uuid4()}",
-                            system_message="You are a world-class data visualization designer creating vertical infographics for LinkedIn. Style: clean, modern, data-driven, professional. Use bold typography, clear hierarchy, brand colors. The infographic should be visually striking and contain real data/insights that complement the post."
+                            system_message="""You are a world-class brand designer at a top agency creating vertical infographics for Fundle.ai's LinkedIn. 
+
+BRAND IDENTITY — FUNDLE.AI:
+- Logo: The word "fundle" in rounded sans-serif. Letters "f","d","l","e" are light gray. The "u" contains a colorful curved path (red section with white fork icon, yellow section with dashed road lines, teal section). The "n" has a purple shopping bag icon. Colors: red/pink, yellow, purple, teal on gray.
+- Tagline: "First-Party Retail Data Intelligence"
+- Brand Colors: Deep navy blue (#1a2744), white, accent teal (#2dd4bf), warm amber/gold (#f59e0b), and the logo's signature red-yellow-purple-teal palette.
+
+INFOGRAPHIC RULES (MANDATORY):
+1. The Fundle.ai logo text "fundle" must appear prominently at the TOP of every infographic — large, clear, unmissable. Reproduce it as the word "fundle" in the brand style with the colorful "u" and "n" elements.
+2. The tagline "First-Party Retail Data Intelligence" must appear directly below the logo.
+3. Vertical format: 768x1376 pixels (LinkedIn-optimized).
+4. Use the brand color palette consistently — navy background sections, white text, teal/amber accents.
+5. Professional, data-driven, modern design. Think McKinsey meets Stripe — authoritative yet visually engaging.
+6. Include real data points, percentages, stats. No placeholder or fake data.
+7. Clean typography hierarchy: bold headlines, clear section breaks, scannable layout.
+8. Include subtle icons or data visualizations (not clip art).
+9. Bottom footer: "www.fundle.ai" and the logo again, smaller."""
                         )
                         infographic_chat.with_model("gemini", "gemini-3.1-flash-image-preview").with_params(modalities=["image", "text"])
 
-                        infographic_prompt = f"""Create a striking vertical infographic (768x1376 pixels) for {ctx['name']}.
+                        # Include the actual logo as reference image
+                        logo_path = Path(__file__).parent / "uploads" / "fundle_logo_1.png"
+                        logo_images = []
+                        if logo_path.exists():
+                            with open(logo_path, "rb") as f:
+                                logo_b64 = _b64.b64encode(f.read()).decode()
+                            logo_images = [{"data": logo_b64, "mime_type": "image/png"}]
 
-Topic: Based on this LinkedIn post content:
-{content[:500]}
+                        infographic_prompt = f"""Create a striking vertical infographic (768x1376 pixels) for Fundle.ai.
 
-Design requirements:
-- Vertical format optimized for LinkedIn feed
-- Company: {ctx['name']} — {ctx['tagline']}
-- Include 3-5 key data points or statistics related to the post topic
-- Use professional corporate design with clean typography
-- Brand colors: deep blue, white, accent gold/green
-- Include the company name "{ctx['name']}" prominently
-- Make it visually engaging with icons, charts, or data visualizations
-- No placeholder text — all content must be real and relevant"""
+CRITICAL: Place the Fundle.ai logo prominently at the TOP. The logo is the word "fundle" with colorful graphic elements in the "u" (red fork, yellow path, teal curve) and "n" (purple shopping bag). I've attached the actual logo — reproduce it faithfully at the top of the infographic.
 
-                        text_resp, images = await infographic_chat.send_message_multimodal_response(
-                            UserMessage(text=infographic_prompt)
-                        )
+Below the logo, add tagline: "First-Party Retail Data Intelligence"
+
+TOPIC — based on this LinkedIn post:
+{content[:600]}
+
+DESIGN SPECIFICATIONS:
+- 768x1376 vertical format
+- Navy blue (#1a2744) primary background
+- White text for headings, light gray for body
+- Teal (#2dd4bf) and amber (#f59e0b) for accents, highlights, data callouts
+- 3-5 key statistics or data points with large bold numbers
+- Clean section layout with visual hierarchy
+- Icons or mini-charts for each data point
+- Footer: "www.fundle.ai" with smaller logo"""
+
+                        msg = UserMessage(text=infographic_prompt)
+                        if logo_images:
+                            from emergentintegrations.llm.chat import FileContent
+                            logo_file = FileContent(content_type="image/png", file_content_base64=logo_b64)
+                            msg = UserMessage(text=infographic_prompt, file_contents=[logo_file])
+
+                        text_resp, images = await infographic_chat.send_message_multimodal_response(msg)
 
                         if images and len(images) > 0:
                             from routes.linkedin import INFOGRAPHIC_DIR
