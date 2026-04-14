@@ -861,13 +861,13 @@ async def _farm_single_account(page, context, email, password):
     try:
         captured = {"credits": None, "base_url": None, "bearer_token": None}
 
-        async def on_request(request):
+        async def _on_req(request):
             if 'doubledowncasino2.com' in request.url:
                 auth = request.headers.get('authorization', '')
                 if auth.startswith('Bearer ') and not captured["bearer_token"]:
                     captured["bearer_token"] = auth[7:]
 
-        async def on_response(response):
+        async def _on_resp(response):
             try:
                 url = response.url
                 if 'lobby/game' in url and 'doubledowncasino' in url:
@@ -880,12 +880,21 @@ async def _farm_single_account(page, context, email, password):
             except Exception:
                 pass
 
-        page.on('request', on_request)
-        page.on('response', on_response)
+        page.on('request', _on_req)
+        page.on('response', _on_resp)
 
         # === LOGIN ===
         await page.goto('https://www.doubledowncasino.com', wait_until='domcontentloaded', timeout=20000)
         await page.wait_for_timeout(2500)
+
+        # Accept cookies if present
+        try:
+            accept_cookies = page.locator('button:has-text("Accept Cookies")')
+            if await accept_cookies.count() > 0:
+                await accept_cookies.first.click()
+                await page.wait_for_timeout(1000)
+        except Exception:
+            pass
 
         play_btn = await page.query_selector('img[src*="playnow"]')
         if play_btn:
@@ -924,40 +933,69 @@ async def _farm_single_account(page, context, email, password):
             page.remove_listener('response', on_response)
             return result
 
-        # Wait for game lobby to fully load (daily wheel auto-spins here)
+        # Wait for game lobby to fully load (daily wheel appears)
         await page.wait_for_timeout(15000)
         result["chips_before"] = captured["credits"]
 
-        # === DISMISS ALL POPUPS ===
-        # DDC shows popups center-screen. COLLECT/OK/CLAIM/CLOSE buttons appear
-        # at predictable Y positions. Click through them all.
-        # Round 1: Terms popup + daily wheel COLLECT (center-bottom area)
-        for y in [760, 780, 740, 800, 720]:
-            await page.mouse.click(960, y)
-            await page.wait_for_timeout(800)
+        # If interceptor missed the balance, try explicit API call
+        if not result["chips_before"] and captured["base_url"] and captured["bearer_token"]:
+            try:
+                xrid = str(int(_time.time() * 1000))
+                s = http_req.Session()
+                s.headers.update({
+                    "Authorization": f"Bearer {captured['bearer_token']}",
+                    "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
+                    "x-requested-with": "XMLHttpRequest",
+                    "Origin": "https://www.doubledowncasino2.com",
+                    "Referer": "https://www.doubledowncasino2.com/",
+                })
+                resp = s.post(f"{captured['base_url']}/v2/lobby/game", data=f"language=en&xrid={xrid}", timeout=10)
+                if resp.status_code == 200:
+                    cash_m = re.search(r'"cash"\s*:\s*(\d+)', resp.text)
+                    if cash_m:
+                        result["chips_before"] = cash_m.group(1)
+                        captured["credits"] = cash_m.group(1)
+            except Exception:
+                pass
 
-        # Wait for next popup wave
-        await page.wait_for_timeout(3000)
+        # === SPIN DAILY WHEEL + COLLECT ALL POPUPS ===
+        # Wheel is center-screen. Click to spin, wait, then collect.
+        await page.mouse.click(960, 540)
+        await page.wait_for_timeout(1000)
+        await page.mouse.click(960, 500)
+        await page.wait_for_timeout(7000)
 
-        # Round 2: Time bonus, coin boost, special offers
-        for y in [760, 700, 800, 650, 850]:
-            await page.mouse.click(960, y)
-            await page.wait_for_timeout(800)
-
-        # Wait again
-        await page.wait_for_timeout(3000)
-
-        # Round 3: Any remaining popups, close buttons (X) at top-right of modals
-        for x, y in [(960, 760), (960, 800), (1200, 300), (1250, 280), (960, 680)]:
+        # COLLECT button can be center-bottom OR right-side of popup
+        for x, y in [
+            (960, 850), (960, 830), (960, 800), (960, 780), (960, 760),
+            (1350, 850), (1350, 830), (1300, 850), (1400, 850),  # right-side COLLECT
+        ]:
             await page.mouse.click(x, y)
-            await page.wait_for_timeout(600)
+            await page.wait_for_timeout(500)
 
-        # Also try clicking the time bonus "Collect" in the top bar
+        await page.wait_for_timeout(3000)
+
+        # === DISMISS ALL SUBSEQUENT POPUPS (5 rounds) ===
+        for _ in range(5):
+            # X close buttons (top-right of modals)
+            for x, y in [(1280, 290), (1260, 300), (1300, 280), (1250, 310), (1320, 270)]:
+                await page.mouse.click(x, y)
+                await page.wait_for_timeout(300)
+            # Center + right-side COLLECT/OK/SKIP buttons
+            for x, y in [
+                (960, 760), (960, 780), (960, 800), (960, 850),
+                (1350, 850), (1350, 800), (1300, 850),  # right-side green COLLECT
+                (960, 700), (960, 650),
+            ]:
+                await page.mouse.click(x, y)
+                await page.wait_for_timeout(300)
+            await page.wait_for_timeout(1500)
+
+        # Time bonus Collect in top bar
         for x, y in [(1550, 65), (1580, 75), (1600, 80)]:
             await page.mouse.click(x, y)
             await page.wait_for_timeout(500)
 
-        # Wait for balance to settle
         await page.wait_for_timeout(3000)
 
         # === CAPTURE FINAL BALANCE via API ===
@@ -989,9 +1027,6 @@ async def _farm_single_account(page, context, email, password):
             result["chips_after"] = captured.get("credits") or result["chips_before"]
 
         result["bonuses_collected"].append("popup_dismiss")
-
-        page.remove_listener('request', on_request)
-        page.remove_listener('response', on_response)
 
     except Exception as e:
         result["errors"].append(str(e)[:200])
