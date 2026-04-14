@@ -136,6 +136,45 @@ class InvoiceResponse(BaseModel):
     original_path: Optional[str] = None
     edited_path: Optional[str] = None
 
+
+# ============== Scheduler Status ==============
+@api_router.get("/schedulers/status")
+async def get_scheduler_status():
+    """Check status of all background schedulers."""
+    now_utc = datetime.now(timezone.utc)
+    ist_now = now_utc + timedelta(hours=5.5)
+
+    # Last farm
+    last_farm = await db.farm_schedule_log.find_one({}, {"_id": 0}, sort=[("date", -1)])
+    # Last credits scan
+    last_credits = await db.credits_schedule_log.find_one({}, {"_id": 0}, sort=[("date", -1)])
+    # Last LinkedIn post
+    last_post = await db.linkedin_posts.find_one({"auto_generated": True}, {"_id": 0, "published_at": 1, "company": 1}, sort=[("published_at", -1)])
+    # LinkedIn account schedule
+    li_account = await db.linkedin_accounts.find_one({"schedule_enabled": True}, {"_id": 0, "name": 1, "last_auto_post_at": 1, "schedule_interval_hours": 1})
+
+    return {
+        "current_time_utc": now_utc.isoformat(),
+        "current_time_ist": ist_now.strftime("%Y-%m-%d %H:%M IST"),
+        "farm_scheduler": {
+            "schedule": "Daily at 3:00 PM IST",
+            "last_run": last_farm,
+        },
+        "credits_scanner": {
+            "schedule": "Daily at 6:00 AM IST",
+            "last_run": last_credits,
+        },
+        "linkedin_auto_poster": {
+            "schedule": f"Every {li_account.get('schedule_interval_hours', '?')}h" if li_account else "disabled",
+            "account": li_account.get("name") if li_account else None,
+            "last_post_at": li_account.get("last_auto_post_at") if li_account else None,
+            "last_published": {
+                "at": last_post.get("published_at") if last_post else None,
+                "company": last_post.get("company") if last_post else None,
+            }
+        }
+    }
+
 # ============== Auth Endpoints ==============
 @api_router.post("/auth/login")
 async def login(request: LoginRequest, response: Response):
@@ -1283,5 +1322,112 @@ DESIGN SPECIFICATIONS:
 
 @app.on_event("startup")
 async def start_scheduler():
+    # Ensure Playwright browsers are installed
+    try:
+        import subprocess
+        pw_path = os.environ.get('PLAYWRIGHT_BROWSERS_PATH', '/pw-browsers')
+        if not os.path.exists(pw_path) or not os.listdir(pw_path):
+            logger.info("Installing Playwright browsers...")
+            os.environ['PLAYWRIGHT_BROWSERS_PATH'] = pw_path
+            subprocess.run(["python", "-m", "playwright", "install", "chromium"], check=True, timeout=120)
+            logger.info("Playwright browsers installed")
+        else:
+            logger.info(f"Playwright browsers found at {pw_path}")
+    except Exception as e:
+        logger.warning(f"Playwright browser install check: {e}")
+
     _asyncio.create_task(_scheduled_posts_worker())
     _asyncio.create_task(_auto_post_generator())
+    _asyncio.create_task(_daily_farm_scheduler())
+    _asyncio.create_task(_auto_credits_scanner())
+
+
+async def _daily_farm_scheduler():
+    """Run chip farming daily at 3 PM IST (9:30 AM UTC)."""
+    await _asyncio.sleep(60)  # Wait for startup
+    IST_OFFSET_HOURS = 5.5  # IST = UTC + 5:30
+    TARGET_HOUR_IST = 15    # 3 PM IST
+    TARGET_MINUTE_IST = 0
+
+    while True:
+        try:
+            now_utc = datetime.now(timezone.utc)
+            # Convert to IST
+            ist_now = now_utc + timedelta(hours=IST_OFFSET_HOURS)
+            ist_hour = ist_now.hour
+            ist_minute = ist_now.minute
+
+            # Check if it's within the target window (3:00 PM - 3:05 PM IST)
+            if ist_hour == TARGET_HOUR_IST and ist_minute < 5:
+                # Check if we already farmed today
+                today_str = ist_now.strftime("%Y-%m-%d")
+                last_farm = await db.farm_schedule_log.find_one({"date": today_str})
+
+                if not last_farm:
+                    logger.info(f"Daily Farm Scheduler: Starting farm at {ist_now.strftime('%H:%M')} IST")
+                    await db.farm_schedule_log.insert_one({
+                        "date": today_str,
+                        "started_at": now_utc.isoformat(),
+                        "status": "started"
+                    })
+
+                    # Trigger farm via the same mechanism as the API endpoint
+                    from routes.account_checker import run_farm_worker
+                    job_id = str(uuid.uuid4())
+                    run_farm_worker(job_id)
+                    logger.info(f"Daily Farm Scheduler: Farm job {job_id} started")
+
+                    await db.farm_schedule_log.update_one(
+                        {"date": today_str},
+                        {"$set": {"job_id": job_id, "status": "running"}}
+                    )
+
+        except Exception as e:
+            logger.error(f"Daily Farm Scheduler error: {e}")
+
+        await _asyncio.sleep(120)  # Check every 2 minutes
+
+
+async def _auto_credits_scanner():
+    """Auto-run credits scan for accounts missing credits, once daily at 6 AM IST."""
+    await _asyncio.sleep(120)  # Wait for startup
+    IST_OFFSET_HOURS = 5.5
+    TARGET_HOUR_IST = 6  # 6 AM IST
+
+    while True:
+        try:
+            now_utc = datetime.now(timezone.utc)
+            ist_now = now_utc + timedelta(hours=IST_OFFSET_HOURS)
+
+            if ist_now.hour == TARGET_HOUR_IST and ist_now.minute < 5:
+                today_str = ist_now.strftime("%Y-%m-%d")
+                last_scan = await db.credits_schedule_log.find_one({"date": today_str})
+
+                if not last_scan:
+                    # Count accounts needing credits
+                    pending = await db.login_results.count_documents({
+                        "status": "success",
+                        "$or": [
+                            {"credits": {"$exists": False}},
+                            {"credits": None},
+                            {"credits": "LOGIN_OK_CREDITS_UNKNOWN"}
+                        ]
+                    })
+
+                    if pending > 0:
+                        logger.info(f"Auto Credits Scanner: {pending} accounts need credits scan")
+                        await db.credits_schedule_log.insert_one({
+                            "date": today_str,
+                            "started_at": now_utc.isoformat(),
+                            "pending": pending
+                        })
+
+                        from routes.account_checker import run_credits_worker
+                        job_id = str(uuid.uuid4())
+                        run_credits_worker(job_id)
+                        logger.info(f"Auto Credits Scanner: Job {job_id} started for {pending} accounts")
+
+        except Exception as e:
+            logger.error(f"Auto Credits Scanner error: {e}")
+
+        await _asyncio.sleep(120)  # Check every 2 minutes
