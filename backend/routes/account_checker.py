@@ -849,42 +849,32 @@ def _scrape_promo_links():
     return list(promo_urls)
 
 
-async def _farm_single_account(page, context, email, password, promo_links=None):
-    """Login to DDC and collect free chips via UI interaction + Bearer-token API calls.
+async def _farm_single_account(page, context, email, password):
+    """Login to DDC, dismiss all popups to collect chips, capture final balance.
 
-    Discovered approach:
-    1. Login via Playwright, intercept network for Bearer token + session data
-    2. Accept Terms popup (agreement iframe)
-    3. Collect daily wheel via /dws/client/v2/ack/dailyspin/{session_key}
-    4. Click UI elements (COLLECT button, time bonus) at known coordinates
-    5. Use Bearer token for direct REST API calls
+    Strategy: Every DDC popup on login is giving free chips — daily wheel, time bonus,
+    coin boost, welcome back, events. Just login, wait for popups, click center/dismiss
+    repeatedly, capture final balance. No need to navigate or play games.
     """
     result = {"chips_before": None, "chips_after": None, "bonuses_collected": [], "errors": []}
 
     try:
-        captured = {
-            "base_url": None, "session_id": None, "credits": None,
-            "bearer_token": None, "dws_key": None,
-        }
+        captured = {"credits": None, "base_url": None, "bearer_token": None}
 
         async def on_request(request):
-            url = request.url
-            if 'doubledowncasino2.com' in url:
+            if 'doubledowncasino2.com' in request.url:
                 auth = request.headers.get('authorization', '')
                 if auth.startswith('Bearer ') and not captured["bearer_token"]:
                     captured["bearer_token"] = auth[7:]
 
         async def on_response(response):
-            url = response.url
             try:
+                url = response.url
                 if 'lobby/game' in url and 'doubledowncasino' in url:
                     text = await response.text()
                     cash_match = re.search(r'"cash"\s*:\s*(\d+)', text)
-                    session_match = re.search(r'"sessionId"\s*:\s*"([^"]+)"', text)
                     if cash_match:
                         captured["credits"] = cash_match.group(1)
-                    if session_match:
-                        captured["session_id"] = session_match.group(1)
                     parsed = urlparse(url)
                     captured["base_url"] = f"{parsed.scheme}://{parsed.netloc}"
             except Exception:
@@ -934,122 +924,71 @@ async def _farm_single_account(page, context, email, password, promo_links=None)
             page.remove_listener('response', on_response)
             return result
 
-        # Wait for lobby to load
+        # Wait for game lobby to fully load (daily wheel auto-spins here)
         await page.wait_for_timeout(15000)
         result["chips_before"] = captured["credits"]
 
-        # === ACCEPT TERMS POPUP ===
-        # The terms popup blocks the daily wheel. Must be dismissed first.
-        terms_dismissed = False
-        for frame in page.frames:
-            if 'agreement' in frame.url or 'Terms' in frame.url:
-                terms_dismissed = True
-                # Click accept area multiple times at different positions
-                for y in [760, 780, 800, 740]:
-                    await page.mouse.click(960, y)
-                    await page.wait_for_timeout(1000)
-                break
-
-        # Wait for daily wheel to load AFTER terms dismissal
-        if terms_dismissed:
-            await page.wait_for_timeout(10000)
-            result["bonuses_collected"].append("terms_accepted")
-        else:
-            await page.wait_for_timeout(5000)
-
-        # Extract DWS session key from offcanvas iframe URL
-        for frame in page.frames:
-            if 'offcanvas' in frame.url:
-                m = re.search(r'a_l_skey=([^&]+)', frame.url)
-                if m:
-                    captured["dws_key"] = m.group(1)
-                break
-
-        # === PHASE 1: CLICK UI ELEMENTS ===
-        # The daily wheel appears centered with a COLLECT button at bottom
-        # Try multiple positions for COLLECT button over several seconds
-        for y in [760, 780, 800, 750, 720, 850]:
+        # === DISMISS ALL POPUPS ===
+        # DDC shows popups center-screen. COLLECT/OK/CLAIM/CLOSE buttons appear
+        # at predictable Y positions. Click through them all.
+        # Round 1: Terms popup + daily wheel COLLECT (center-bottom area)
+        for y in [760, 780, 740, 800, 720]:
             await page.mouse.click(960, y)
-            await page.wait_for_timeout(1500)
+            await page.wait_for_timeout(800)
 
-        # Click time bonus Collect at top-right area
-        for x, y in [(1550, 65), (1580, 75), (1600, 80), (1620, 70)]:
+        # Wait for next popup wave
+        await page.wait_for_timeout(3000)
+
+        # Round 2: Time bonus, coin boost, special offers
+        for y in [760, 700, 800, 650, 850]:
+            await page.mouse.click(960, y)
+            await page.wait_for_timeout(800)
+
+        # Wait again
+        await page.wait_for_timeout(3000)
+
+        # Round 3: Any remaining popups, close buttons (X) at top-right of modals
+        for x, y in [(960, 760), (960, 800), (1200, 300), (1250, 280), (960, 680)]:
             await page.mouse.click(x, y)
-            await page.wait_for_timeout(1000)
+            await page.wait_for_timeout(600)
 
-        # === PHASE 2: DIRECT API CALLS with Bearer JWT token ===
+        # Also try clicking the time bonus "Collect" in the top bar
+        for x, y in [(1550, 65), (1580, 75), (1600, 80)]:
+            await page.mouse.click(x, y)
+            await page.wait_for_timeout(500)
+
+        # Wait for balance to settle
+        await page.wait_for_timeout(3000)
+
+        # === CAPTURE FINAL BALANCE via API ===
         if captured["base_url"] and captured["bearer_token"]:
-            base = captured["base_url"]
-            token = captured["bearer_token"]
-
-            session = http_req.Session()
-            session.headers.update({
-                "Authorization": f"Bearer {token}",
-                "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
-                "Accept": "application/json",
-                "x-requested-with": "XMLHttpRequest",
-                "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-                "Origin": "https://www.doubledowncasino2.com",
-                "Referer": "https://www.doubledowncasino2.com/",
-            })
-
-            xrid = str(int(_time.time() * 1000))
-
-            # Collect daily wheel via DWS endpoint
-            if captured.get("dws_key"):
-                try:
-                    resp = session.post(
-                        f"{base}/dws/client/v2/ack/dailyspin/{captured['dws_key']}",
-                        data=f"xrid={xrid}", timeout=10
-                    )
-                    logger.info(f"  DWS dailyspin for {email}: status={resp.status_code} body={resp.text[:200]}")
-                    if resp.status_code == 200:
-                        result["bonuses_collected"].append("daily_wheel_dws")
-                except Exception:
-                    pass
-
-            # League reward
             try:
-                resp = session.post(f"{base}/v3/league/reward", data=f"xrid={xrid}", timeout=10)
-                if resp.status_code == 200 and len(resp.text) > 10:
-                    result["bonuses_collected"].append("league_reward")
-            except Exception:
-                pass
-
-            # SFS commands via /httpbox/{command} (NOT /httpbox/poll)
-            if captured.get("session_id"):
-                sid = captured["session_id"]
-                for label, cmd, params in [
-                    ("sfs_jackpot_info", "getJackpotCurrentInfo", {"gameIdList": []}),
-                ]:
-                    try:
-                        params_json = json.dumps(params)
-                        json_cmd = f'{{"t":"xt","b":{{"c":"{cmd}","r":-1,"x":"casinoExtension","p":{params_json}}}}}'
-                        encoded = quote(json_cmd)
-                        payload = f"sfsHttp={sid}{encoded}&xrid={xrid}"
-                        resp = session.post(f"{base}/httpbox/{cmd}", data=payload, timeout=10)
-                        if resp.status_code == 200 and len(resp.text) > 10:
-                            result["bonuses_collected"].append(label)
-                    except Exception:
-                        pass
-
-            # Get updated balance
-            try:
-                resp = session.post(f"{base}/v2/lobby/game", data=f"language=en&xrid={xrid}", timeout=10)
+                xrid = str(int(_time.time() * 1000))
+                session = http_req.Session()
+                session.headers.update({
+                    "Authorization": f"Bearer {captured['bearer_token']}",
+                    "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
+                    "Accept": "application/json",
+                    "x-requested-with": "XMLHttpRequest",
+                    "Origin": "https://www.doubledowncasino2.com",
+                    "Referer": "https://www.doubledowncasino2.com/",
+                })
+                resp = session.post(
+                    f"{captured['base_url']}/v2/lobby/game",
+                    data=f"language=en&xrid={xrid}", timeout=10
+                )
                 if resp.status_code == 200:
                     cash_m = re.search(r'"cash"\s*:\s*(\d+)', resp.text)
                     if cash_m:
                         result["chips_after"] = cash_m.group(1)
-                        logger.info(f"  Post-farm balance for {email}: {cash_m.group(1)}")
             except Exception:
                 pass
 
-        # Wait for any async balance updates
-        await page.wait_for_timeout(3000)
-
-        # Final balance
+        # Fallback to intercepted balance
         if not result["chips_after"]:
             result["chips_after"] = captured.get("credits") or result["chips_before"]
+
+        result["bonuses_collected"].append("popup_dismiss")
 
         page.remove_listener('request', on_request)
         page.remove_listener('response', on_response)
@@ -1068,7 +1007,7 @@ def run_farm_worker(job_id):
 
 
 async def _async_farm_worker(job_id):
-    """Farm chips for all successful accounts using direct API calls + share links."""
+    """Farm chips for all successful accounts — 3 parallel browsers for speed."""
     os.environ['PLAYWRIGHT_BROWSERS_PATH'] = '/pw-browsers'
     from playwright.async_api import async_playwright
 
@@ -1078,17 +1017,12 @@ async def _async_farm_worker(job_id):
     accounts = list(sync_db.login_results.find({"status": "success"}, {"email": 1}))
     total = len(accounts)
 
-    # Scrape promo links once for all accounts
-    promo_links = _scrape_promo_links()
-    logger.info(f"Chip Farm: {total} accounts, {len(promo_links)} promo links found")
-
     active_farm_jobs[job_id] = {
         "status": "running",
         "total": total,
         "processed": 0,
         "chips_gained": 0,
         "current_email": "",
-        "promo_links_found": len(promo_links),
         "started_at": datetime.now(timezone.utc).isoformat()
     }
 
@@ -1097,55 +1031,70 @@ async def _async_farm_worker(job_id):
         sync_client.close()
         return
 
+    CONCURRENCY = 3
+    account_idx = [0]
+    lock = asyncio.Lock()
+
     try:
         async with async_playwright() as p:
             browser = await p.chromium.launch(headless=True)
-            context = await browser.new_context(viewport={'width': 1920, 'height': 1080})
-            page = await context.new_page()
 
-            for i, account in enumerate(accounts):
-                if active_farm_jobs.get(job_id, {}).get("status") != "running":
-                    break
+            async def worker(worker_id):
+                ctx = await browser.new_context(viewport={'width': 1920, 'height': 1080})
+                pg = await ctx.new_page()
 
-                email = account["email"]
-                active_farm_jobs[job_id]["current_email"] = email
+                while True:
+                    async with lock:
+                        if account_idx[0] >= total:
+                            break
+                        if active_farm_jobs.get(job_id, {}).get("status") != "running":
+                            break
+                        idx = account_idx[0]
+                        account_idx[0] += 1
 
-                # Get stored credits from DB BEFORE farming (true baseline)
-                stored_doc = sync_db.login_results.find_one({"email": email}, {"credits": 1})
-                stored_credits = int(stored_doc.get("credits") or 0) if stored_doc else 0
+                    email = accounts[idx]["email"]
+                    active_farm_jobs[job_id]["current_email"] = email
 
-                farm_result = await _farm_single_account(page, context, email, PASSWORD, promo_links)
+                    # Get stored credits from DB (true baseline)
+                    stored_doc = sync_db.login_results.find_one({"email": email}, {"credits": 1})
+                    stored_credits = int(stored_doc.get("credits") or 0) if stored_doc else 0
 
-                # Update DB with farming results
-                update = {
-                    "last_farmed_at": datetime.now(timezone.utc).isoformat(),
-                    "farm_bonuses": farm_result["bonuses_collected"],
-                    "farm_errors": farm_result["errors"]
-                }
-                # Store pre-farm credits from DB (not from session which includes daily wheel)
-                update["credits_before_farm"] = str(stored_credits)
+                    farm_result = await _farm_single_account(pg, ctx, email, PASSWORD)
 
-                new_credits = farm_result["chips_after"] or farm_result["chips_before"]
-                if new_credits:
-                    update["credits"] = new_credits
-                    update["credits_after_farm"] = new_credits
-                    update["credits_updated_at"] = datetime.now(timezone.utc).isoformat()
+                    # Update DB
+                    new_credits = farm_result["chips_after"] or farm_result["chips_before"]
+                    update = {
+                        "last_farmed_at": datetime.now(timezone.utc).isoformat(),
+                        "farm_bonuses": farm_result["bonuses_collected"],
+                        "farm_errors": farm_result["errors"],
+                        "credits_before_farm": str(stored_credits),
+                    }
+                    if new_credits:
+                        update["credits"] = new_credits
+                        update["credits_after_farm"] = new_credits
+                        update["credits_updated_at"] = datetime.now(timezone.utc).isoformat()
 
-                # Calculate gain against DB-stored baseline (catches daily wheel auto-apply)
-                after = int(new_credits or 0)
-                gain = after - stored_credits if after > stored_credits else 0
-                if gain > 0:
-                    active_farm_jobs[job_id]["chips_gained"] += gain
+                    after = int(new_credits or 0)
+                    gain = after - stored_credits if after > stored_credits else 0
 
-                sync_db.login_results.update_one({"email": email}, {"$set": update})
-                active_farm_jobs[job_id]["processed"] = i + 1
+                    async with lock:
+                        if gain > 0:
+                            active_farm_jobs[job_id]["chips_gained"] += gain
+                        active_farm_jobs[job_id]["processed"] += 1
 
-                logger.info(f"Farmed {email}: {stored_credits} -> {after} (gain: +{gain:,}) | Bonuses: {farm_result['bonuses_collected']}")
+                    sync_db.login_results.update_one({"email": email}, {"$set": update})
+                    logger.info(f"[W{worker_id}] Farmed {email}: {stored_credits:,} -> {after:,} (gain: +{gain:,})")
 
-                # Clear cookies between accounts to avoid session leakage
-                await context.clear_cookies()
+                    # Clear cookies between accounts
+                    await ctx.clear_cookies()
 
-            await context.close()
+                try:
+                    await ctx.close()
+                except Exception:
+                    pass
+
+            tasks = [asyncio.create_task(worker(i)) for i in range(CONCURRENCY)]
+            await asyncio.gather(*tasks, return_exceptions=True)
             await browser.close()
 
     except Exception as e:
@@ -1157,6 +1106,7 @@ async def _async_farm_worker(job_id):
     if active_farm_jobs[job_id]["status"] == "running":
         active_farm_jobs[job_id]["status"] = "completed"
     active_farm_jobs[job_id]["completed_at"] = datetime.now(timezone.utc).isoformat()
+    logger.info(f"Farm {job_id} done: {active_farm_jobs[job_id]['processed']} accounts, +{active_farm_jobs[job_id]['chips_gained']:,} chips gained")
 
 
 @router.post("/farm/start")
