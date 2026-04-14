@@ -20,6 +20,7 @@ const AccountChecker = () => {
   const [creditsStarting, setCreditsStarting] = useState(false);
   const [farmStatus, setFarmStatus] = useState(null);
   const [farmStarting, setFarmStarting] = useState(false);
+  const [showRanges, setShowRanges] = useState(false);
   const pollRef = useRef(null);
 
   const fetchRanges = useCallback(async () => {
@@ -241,6 +242,68 @@ const AccountChecker = () => {
           {farmStatus.current_email && <div className="ck-current-email"><Loader2 className="spin" size={14} /> Farming: {farmStatus.current_email}</div>}
         </div>
       )}
+
+      {/* Ranges Status Table */}
+      <div className="ck-results-section" data-testid="ranges-section">
+        <div className="ck-results-header" style={{ cursor: "pointer" }} onClick={() => setShowRanges(prev => !prev)}>
+          <h2><FileSpreadsheet size={18} /> Email Ranges ({ranges.length}) — {showRanges ? "click to hide" : "click to show"}</h2>
+        </div>
+        {showRanges && ranges.length > 0 && (
+          <div style={{ maxHeight: "50vh", overflowY: "auto" }}>
+            <table className="dir-table" data-testid="ranges-table">
+              <thead style={{ position: "sticky", top: 0, zIndex: 1 }}>
+                <tr>
+                  <th style={{ width: 35 }}>#</th>
+                  <th>Prefix</th>
+                  <th style={{ width: 90 }}>Range</th>
+                  <th style={{ width: 70 }}>Total</th>
+                  <th style={{ width: 70 }}>Tested</th>
+                  <th style={{ width: 70 }}>Success</th>
+                  <th style={{ width: 80 }}>Credits</th>
+                  <th style={{ width: 90 }}>Progress</th>
+                </tr>
+              </thead>
+              <tbody>
+                {ranges.map((r, idx) => {
+                  const pct = r.count > 0 ? ((r.tested || 0) / r.count * 100) : 0;
+                  const done = pct >= 99.5;
+                  return (
+                    <tr key={`${r.prefix}-${r.start}`} className="dir-row" data-testid={`range-row-${idx}`}>
+                      <td className="dir-cell-num">{idx + 1}</td>
+                      <td style={{ fontWeight: 600 }}>{r.prefix}</td>
+                      <td>{r.start}–{r.end}</td>
+                      <td>{(r.count || 0).toLocaleString()}</td>
+                      <td>{(r.tested || 0).toLocaleString()}</td>
+                      <td style={{ color: "#22c55e", fontWeight: 600 }}>{r.success || 0}</td>
+                      <td>
+                        {r.success > 0 ? (
+                          <span style={{ color: r.with_credits === r.success ? "#22c55e" : "#f59e0b", fontSize: "0.85rem" }}>
+                            {r.with_credits || 0}/{r.success}
+                          </span>
+                        ) : <span style={{ color: "var(--text-muted)", fontSize: "0.75rem" }}>—</span>}
+                      </td>
+                      <td>
+                        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                          <div style={{ flex: 1, height: 6, background: "var(--bg-tertiary)", borderRadius: 3, overflow: "hidden" }}>
+                            <div style={{ width: `${Math.min(pct, 100)}%`, height: "100%", background: done ? "#22c55e" : "#3b82f6", borderRadius: 3, transition: "width 0.3s" }} />
+                          </div>
+                          <span style={{ fontSize: "0.7rem", color: done ? "#22c55e" : "var(--text-muted)", minWidth: 32 }}>{pct.toFixed(0)}%</span>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+            <div style={{ padding: "8px 12px", fontSize: "0.8rem", color: "var(--text-muted)", display: "flex", gap: 16, borderTop: "1px solid var(--border-primary)" }}>
+              <span>Total: {ranges.reduce((s, r) => s + (r.count || 0), 0).toLocaleString()} emails</span>
+              <span>Tested: {ranges.reduce((s, r) => s + (r.tested || 0), 0).toLocaleString()}</span>
+              <span style={{ color: "#22c55e" }}>Success: {ranges.reduce((s, r) => s + (r.success || 0), 0).toLocaleString()}</span>
+              <span style={{ color: "#f59e0b" }}>Credits: {ranges.reduce((s, r) => s + (r.with_credits || 0), 0).toLocaleString()}</span>
+            </div>
+          </div>
+        )}
+      </div>
 
       {/* Results Table */}
       <div className="ck-results-section" data-testid="results-section">

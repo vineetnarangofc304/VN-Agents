@@ -711,12 +711,34 @@ async def get_email_ranges():
     ranges = []
     for r in EMAIL_RANGES:
         count = r["end"] - r["start"] + 1
+        if r["prefix"] == "veenu":
+            count = sum(1 for n in range(r["start"], r["end"] + 1) if not _is_veenu_skipped(n))
         sample_start = generate_email(r["prefix"], r["start"], r["pad"], r["domain"])
         sample_end = generate_email(r["prefix"], r["end"], r["pad"], r["domain"])
+
+        # Count tested and successful for this range
+        regex_pattern = f"^{r['prefix']}\\d+@{r['domain']}$"
+        tested = await db.login_results.count_documents({
+            "prefix": r["prefix"],
+            "num": {"$gte": r["start"], "$lte": r["end"]}
+        })
+        success = await db.login_results.count_documents({
+            "prefix": r["prefix"],
+            "num": {"$gte": r["start"], "$lte": r["end"]},
+            "status": "success"
+        })
+        with_credits = await db.login_results.count_documents({
+            "prefix": r["prefix"],
+            "num": {"$gte": r["start"], "$lte": r["end"]},
+            "status": "success",
+            "credits": {"$exists": True, "$ne": None, "$ne": "LOGIN_OK_CREDITS_UNKNOWN"}
+        })
+
         ranges.append({
             "prefix": r["prefix"], "start": r["start"], "end": r["end"],
             "pad": r["pad"], "count": count,
-            "sample_start": sample_start, "sample_end": sample_end
+            "sample_start": sample_start, "sample_end": sample_end,
+            "tested": tested, "success": success, "with_credits": with_credits
         })
     return {"ranges": ranges, "total": count_total_emails()}
 
