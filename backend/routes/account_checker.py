@@ -54,6 +54,10 @@ EMAIL_RANGES = [
     {"prefix": "vinsum", "start": 900, "end": 999, "pad": 0, "domain": "gmail.com"},
     {"prefix": "vinsum", "start": 1000, "end": 1099, "pad": 0, "domain": "gmail.com"},
     {"prefix": "vinci", "start": 300, "end": 1099, "pad": 0, "domain": "gmail.com"},
+    {"prefix": "jack", "start": 100, "end": 199, "pad": 0, "domain": "gmail.com"},
+    {"prefix": "jack", "start": 200, "end": 299, "pad": 0, "domain": "gmail.com"},
+    {"prefix": "jack", "start": 300, "end": 399, "pad": 0, "domain": "gmail.com"},
+    {"prefix": "jack", "start": 900, "end": 999, "pad": 0, "domain": "gmail.com"},
 ]
 
 # Skip these veenu ranges — no valid accounts expected
