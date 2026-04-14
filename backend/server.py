@@ -1089,8 +1089,51 @@ Write ONLY the post content. No meta text."""
                     )
                     content = await chat.send_message(user_msg)
 
-                    # Publish directly
+                    # Generate Fundle infographic using Nano Banana
                     import httpx
+                    import base64 as _b64
+                    image_path = None
+                    try:
+                        infographic_chat = LlmChat(
+                            api_key=llm_key,
+                            session_id=f"auto-infographic-{company}-{uuid.uuid4()}",
+                            system_message="You are a world-class data visualization designer creating vertical infographics for LinkedIn. Style: clean, modern, data-driven, professional. Use bold typography, clear hierarchy, brand colors. The infographic should be visually striking and contain real data/insights that complement the post."
+                        )
+                        infographic_chat.with_model("gemini", "gemini-3.1-flash-image-preview").with_params(modalities=["image", "text"])
+
+                        infographic_prompt = f"""Create a striking vertical infographic (768x1376 pixels) for {ctx['name']}.
+
+Topic: Based on this LinkedIn post content:
+{content[:500]}
+
+Design requirements:
+- Vertical format optimized for LinkedIn feed
+- Company: {ctx['name']} — {ctx['tagline']}
+- Include 3-5 key data points or statistics related to the post topic
+- Use professional corporate design with clean typography
+- Brand colors: deep blue, white, accent gold/green
+- Include the company name "{ctx['name']}" prominently
+- Make it visually engaging with icons, charts, or data visualizations
+- No placeholder text — all content must be real and relevant"""
+
+                        text_resp, images = await infographic_chat.send_message_multimodal_response(
+                            UserMessage(text=infographic_prompt)
+                        )
+
+                        if images and len(images) > 0:
+                            from routes.linkedin import INFOGRAPHIC_DIR
+                            image_data = _b64.b64decode(images[0]['data'])
+                            filename = f"fundle_auto_{uuid.uuid4().hex[:8]}.png"
+                            filepath = INFOGRAPHIC_DIR / filename
+                            with open(filepath, "wb") as f:
+                                f.write(image_data)
+                            image_path = str(filepath)
+                            logger.info(f"Auto-infographic generated: {filename} ({len(image_data)} bytes)")
+                    except Exception as img_err:
+                        logger.error(f"Auto-infographic generation error: {img_err}")
+
+                    # Publish with image
+                    from routes.linkedin import get_valid_token, LINKEDIN_POSTS_URL, LINKEDIN_API_VERSION
                     access_token, person_urn = await get_valid_token(account["account_id"])
                     headers = {
                         "Authorization": f"Bearer {access_token}",
@@ -1098,6 +1141,33 @@ Write ONLY the post content. No meta text."""
                         "X-Restli-Protocol-Version": "2.0.0",
                         "LinkedIn-Version": LINKEDIN_API_VERSION
                     }
+
+                    # Upload image if generated
+                    image_urn = None
+                    if image_path:
+                        try:
+                            init_payload = {"initializeUploadRequest": {"owner": person_urn}}
+                            async with httpx.AsyncClient() as http_client:
+                                init_resp = await http_client.post(
+                                    "https://api.linkedin.com/rest/images?action=initializeUpload",
+                                    json=init_payload, headers=headers
+                                )
+                            if init_resp.status_code in [200, 201]:
+                                init_data = init_resp.json()
+                                upload_url = init_data["value"]["uploadUrl"]
+                                image_urn = init_data["value"]["image"]
+                                with open(image_path, "rb") as f:
+                                    image_bytes = f.read()
+                                async with httpx.AsyncClient() as http_client:
+                                    await http_client.put(upload_url, content=image_bytes, headers={
+                                        "Authorization": f"Bearer {access_token}",
+                                        "Content-Type": "application/octet-stream",
+                                        "LinkedIn-Version": LINKEDIN_API_VERSION
+                                    }, timeout=60.0)
+                                logger.info(f"Auto-infographic uploaded to LinkedIn: {image_urn}")
+                        except Exception as upload_err:
+                            logger.error(f"Image upload error: {upload_err}")
+
                     payload = {
                         "author": person_urn,
                         "commentary": content,
@@ -1106,6 +1176,9 @@ Write ONLY the post content. No meta text."""
                         "lifecycleState": "PUBLISHED",
                         "isReshareDisabledByAuthor": False
                     }
+                    if image_urn:
+                        payload["content"] = {"media": {"id": image_urn}}
+
                     async with httpx.AsyncClient() as http_client:
                         response = await http_client.post(LINKEDIN_POSTS_URL, json=payload, headers=headers)
 
