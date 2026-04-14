@@ -36,9 +36,9 @@ from routes.account_checker import router as checker_router
 from routes.hearclear_leads import router as hearclear_leads_router
 
 # MongoDB connection
-mongo_url = os.environ['MONGO_URL']
+mongo_url = os.environ.get('MONGO_URL', '')
 client = AsyncIOMotorClient(mongo_url)
-db = client[os.environ['DB_NAME']]
+db = client[os.environ.get('DB_NAME', 'agent_hub')]
 
 # JWT Configuration
 JWT_ALGORITHM = "HS256"
@@ -910,14 +910,19 @@ app.include_router(directory_router)
 app.include_router(checker_router)
 app.include_router(hearclear_leads_router)
 
-# CORS Configuration - must be specific origins for credentials to work
-frontend_url = os.environ.get('FRONTEND_URL', 'https://agent-builder-133.preview.emergentagent.com')
+# CORS Configuration
+frontend_url = os.environ.get('FRONTEND_URL', '')
+backend_url = os.environ.get('REACT_APP_BACKEND_URL', '')
 cors_origins = [
-    frontend_url,
-    "https://agent-builder-133.preview.emergentagent.com",
     "http://localhost:3000",
-    "https://www.linkedin.com"
+    "https://www.linkedin.com",
 ]
+if frontend_url:
+    cors_origins.append(frontend_url)
+if backend_url:
+    cors_origins.append(backend_url)
+# Add production domain
+cors_origins.append("https://vnagents.agenticindia.ai")
 
 app.add_middleware(
     CORSMiddleware,

@@ -20,9 +20,9 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/linkedin", tags=["linkedin"])
 
 # MongoDB connection
-mongo_url = os.environ['MONGO_URL']
+mongo_url = os.environ.get('MONGO_URL', '')
 client = AsyncIOMotorClient(mongo_url)
-db = client[os.environ['DB_NAME']]
+db = client[os.environ.get('DB_NAME', 'agent_hub')]
 
 # LinkedIn OAuth config
 LINKEDIN_CLIENT_ID = os.environ.get("LINKEDIN_CLIENT_ID")
