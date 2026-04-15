@@ -898,6 +898,11 @@ async def get_agents(user: dict = Depends(get_current_user)):
         ]
     }
 
+# Health check endpoint
+@api_router.get("/health")
+async def health_check():
+    return {"status": "healthy", "service": "Agent Builder API"}
+
 # Root endpoint
 @api_router.get("/")
 async def root():
