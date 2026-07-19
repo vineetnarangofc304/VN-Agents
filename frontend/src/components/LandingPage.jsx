@@ -1,11 +1,12 @@
 import { useNavigate } from "react-router-dom";
-import { Receipt, RefreshCw, TrendingUp, Linkedin, BookOpen, ShieldCheck, Radar } from "lucide-react";
+import { Receipt, RefreshCw, TrendingUp, Linkedin, BookOpen, ShieldCheck, Radar, SearchCheck } from "lucide-react";
 
 const agents = [
   { id: "invoicing", name: "Invoicing Agent", desc: "Process Google Play receipts, extract pages, download as ZIP", icon: Receipt, color: "#3b82f6", path: "/invoicing" },
   { id: "refund", name: "Refund Agent", desc: "Generate detailed refund requests for failed transactions", icon: RefreshCw, color: "#f59e0b", path: "/refund" },
   { id: "stocks", name: "Stock Investor", desc: "Scan NSE stocks, find undervalued picks under INR 100", icon: TrendingUp, color: "#16a34a", path: "/stocks" },
   { id: "linkedin", name: "LinkedIn Agent", desc: "Auto-generate and publish LinkedIn posts for your companies", icon: Linkedin, color: "#0a66c2", path: "/linkedin" },
+  { id: "linkedin-search", name: "LinkedIn Lead Finder", desc: "Find people looking for agencies on LinkedIn, classify & auto-comment", icon: SearchCheck, color: "#0ea5e9", path: "/linkedin-search" },
   { id: "directory", name: "PDF Extractor", desc: "Extract company data from PDF directories into Excel", icon: BookOpen, color: "#8b5cf6", path: "/directory" },
   { id: "checker", name: "Account Checker", desc: "Bulk-test login accounts and find active ones", icon: ShieldCheck, color: "#ef4444", path: "/checker" },
   { id: "catchment", name: "Catchment Mining", desc: "Crawl web for contact databases — RWA, clubs, govt directories across Delhi NCR", icon: Radar, color: "#14b8a6", path: "/catchment" },
