@@ -217,7 +217,7 @@ async def _classify_post(text: str) -> dict:
     try:
         chat = LlmChat(
             api_key=EMERGENT_KEY,
-            model="gpt-4o",
+            session_id=f"li-classify-{uuid.uuid4()}",
             system_message="""You are a B2B lead classifier. Analyze LinkedIn posts where people are looking for agencies/services.
 
 Classify into these categories:
@@ -240,9 +240,9 @@ Also determine which company should respond:
 - "none" — not relevant
 
 Respond ONLY in JSON: {"category": "...", "relevance": "high/medium/low", "company_match": "fundle/tagandpay/exceed/any/none", "summary": "1-line summary of what they need"}"""
-        )
-        chat.add_message(UserMessage(content=f"Classify this post:\n\n{text[:1500]}"))
-        response = await asyncio.to_thread(chat.send_message)
+        ).with_model("openai", "gpt-4o")
+        user_msg = UserMessage(text=f"Classify this post:\n\n{text[:1500]}")
+        response = await chat.send_message(user_msg)
         resp_text = response.strip()
         # Extract JSON from response
         if "```" in resp_text:
@@ -608,7 +608,7 @@ async def generate_comment(post_id: str, data: dict):
     try:
         chat = LlmChat(
             api_key=EMERGENT_KEY,
-            model="gpt-4o",
+            session_id=f"li-comment-{uuid.uuid4()}",
             system_message=f"""You write LinkedIn comments that are helpful, professional, and subtly introduce your company without being salesy.
 
 Your company: {context}
@@ -621,9 +621,9 @@ Guidelines:
 - Be conversational, not corporate
 - Don't use hashtags
 - End with an open invitation to connect/chat"""
-        )
-        chat.add_message(UserMessage(content=f"Write a comment for this LinkedIn post:\n\n{doc.get('text', '')[:1500]}"))
-        response = await asyncio.to_thread(chat.send_message)
+        ).with_model("openai", "gpt-4o")
+        user_msg = UserMessage(text=f"Write a comment for this LinkedIn post:\n\n{doc.get('text', '')[:1500]}")
+        response = await chat.send_message(user_msg)
         return {"success": True, "comment": response.strip()}
     except Exception as e:
         logger.error(f"Comment generation error: {e}")
@@ -651,3 +651,281 @@ async def get_search_runs():
             doc["completed_at"] = doc["completed_at"].isoformat()
         runs.append(doc)
     return {"runs": runs}
+
+
+# ==================== MESSAGING ENDPOINTS ====================
+
+class MessageRequest(BaseModel):
+    recipient_urn: str
+    message_text: str
+
+
+class BulkMessageRequest(BaseModel):
+    recipient_urns: List[str]
+    message_text: str
+
+
+async def _fetch_connections(li_at: str, jsessionid: str, start: int = 0, count: int = 40, keyword: str = "") -> dict:
+    """Fetch 1st-degree connections from LinkedIn."""
+    headers = _build_cookie_header(li_at, jsessionid)
+    params = {
+        "decorationId": "com.linkedin.voyager.dash.deco.web.mynetwork.ConnectionListWithProfile-16",
+        "count": str(count),
+        "q": "search",
+        "sortType": "RECENTLY_ADDED",
+        "start": str(start),
+    }
+    if keyword:
+        params["keywords"] = keyword
+
+    url = "https://www.linkedin.com/voyager/api/relationships/dash/connections"
+    async with httpx.AsyncClient(timeout=20) as c:
+        resp = await c.get(url, headers=headers, params=params)
+        if resp.status_code == 401 or resp.status_code == 403:
+            raise HTTPException(status_code=401, detail="LinkedIn session expired. Please update your li_at cookie.")
+        if resp.status_code != 200:
+            logger.error(f"Connections fetch failed: {resp.status_code} - {resp.text[:500]}")
+            raise HTTPException(status_code=resp.status_code, detail=f"LinkedIn API error: {resp.status_code}")
+        return resp.json()
+
+
+def _parse_connections(raw_data: dict) -> list:
+    """Parse connections response into structured list."""
+    connections = []
+    included = raw_data.get("included", [])
+    paging = raw_data.get("data", {}).get("paging", {}) or {}
+
+    # Build entity lookup
+    profiles = {}
+    for item in included:
+        recipe = item.get("$recipeType", "")
+        urn = item.get("entityUrn", "")
+
+        if "MiniProfile" in recipe or "com.linkedin.voyager.identity.shared.MiniProfile" in recipe:
+            profiles[urn] = {
+                "urn": urn,
+                "first_name": item.get("firstName", ""),
+                "last_name": item.get("lastName", ""),
+                "occupation": item.get("occupation", ""),
+                "public_id": item.get("publicIdentifier", ""),
+                "profile_url": f"https://www.linkedin.com/in/{item.get('publicIdentifier', '')}",
+            }
+            # Try to get profile picture
+            picture = item.get("picture", {})
+            if isinstance(picture, dict):
+                artifacts = picture.get("com.linkedin.common.VectorImage", {}).get("artifacts", [])
+                if artifacts:
+                    root = picture.get("com.linkedin.common.VectorImage", {}).get("rootUrl", "")
+                    smallest = artifacts[0].get("fileIdentifyingUrlPathSegment", "")
+                    profiles[urn]["avatar_url"] = root + smallest if root else ""
+                else:
+                    profiles[urn]["avatar_url"] = ""
+            else:
+                profiles[urn]["avatar_url"] = ""
+
+    # Match connections to profiles
+    for item in included:
+        recipe = item.get("$recipeType", "")
+        if "Connection" in recipe:
+            created = item.get("createdAt", 0)
+            # Find the linked profile
+            member_ref = item.get("connectedMemberResolutionResult", "")
+            if isinstance(member_ref, str) and member_ref in profiles:
+                conn = {**profiles[member_ref]}
+                conn["connected_at"] = datetime.fromtimestamp(created / 1000, tz=timezone.utc).isoformat() if created else None
+                connections.append(conn)
+            elif isinstance(member_ref, dict):
+                urn = member_ref.get("entityUrn", "")
+                if urn in profiles:
+                    conn = {**profiles[urn]}
+                    conn["connected_at"] = datetime.fromtimestamp(created / 1000, tz=timezone.utc).isoformat() if created else None
+                    connections.append(conn)
+
+    # If no connection-type entities found, just return all profiles
+    if not connections and profiles:
+        connections = list(profiles.values())
+
+    return connections, paging
+
+
+async def _send_linkedin_message(li_at: str, jsessionid: str, recipient_urn: str, message_text: str) -> dict:
+    """Send a message to a LinkedIn connection."""
+    headers = _build_cookie_header(li_at, jsessionid)
+    headers["content-type"] = "application/json"
+    headers["accept"] = "application/vnd.linkedin.normalized+json+2.1"
+
+    # Clean the URN - we need the fsd_profile format
+    # recipient_urn might be like "urn:li:fsd_profile:ACoAAXXX" or "urn:li:member:12345"
+    clean_urn = recipient_urn
+    if "miniProfile" in recipient_urn:
+        # Convert miniProfile URN to fsd_profile
+        clean_urn = recipient_urn.replace("fs_miniProfile", "fsd_profile")
+
+    payload = {
+        "conversationCreate": {
+            "eventCreate": {
+                "value": {
+                    "com.linkedin.voyager.messaging.create.MessageCreate": {
+                        "attributedBody": {
+                            "text": message_text,
+                            "attributes": []
+                        }
+                    }
+                }
+            },
+            "recipients": [clean_urn],
+            "subtype": "MEMBER_TO_MEMBER"
+        }
+    }
+
+    url = "https://www.linkedin.com/voyager/api/messaging/conversations?action=create"
+    async with httpx.AsyncClient(timeout=15) as c:
+        resp = await c.post(url, headers=headers, json=payload)
+        if resp.status_code in (200, 201):
+            return {"success": True}
+        elif resp.status_code == 401 or resp.status_code == 403:
+            raise HTTPException(status_code=401, detail="LinkedIn session expired")
+        else:
+            logger.error(f"Message send failed: {resp.status_code} - {resp.text[:500]}")
+            return {"success": False, "error": f"HTTP {resp.status_code}", "detail": resp.text[:300]}
+
+
+@router.get("/connections")
+async def get_connections(
+    start: int = 0,
+    count: int = 40,
+    keyword: str = ""
+):
+    """Fetch 1st-degree LinkedIn connections."""
+    config = await db.li_search_config.find_one({"type": "cookie"})
+    if not config or not config.get("li_at"):
+        raise HTTPException(status_code=400, detail="No LinkedIn cookie configured")
+
+    raw = await _fetch_connections(config["li_at"], config.get("jsessionid", ""), start, count, keyword)
+    connections, paging = _parse_connections(raw)
+
+    return {
+        "connections": connections,
+        "total": paging.get("total", len(connections)),
+        "start": start,
+        "count": count
+    }
+
+
+@router.post("/message/send")
+async def send_message(data: MessageRequest):
+    """Send a message to a single connection."""
+    config = await db.li_search_config.find_one({"type": "cookie"})
+    if not config or not config.get("li_at"):
+        raise HTTPException(status_code=400, detail="No LinkedIn cookie configured")
+
+    result = await _send_linkedin_message(
+        config["li_at"], config.get("jsessionid", ""),
+        data.recipient_urn, data.message_text
+    )
+
+    if result.get("success"):
+        # Log the message
+        await db.li_messages_log.insert_one({
+            "recipient_urn": data.recipient_urn,
+            "message_text": data.message_text,
+            "sent_at": datetime.now(timezone.utc),
+            "status": "sent"
+        })
+
+    return result
+
+
+@router.post("/message/bulk")
+async def send_bulk_messages(data: BulkMessageRequest):
+    """Send a message to multiple connections."""
+    config = await db.li_search_config.find_one({"type": "cookie"})
+    if not config or not config.get("li_at"):
+        raise HTTPException(status_code=400, detail="No LinkedIn cookie configured")
+
+    results = {"sent": 0, "failed": 0, "errors": []}
+
+    for urn in data.recipient_urns:
+        try:
+            result = await _send_linkedin_message(
+                config["li_at"], config.get("jsessionid", ""),
+                urn, data.message_text
+            )
+            if result.get("success"):
+                results["sent"] += 1
+                await db.li_messages_log.insert_one({
+                    "recipient_urn": urn,
+                    "message_text": data.message_text,
+                    "sent_at": datetime.now(timezone.utc),
+                    "status": "sent"
+                })
+            else:
+                results["failed"] += 1
+                results["errors"].append({"urn": urn, "error": result.get("error", "Unknown")})
+        except Exception as e:
+            results["failed"] += 1
+            results["errors"].append({"urn": urn, "error": str(e)})
+
+        # Rate limit: 3-5 seconds between messages
+        await asyncio.sleep(4)
+
+    return results
+
+
+@router.post("/message/generate")
+async def generate_message(data: dict):
+    """AI-generate a personalized message for a connection."""
+    recipient_name = data.get("recipient_name", "")
+    recipient_title = data.get("recipient_title", "")
+    purpose = data.get("purpose", "introduce services")
+    company = data.get("company", "fundle")
+
+    company_contexts = {
+        "fundle": "Fundle.ai — a Retail Intelligence Platform powering malls, brands, and consumers through unified data, AI insights, loyalty, rewards, and D2C engagement.",
+        "tagandpay": "TagandPay — a performance marketing and digital growth agency specializing in D2C brands, social media, and customer acquisition.",
+        "exceed": "Exceed Agents — a B2B sales acceleration platform with AI-powered outreach, lead generation, and pipeline management.",
+    }
+    context = company_contexts.get(company, company_contexts["fundle"])
+
+    try:
+        chat = LlmChat(
+            api_key=EMERGENT_KEY,
+            session_id=f"li-msg-{uuid.uuid4()}",
+            system_message=f"""You write short, professional LinkedIn messages.
+
+Your company: {context}
+
+Guidelines:
+- Keep it under 80 words — LinkedIn messages should be brief
+- Be warm and personal, not corporate
+- Reference their role/company if known
+- Clearly state why you're reaching out
+- Include a soft CTA (quick call, coffee chat, etc.)
+- NO hashtags, NO emojis, NO formal salutations like "Dear"
+- Start with "Hi [Name]," format"""
+        ).with_model("openai", "gpt-4o")
+        prompt = f"Write a LinkedIn message to {recipient_name}"
+        if recipient_title:
+            prompt += f" ({recipient_title})"
+        prompt += f". Purpose: {purpose}"
+
+        user_msg = UserMessage(text=prompt)
+        response = await chat.send_message(user_msg)
+        return {"success": True, "message": response.strip()}
+    except Exception as e:
+        logger.error(f"Message generation error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/messages/log")
+async def get_message_log(skip: int = 0, limit: int = 50):
+    """Get sent messages log."""
+    total = await db.li_messages_log.count_documents({})
+    cursor = db.li_messages_log.find().sort("sent_at", -1).skip(skip).limit(limit)
+    messages = []
+    async for doc in cursor:
+        doc["_id"] = str(doc["_id"])
+        if isinstance(doc.get("sent_at"), datetime):
+            doc["sent_at"] = doc["sent_at"].isoformat()
+        messages.append(doc)
+    return {"messages": messages, "total": total}

@@ -4127,3 +4127,193 @@ body {
   .lisearch-post-top { flex-direction: column; }
   .lisearch-post-badges { flex-wrap: wrap; }
 }
+
+
+/* ============== LinkedIn Search Agent — Tabs & Messaging ============== */
+.lisearch-tabs {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 20px;
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  padding: 4px;
+}
+
+.lisearch-tab {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 10px 16px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: var(--transition);
+}
+
+.lisearch-tab:hover { color: var(--text-primary); background: var(--bg-elevated); }
+
+.lisearch-tab-active {
+  background: #0ea5e9;
+  color: #fff;
+}
+.lisearch-tab-active:hover { background: #0ea5e9; color: #fff; }
+
+/* Connections */
+.lisearch-conn-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.lisearch-conn-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.lisearch-conn-card {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: var(--transition);
+}
+
+.lisearch-conn-card:hover { border-color: var(--text-muted); }
+
+.lisearch-conn-selected {
+  border-color: #0ea5e9;
+  background: rgba(14, 165, 233, 0.06);
+}
+
+.lisearch-conn-avatar {
+  position: relative;
+  width: 36px;
+  height: 36px;
+  flex-shrink: 0;
+}
+
+.lisearch-conn-avatar img {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  object-fit: cover;
+}
+
+.lisearch-conn-avatar-placeholder {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: var(--bg-hover);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.lisearch-conn-check {
+  position: absolute;
+  bottom: -2px;
+  right: -2px;
+  color: #0ea5e9;
+  background: var(--bg-dark);
+  border-radius: 50%;
+  line-height: 0;
+}
+
+.lisearch-conn-info {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.lisearch-conn-info strong {
+  font-size: 13px;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.lisearch-conn-info span {
+  font-size: 11px;
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.lisearch-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  margin-top: 8px;
+}
+
+/* Compose */
+.lisearch-selected-preview {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 12px;
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.lisearch-compose-controls {
+  display: grid;
+  grid-template-columns: 1fr 1fr auto;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+/* Message Log */
+.lisearch-log-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.lisearch-log-item {
+  display: flex;
+  gap: 12px;
+  padding: 8px 10px;
+  background: var(--bg-elevated);
+  border-radius: var(--radius-sm);
+  font-size: 12px;
+}
+
+.lisearch-log-time {
+  color: var(--text-muted);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.lisearch-log-text {
+  color: var(--text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@media (max-width: 768px) {
+  .lisearch-conn-grid { grid-template-columns: 1fr; }
+  .lisearch-compose-controls { grid-template-columns: 1fr; }
+}
