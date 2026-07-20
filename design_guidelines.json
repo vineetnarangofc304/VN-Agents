@@ -1,0 +1,125 @@
+{
+  "theme": "light",
+  "archetype": "SWISS & HIGH-CONTRAST (Authority, Clarity, Truth)",
+  "typography": {
+    "headings": {
+      "font_family": "Manrope",
+      "styles": "Tight letter spacing (tracking-tight), varying weights (font-light to font-black)",
+      "forbidden": ["Inter", "Roboto", "Open Sans", "Lato"]
+    },
+    "body": {
+      "font_family": "Inter",
+      "styles": "Clear, readable, leading-relaxed"
+    },
+    "hierarchy": {
+      "H1": "text-4xl sm:text-5xl lg:text-6xl tracking-tighter font-semibold",
+      "H2": "text-2xl sm:text-3xl lg:text-4xl tracking-tight font-medium",
+      "H3": "text-xl sm:text-2xl font-medium",
+      "H4": "text-lg sm:text-xl font-medium",
+      "body": "text-base text-zinc-600",
+      "labels": "text-xs font-bold uppercase tracking-[0.2em] text-zinc-500"
+    }
+  },
+  "colors": {
+    "background": "#FFFFFF",
+    "surface": "#FAFAFA",
+    "border": "#E4E4E7",
+    "primary": "#0066FF",
+    "primary_hover": "#0052CC",
+    "text": {
+      "main": "#09090B",
+      "muted": "#52525B"
+    },
+    "status": {
+      "success": "#10B981",
+      "warning": "#F59E0B",
+      "error": "#EF4444"
+    },
+    "rules": [
+      "Use #0066FF strictly for primary actions, active states, and highlights.",
+      "Never use pure black or pure gray. Use Zinc/Slate palette (e.g. text-zinc-950, border-zinc-200).",
+      "Maintain high contrast. Minimum 4.5:1 for normal text.",
+      "Prohibited: teal green or teal blue (#1B93A4) for dashboards."
+    ]
+  },
+  "visual_enhancers": {
+    "surfaces": {
+      "headers": "Crystal Glass: backdrop-blur-xl bg-white/70, 1px subtle inner border border-zinc-200. No fully transparent headers.",
+      "cards": "Neumorphism / Technical: Flat white background, 1px solid border (border-zinc-200), no deep shadows. Hover: subtle shadow-lg and -translate-y-1."
+    },
+    "borders": "Use border-collapse or 1px border-zinc-200 to create a structured, technical grid layout."
+  },
+  "layouts": {
+    "spacing": "Generous. Use p-6 or p-8 inside cards to avoid text collision.",
+    "dashboard_grid": "High Density Grid (For Dashboards / Analytics). Base Grid: grid-cols-1 md:grid-cols-3 lg:grid-cols-4. Tight gaps (gap-4 or gap-6). Use h-full on children for uniform height.",
+    "alignment": "Left-align paragraphs, inputs, dense content. Mobile-first responsive grids."
+  },
+  "motion": {
+    "interactive": "Hover states must have transitions. transition: transform 0.2s ease, opacity 0.2s ease, border-color 0.2s ease. Hover state color must be a lighter/darker hue of ACTIVE state color.",
+    "rules": ["NO transition-all.", "Respect prefers-reduced-motion."]
+  },
+  "components": {
+    "cards": "Flat, rectangular, dense styles. Avoid heavy shadows. Max 8px border-radius (rounded-md or rounded-lg).",
+    "forms": "Use Shadcn Form, Input, Select, Calendar. Highly customized to match Stripe/Linear aesthetic.",
+    "charts": "Recharts or Shadcn charts. Use simple Line/Bar charts. Avoid 3D or complex charts unless required.",
+    "buttons": "Pill-shaped or slightly rounded (rounded-md). Clear hover/focus states with higher contrast."
+  },
+  "icons_and_assets": {
+    "library": "lucide-react",
+    "style": "Enterprise icons, consistent stroke width (1.5px or 2px), sharp edges."
+  },
+  "image_urls": {
+    "avatars": [
+      {
+        "url": "https://images.unsplash.com/photo-1500648767791-00dcc994a43e?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NTY2NzR8MHwxfHNlYXJjaHwxfHxwcm9mZXNzaW9uYWwlMjBtYWxlJTIwaGVhZHNob3QlMjBzdHVkaW98ZW58MHx8fHwxNzg0NTgzMzUwfDA&ixlib=rb-4.1.0&q=85",
+        "category": "user_avatar",
+        "description": "Vineet Narang Profile Picture"
+      },
+      {
+        "url": "https://images.unsplash.com/photo-1652471943570-f3590a4e52ed?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NTY2NzR8MHwxfHNlYXJjaHw0fHxwcm9mZXNzaW9uYWwlMjBtYWxlJTIwaGVhZHNob3QlMjBzdHVkaW98ZW58MHx8fHwxNzg0NTgzMzUwfDA&ixlib=rb-4.1.0&q=85",
+        "category": "team_avatar",
+        "description": "Team Member Profile Picture"
+      }
+    ],
+    "content_assets": [
+      {
+        "url": "https://images.unsplash.com/photo-1551288049-bebda4e38f71?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NTY2Njl8MHwxfHNlYXJjaHwyfHxhYnN0cmFjdCUyMG1pbmltYWxpc3QlMjBkYXRhJTIwdmlzdWFsaXphdGlvbnxlbnwwfHx8fDE3ODQ1ODMzNTB8MA&ixlib=rb-4.1.0&q=85",
+        "category": "infographic_placeholder",
+        "description": "Minimalist Data Visualization for Content Pillars"
+      },
+      {
+        "url": "https://images.unsplash.com/photo-1644088379091-d574269d422f?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NTY2Njl8MHwxfHNlYXJjaHwzfHxhYnN0cmFjdCUyMG1pbmltYWxpc3QlMjBkYXRhJTIwdmlzdWFsaXphdGlvbnxlbnwwfHx8fDE3ODQ1ODMzNTB8MA&ixlib=rb-4.1.0&q=85",
+        "category": "research_dashboard_bg",
+        "description": "Abstract analytical background for research sections"
+      }
+    ]
+  },
+  "accessibility": {
+    "contrast": "Ensure minimum 4.5:1 for normal text.",
+    "testing": "All interactive and key informational elements MUST include a data-testid attribute in kebab-case."
+  },
+  "instructions_to_main_agent": [
+    "Implement a Light Theme explicitly as requested ('White background. Blue highlights.').",
+    "Use Manrope for headings and Inter for body text. Do not use generic fonts for headings.",
+    "Apply 'Crystal Glass' to the sticky header: backdrop-blur-xl bg-white/70, with a 1px border-b border-zinc-200.",
+    "Avoid heavy shadows. Rely on 1px borders (border-zinc-200) to separate components.",
+    "Ensure grids have 'gap-4' or 'gap-6' and child cards stretch fully.",
+    "Build the multi-step AI Post Generator as an interactive bento layout, preventing scrolling if possible, or keeping it extremely tight.",
+    "Add data-testid attributes to all interactive elements."
+  ],
+  "UNIVERSAL_GUIDELINES_FOR_MAIN_AGENT": [
+    "You tend to converge toward generic, 'on distribution' outputs. Make creative, distinctive frontends that surprise and delight.",
+    "Dark colors look good when used independently without gradients. DO NOT use dark colors as gradients.",
+    "Don't make generic centered layouts, simplistic gradients, and uniform styling.",
+    "Create depth through layered design elements with z-index hierarchy.",
+    "Use glass-morphism effects with backdrop filters (12-24px blur).",
+    "You MUST NOT apply universal transition. Eg: transition: all.",
+    "You MUST NOT center align the app container, ie do not add .App { text-align: center; }.",
+    "Always use modern button styles like pill-shaped, or sharp button with interaction animations & color relevant to the app style.",
+    "NEVER use AI assistant Emoji characters like 🤖🧠💭💡🔮🎯 etc for icons.",
+    "Every interaction needs micro-animations - hover states, transitions, parallax effects.",
+    "Use 2-3x more spacing than feels comfortable.",
+    "Prioritize using pre-existing components from src/components/ui when applicable.",
+    "Use sonner for toasts, located in /app/frontend/src/components/ui/sonner.js"
+  ]
+}
