@@ -1,5 +1,5 @@
 import { BrowserRouter, Routes, Route } from "react-router-dom";
-import { Receipt, RefreshCw, TrendingUp, Linkedin, BookOpen, ShieldCheck, Radar, SearchCheck } from "lucide-react";
+import { Receipt, RefreshCw, TrendingUp, Linkedin, BookOpen, ShieldCheck, Radar, SearchCheck, Zap } from "lucide-react";
 
 import LandingPage from "./components/LandingPage";
 import AgentLogin from "./components/AgentLogin";
@@ -11,6 +11,7 @@ import DirectoryAgent from "./components/DirectoryAgent";
 import AccountChecker from "./components/AccountChecker";
 import CatchmentMining from "./components/CatchmentMining";
 import LinkedInSearch from "./components/LinkedInSearch";
+import ContentStudio from "./components/ContentStudio";
 
 import "./App.css";
 
@@ -65,6 +66,12 @@ const App = () => {
         <Route path="/linkedin-search" element={
           <AgentLogin agentName="LinkedIn Lead Finder" agentIcon={SearchCheck} agentColor="#0ea5e9">
             <LinkedInSearch />
+          </AgentLogin>
+        } />
+
+        <Route path="/content-studio" element={
+          <AgentLogin agentName="Content Studio" agentIcon={Zap} agentColor="#0066FF">
+            <ContentStudio />
           </AgentLogin>
         } />
       </Routes>
