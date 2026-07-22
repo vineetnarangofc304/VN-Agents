@@ -389,7 +389,7 @@ async def save_cookie(data: CookieInput):
             "success": True,
             "profile": "LinkedIn User (validation skipped)",
             "occupation": "",
-            "warning": validation_error or "Could not verify profile, but cookie saved. Try running a search to test."
+            "warning": "Cookie saved. Full validation could not be completed — try running a search to verify it works."
         }
 
     # Extract profile info
