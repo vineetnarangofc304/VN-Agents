@@ -28,7 +28,14 @@ VOYAGER_HEADERS = {
     "x-restli-protocol-version": "2.0.0",
     "x-li-lang": "en_US",
     "x-li-page-instance": "urn:li:page:d_flagship3_search_srp_content;",
-    "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
+    "accept-language": "en-US,en;q=0.9",
+    "sec-ch-ua": '"Not/A)Brand";v="8", "Chromium";v="126", "Google Chrome";v="126"',
+    "sec-ch-ua-mobile": "?0",
+    "sec-ch-ua-platform": '"Windows"',
+    "sec-fetch-dest": "empty",
+    "sec-fetch-mode": "cors",
+    "sec-fetch-site": "same-origin",
 }
 
 active_searches = {}
@@ -62,34 +69,297 @@ def _build_cookie_header(li_at: str, jsessionid: str = "") -> dict:
 
 
 async def _obtain_jsessionid(li_at: str) -> str:
-    """Visit LinkedIn with li_at to obtain a JSESSIONID cookie."""
+    """Obtain a JSESSIONID cookie from LinkedIn."""
     try:
-        async with httpx.AsyncClient(timeout=15, follow_redirects=False) as c:
-            resp = await c.get(
-                "https://www.linkedin.com/feed/",
+        async with httpx.AsyncClient(timeout=15, follow_redirects=True) as c:
+            # Step 1: Hit homepage to get a base JSESSIONID
+            homepage_resp = await c.get(
+                "https://www.linkedin.com/",
                 headers={
-                    "cookie": f"li_at={li_at}",
                     "user-agent": VOYAGER_HEADERS["user-agent"],
+                    "accept": "text/html,application/xhtml+xml",
+                    "accept-language": "en-US,en;q=0.9",
                 },
             )
-            # Extract JSESSIONID from set-cookie headers
-            for cookie_header in resp.headers.get_list("set-cookie"):
+            jsessionid = ""
+            for cookie_header in homepage_resp.headers.get_list("set-cookie"):
                 if "JSESSIONID" in cookie_header:
-                    # Parse: JSESSIONID="ajax:1234567890"; ...
                     parts = cookie_header.split(";")[0]
                     if "=" in parts:
-                        value = parts.split("=", 1)[1].strip('"')
-                        logger.info(f"Obtained JSESSIONID: {value[:20]}...")
-                        return value
-            # Also check if the response cookies have it
-            logger.warning("No JSESSIONID found in response cookies")
+                        jsessionid = parts.split("=", 1)[1].strip('"')
+                        logger.info(f"Obtained JSESSIONID from homepage: {jsessionid[:30]}...")
+                        break
+
+            if not jsessionid:
+                # Try /feed with the li_at cookie  
+                feed_resp = await c.get(
+                    "https://www.linkedin.com/feed/",
+                    headers={
+                        "cookie": f"li_at={li_at}",
+                        "user-agent": VOYAGER_HEADERS["user-agent"],
+                        "accept": "text/html,application/xhtml+xml",
+                    },
+                )
+                for cookie_header in feed_resp.headers.get_list("set-cookie"):
+                    if "JSESSIONID" in cookie_header:
+                        parts = cookie_header.split(";")[0]
+                        if "=" in parts:
+                            jsessionid = parts.split("=", 1)[1].strip('"')
+                            logger.info(f"Obtained JSESSIONID from feed: {jsessionid[:30]}...")
+                            break
+
+            return jsessionid
     except Exception as e:
         logger.error(f"Failed to obtain JSESSIONID: {e}")
     return ""
 
 
+async def _ensure_jsessionid(li_at: str, jsessionid: str) -> str:
+    """Ensure we have a JSESSIONID. Auto-obtain if missing and persist to DB."""
+    if jsessionid:
+        return jsessionid
+    jsessionid = await _obtain_jsessionid(li_at)
+    if jsessionid:
+        await db.li_search_config.update_one(
+            {"type": "cookie"},
+            {"$set": {"jsessionid": jsessionid}}
+        )
+    return jsessionid
+
+
+async def _playwright_search(li_at: str, keyword: str, max_results: int = 20) -> list:
+    """Use Playwright with injected li_at cookie to search LinkedIn posts."""
+    from playwright.async_api import async_playwright
+
+    posts = []
+    encoded_kw = quote(keyword)
+    search_url = f"https://www.linkedin.com/search/results/content/?keywords={encoded_kw}&origin=GLOBAL_SEARCH_HEADER"
+
+    try:
+        async with async_playwright() as p:
+            browser = await p.chromium.launch(headless=True)
+            context = await browser.new_context(
+                viewport={"width": 1280, "height": 800},
+                user_agent=VOYAGER_HEADERS["user-agent"],
+            )
+            # Inject li_at cookie
+            await context.add_cookies([{
+                "name": "li_at",
+                "value": li_at,
+                "domain": ".linkedin.com",
+                "path": "/",
+                "httpOnly": True,
+                "secure": True,
+                "sameSite": "None",
+            }])
+
+            page = await context.new_page()
+            await page.goto(search_url, wait_until="domcontentloaded", timeout=30000)
+            await page.wait_for_timeout(3000)
+
+            # Check if we got redirected to login
+            if "/login" in page.url or "/checkpoint" in page.url:
+                logger.error(f"Playwright: Redirected to {page.url} — cookie not accepted")
+                await browser.close()
+                return []
+
+            # Scroll to load more results
+            for _ in range(3):
+                await page.evaluate("window.scrollBy(0, 1500)")
+                await page.wait_for_timeout(1500)
+
+            # Extract posts from the page
+            posts = await page.evaluate("""
+                () => {
+                    const results = [];
+                    const feedItems = document.querySelectorAll('.feed-shared-update-v2');
+                    
+                    feedItems.forEach((item) => {
+                        try {
+                            // Author info
+                            const actorEl = item.querySelector('.update-components-actor__title span[aria-hidden="true"]');
+                            const authorName = actorEl ? actorEl.innerText.trim() : '';
+                            
+                            const descEl = item.querySelector('.update-components-actor__description span[aria-hidden="true"]');
+                            const authorTitle = descEl ? descEl.innerText.trim() : '';
+                            
+                            // Post text
+                            const textEl = item.querySelector('.feed-shared-update-v2__description, .update-components-text, .feed-shared-text');
+                            const text = textEl ? textEl.innerText.trim() : '';
+                            
+                            // Post URL
+                            const linkEl = item.querySelector('a[href*="/posts/"], a[href*="/feed/update/"]');
+                            const postUrl = linkEl ? linkEl.href : '';
+                            
+                            // Time
+                            const timeEl = item.querySelector('.update-components-actor__sub-description span[aria-hidden="true"]');
+                            const timeAgo = timeEl ? timeEl.innerText.trim() : '';
+                            
+                            // Social counts
+                            const likesEl = item.querySelector('.social-details-social-counts__reactions-count');
+                            const likes = likesEl ? parseInt(likesEl.innerText.replace(/[^0-9]/g, '')) || 0 : 0;
+                            
+                            const commentsEl = item.querySelector('.social-details-social-counts__comments');
+                            const commentsCount = commentsEl ? parseInt(commentsEl.innerText.replace(/[^0-9]/g, '')) || 0 : 0;
+                            
+                            // URN from data attribute
+                            const urn = item.getAttribute('data-urn') || '';
+                            
+                            if (text.length > 20) {
+                                results.push({
+                                    author_name: authorName,
+                                    author_title: authorTitle,
+                                    text: text,
+                                    post_url: postUrl,
+                                    time_ago: timeAgo,
+                                    likes: likes,
+                                    comments_count: commentsCount,
+                                    post_urn: urn
+                                });
+                            }
+                        } catch(e) {}
+                    });
+                    
+                    // Fallback: try broader selectors if feed-shared-update-v2 didn't work
+                    if (results.length === 0) {
+                        const searchItems = document.querySelectorAll('[data-chameleon-result-urn], .reusable-search__result-container');
+                        searchItems.forEach((item) => {
+                            try {
+                                const text = item.innerText || '';
+                                const links = Array.from(item.querySelectorAll('a[href*="linkedin.com"]'));
+                                const postUrl = links.length > 0 ? links[0].href : '';
+                                const urn = item.getAttribute('data-chameleon-result-urn') || '';
+                                if (text.length > 50) {
+                                    // Try to split author from content
+                                    const lines = text.split('\\n').filter(l => l.trim());
+                                    results.push({
+                                        author_name: lines[0] || '',
+                                        author_title: lines[1] || '',
+                                        text: lines.slice(2).join('\\n').trim() || text.substring(0, 500),
+                                        post_url: postUrl,
+                                        time_ago: '',
+                                        likes: 0,
+                                        comments_count: 0,
+                                        post_urn: urn
+                                    });
+                                }
+                            } catch(e) {}
+                        });
+                    }
+                    
+                    return results;
+                }
+            """)
+
+            logger.info(f"Playwright search for '{keyword}': found {len(posts)} posts")
+            await browser.close()
+
+    except Exception as e:
+        logger.error(f"Playwright search error: {e}")
+
+    return posts[:max_results]
+
+
+async def _playwright_connections(li_at: str, keyword: str = "") -> list:
+    """Use Playwright with injected li_at cookie to fetch connections."""
+    from playwright.async_api import async_playwright
+
+    connections = []
+    url = "https://www.linkedin.com/mynetwork/invite-connect/connections/"
+
+    try:
+        async with async_playwright() as p:
+            browser = await p.chromium.launch(headless=True)
+            context = await browser.new_context(
+                viewport={"width": 1280, "height": 800},
+                user_agent=VOYAGER_HEADERS["user-agent"],
+            )
+            await context.add_cookies([{
+                "name": "li_at",
+                "value": li_at,
+                "domain": ".linkedin.com",
+                "path": "/",
+                "httpOnly": True,
+                "secure": True,
+                "sameSite": "None",
+            }])
+
+            page = await context.new_page()
+            await page.goto(url, wait_until="domcontentloaded", timeout=30000)
+            await page.wait_for_timeout(3000)
+
+            if "/login" in page.url or "/checkpoint" in page.url:
+                logger.error(f"Playwright connections: Redirected to login")
+                await browser.close()
+                return []
+
+            # Search filter if keyword
+            if keyword:
+                try:
+                    search_input = page.locator('input[placeholder*="Search"]').first
+                    if await search_input.is_visible(timeout=3000):
+                        await search_input.fill(keyword)
+                        await page.wait_for_timeout(2000)
+                except:
+                    pass
+
+            # Scroll to load connections
+            for _ in range(3):
+                await page.evaluate("window.scrollBy(0, 1500)")
+                await page.wait_for_timeout(1500)
+
+            # Extract connections
+            connections = await page.evaluate("""
+                () => {
+                    const results = [];
+                    const cards = document.querySelectorAll('.mn-connection-card, .scaffold-finite-scroll__content li');
+                    
+                    cards.forEach((card) => {
+                        try {
+                            const nameEl = card.querySelector('.mn-connection-card__name, .entity-result__title-text a span[aria-hidden="true"]');
+                            const name = nameEl ? nameEl.innerText.trim() : '';
+                            
+                            const occEl = card.querySelector('.mn-connection-card__occupation, .entity-result__primary-subtitle');
+                            const occupation = occEl ? occEl.innerText.trim() : '';
+                            
+                            const linkEl = card.querySelector('a[href*="/in/"]');
+                            const profileUrl = linkEl ? linkEl.href : '';
+                            const publicId = profileUrl ? profileUrl.split('/in/')[1]?.split('/')[0]?.split('?')[0] : '';
+                            
+                            const imgEl = card.querySelector('img.presence-entity__image, img.EntityPhoto-circle-4');
+                            const avatarUrl = imgEl ? imgEl.src : '';
+                            
+                            if (name) {
+                                const nameParts = name.split(' ');
+                                results.push({
+                                    first_name: nameParts[0] || '',
+                                    last_name: nameParts.slice(1).join(' ') || '',
+                                    occupation: occupation,
+                                    public_id: publicId,
+                                    profile_url: profileUrl,
+                                    avatar_url: avatarUrl,
+                                    urn: 'urn:li:fsd_profile:' + publicId,
+                                });
+                            }
+                        } catch(e) {}
+                    });
+                    
+                    return results;
+                }
+            """)
+
+            logger.info(f"Playwright connections: found {len(connections)}")
+            await browser.close()
+
+    except Exception as e:
+        logger.error(f"Playwright connections error: {e}")
+
+    return connections
+
+
 async def _fetch_linkedin_search(li_at: str, jsessionid: str, keyword: str, start: int = 0, date_filter: str = "past-month") -> dict:
     """Fetch search results from LinkedIn Voyager API."""
+    jsessionid = await _ensure_jsessionid(li_at, jsessionid)
     encoded_kw = quote(keyword)
     filters = f"List(resultType->CONTENT,datePosted->{date_filter})"
     url = (
@@ -103,8 +373,12 @@ async def _fetch_linkedin_search(li_at: str, jsessionid: str, keyword: str, star
         f"&start={start}"
     )
     headers = _build_cookie_header(li_at, jsessionid)
-    async with httpx.AsyncClient(timeout=30) as client_http:
+    async with httpx.AsyncClient(timeout=30, follow_redirects=False) as client_http:
         resp = await client_http.get(url, headers=headers)
+        logger.info(f"Search API response: HTTP {resp.status_code} for '{keyword}'")
+        if resp.status_code == 302:
+            logger.error(f"LinkedIn redirected — cookie not accepted. Redirect to: {resp.headers.get('location', 'unknown')}")
+            raise HTTPException(status_code=401, detail="LinkedIn cookie not accepted from this server. The li_at cookie may be IP-bound to your browser session.")
         if resp.status_code == 401 or resp.status_code == 403:
             raise HTTPException(status_code=401, detail="LinkedIn session expired. Please update your li_at cookie.")
         if resp.status_code != 200:
@@ -516,36 +790,45 @@ async def trigger_search(req: Optional[SearchRequest] = None):
 
 
 async def _run_search(job_id: str, li_at: str, jsessionid: str, keywords: list, date_filter: str):
-    """Background search task."""
+    """Background search task — uses Playwright (primary) with API fallback."""
     total_new = 0
     try:
         for idx, keyword in enumerate(keywords):
             active_searches["progress"]["current_keyword"] = keyword
             active_searches["progress"]["keywords_done"] = idx
 
-            logger.info(f"Searching LinkedIn for: '{keyword}'")
+            logger.info(f"Searching LinkedIn for: '{keyword}' (Playwright)")
             try:
-                all_posts = []
-                for page_start in range(0, 60, 20):
-                    raw = await _fetch_linkedin_search(li_at, jsessionid, keyword, start=page_start, date_filter=date_filter)
-                    parsed = _parse_search_results(raw)
-                    all_posts.extend(parsed)
-                    if len(parsed) < 5:
-                        break
-                    await asyncio.sleep(2)
+                # Primary: Playwright-based search
+                all_posts = await _playwright_search(li_at, keyword, max_results=20)
+
+                # Fallback: Try Voyager API if Playwright found nothing
+                if not all_posts:
+                    logger.info(f"  Playwright found 0 posts, trying Voyager API fallback...")
+                    try:
+                        raw = await _fetch_linkedin_search(li_at, jsessionid, keyword, start=0, date_filter=date_filter)
+                        all_posts = _parse_search_results(raw)
+                    except Exception as api_err:
+                        logger.warning(f"  API fallback also failed: {api_err}")
 
                 logger.info(f"  Found {len(all_posts)} posts for '{keyword}'")
 
                 for post in all_posts:
-                    # Check if already stored
+                    # Deduplicate by text content hash or URN
                     urn = post.get("post_urn", "")
+                    text = post.get("text", "")
                     if urn:
                         existing = await db.li_search_posts.find_one({"post_urn": urn})
                         if existing:
                             continue
+                    elif text:
+                        # Check by text similarity (first 100 chars)
+                        existing = await db.li_search_posts.find_one({"text": {"$regex": f"^{re.escape(text[:100])}"}})
+                        if existing:
+                            continue
 
                     # Classify with AI
-                    classification = await _classify_post(post.get("text", ""))
+                    classification = await _classify_post(text)
                     post.update(classification)
                     post["search_keyword"] = keyword
                     post["found_at"] = datetime.now(timezone.utc)
@@ -556,9 +839,6 @@ async def _run_search(job_id: str, li_at: str, jsessionid: str, keywords: list, 
                     total_new += 1
                     active_searches["progress"]["posts_found"] = total_new
 
-            except HTTPException:
-                logger.error(f"Auth error during search for '{keyword}'")
-                break
             except Exception as e:
                 logger.error(f"Error searching '{keyword}': {e}")
                 continue
@@ -800,6 +1080,7 @@ class BulkMessageRequest(BaseModel):
 
 async def _fetch_connections(li_at: str, jsessionid: str, start: int = 0, count: int = 40, keyword: str = "") -> dict:
     """Fetch 1st-degree connections from LinkedIn."""
+    jsessionid = await _ensure_jsessionid(li_at, jsessionid)
     headers = _build_cookie_header(li_at, jsessionid)
     params = {
         "decorationId": "com.linkedin.voyager.dash.deco.web.mynetwork.ConnectionListWithProfile-16",
@@ -812,8 +1093,11 @@ async def _fetch_connections(li_at: str, jsessionid: str, start: int = 0, count:
         params["keywords"] = keyword
 
     url = "https://www.linkedin.com/voyager/api/relationships/dash/connections"
-    async with httpx.AsyncClient(timeout=20) as c:
+    async with httpx.AsyncClient(timeout=20, follow_redirects=False) as c:
         resp = await c.get(url, headers=headers, params=params)
+        logger.info(f"Connections API response: HTTP {resp.status_code}")
+        if resp.status_code == 302:
+            raise HTTPException(status_code=401, detail="LinkedIn cookie not accepted. Please update your li_at cookie — it may be IP-bound to your browser.")
         if resp.status_code == 401 or resp.status_code == 403:
             raise HTTPException(status_code=401, detail="LinkedIn session expired. Please update your li_at cookie.")
         if resp.status_code != 200:
@@ -934,15 +1218,33 @@ async def get_connections(
     if not config or not config.get("li_at"):
         raise HTTPException(status_code=400, detail="No LinkedIn cookie configured")
 
-    raw = await _fetch_connections(config["li_at"], config.get("jsessionid", ""), start, count, keyword)
-    connections, paging = _parse_connections(raw)
+    li_at = config["li_at"]
+    jsessionid = config.get("jsessionid", "")
 
-    return {
-        "connections": connections,
-        "total": paging.get("total", len(connections)),
-        "start": start,
-        "count": count
-    }
+    # Primary: Playwright-based
+    connections = await _playwright_connections(li_at, keyword)
+
+    if connections:
+        return {
+            "connections": connections,
+            "total": len(connections),
+            "start": start,
+            "count": count
+        }
+
+    # Fallback: Voyager API
+    try:
+        raw = await _fetch_connections(li_at, jsessionid, start, count, keyword)
+        parsed_connections, paging = _parse_connections(raw)
+        return {
+            "connections": parsed_connections,
+            "total": paging.get("total", len(parsed_connections)),
+            "start": start,
+            "count": count
+        }
+    except Exception as e:
+        logger.error(f"Both Playwright and API connections failed: {e}")
+        raise HTTPException(status_code=500, detail="Could not fetch connections. Your LinkedIn cookie may not be working from this server.")
 
 
 @router.post("/message/send")
