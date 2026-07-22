@@ -52,11 +52,40 @@ class CommentRequest(BaseModel):
 def _build_cookie_header(li_at: str, jsessionid: str = "") -> dict:
     cookie_str = f'li_at={li_at}'
     if jsessionid:
-        cookie_str += f'; JSESSIONID="{jsessionid}"'
+        clean_jsession = jsessionid.strip('"')
+        cookie_str += f'; JSESSIONID="{clean_jsession}"'
     headers = {**VOYAGER_HEADERS, "cookie": cookie_str}
     if jsessionid:
-        headers["csrf-token"] = jsessionid
+        clean_jsession = jsessionid.strip('"')
+        headers["csrf-token"] = clean_jsession
     return headers
+
+
+async def _obtain_jsessionid(li_at: str) -> str:
+    """Visit LinkedIn with li_at to obtain a JSESSIONID cookie."""
+    try:
+        async with httpx.AsyncClient(timeout=15, follow_redirects=False) as c:
+            resp = await c.get(
+                "https://www.linkedin.com/feed/",
+                headers={
+                    "cookie": f"li_at={li_at}",
+                    "user-agent": VOYAGER_HEADERS["user-agent"],
+                },
+            )
+            # Extract JSESSIONID from set-cookie headers
+            for cookie_header in resp.headers.get_list("set-cookie"):
+                if "JSESSIONID" in cookie_header:
+                    # Parse: JSESSIONID="ajax:1234567890"; ...
+                    parts = cookie_header.split(";")[0]
+                    if "=" in parts:
+                        value = parts.split("=", 1)[1].strip('"')
+                        logger.info(f"Obtained JSESSIONID: {value[:20]}...")
+                        return value
+            # Also check if the response cookies have it
+            logger.warning("No JSESSIONID found in response cookies")
+    except Exception as e:
+        logger.error(f"Failed to obtain JSESSIONID: {e}")
+    return ""
 
 
 async def _fetch_linkedin_search(li_at: str, jsessionid: str, keyword: str, start: int = 0, date_filter: str = "past-month") -> dict:
@@ -259,41 +288,145 @@ Respond ONLY in JSON: {"category": "...", "relevance": "high/medium/low", "compa
 @router.post("/cookie")
 async def save_cookie(data: CookieInput):
     """Save or update the LinkedIn session cookie."""
-    # Verify cookie works by making a test call
+    li_at = data.li_at.strip()
+    jsessionid = (data.jsessionid or "").strip().strip('"')
+
+    # Step 1: If no JSESSIONID provided, obtain one automatically
+    if not jsessionid:
+        logger.info("No JSESSIONID provided, obtaining automatically...")
+        jsessionid = await _obtain_jsessionid(li_at)
+
+    # Step 2: Validate the cookie by calling Voyager API
+    headers = _build_cookie_header(li_at, jsessionid)
+    me_data = None
+    validation_error = None
+
     try:
-        headers = _build_cookie_header(data.li_at, data.jsessionid or "")
-        async with httpx.AsyncClient(timeout=15) as c:
+        async with httpx.AsyncClient(timeout=15, follow_redirects=False) as c:
             resp = await c.get(
                 "https://www.linkedin.com/voyager/api/me",
                 headers=headers
             )
-            if resp.status_code != 200:
-                raise HTTPException(status_code=400, detail=f"Cookie validation failed (HTTP {resp.status_code}). Make sure li_at is correct and not expired.")
-            me_data = resp.json()
+            logger.info(f"Cookie validation response: HTTP {resp.status_code}")
+
+            if resp.status_code == 200:
+                me_data = resp.json()
+            elif resp.status_code in (302, 303):
+                validation_error = "LinkedIn redirected to login — cookie may be expired or invalid."
+            elif resp.status_code == 403:
+                # CSRF issue — try without csrf-token header but with cookie
+                logger.info("Got 403, trying alternate validation...")
+                alt_headers = {
+                    "cookie": f"li_at={li_at}",
+                    "user-agent": VOYAGER_HEADERS["user-agent"],
+                    "accept": "text/html",
+                }
+                alt_resp = await c.get("https://www.linkedin.com/feed/", headers=alt_headers)
+                if alt_resp.status_code == 200 or (alt_resp.status_code == 302 and "feed" in alt_resp.headers.get("location", "")):
+                    # Cookie is valid but JSESSIONID is wrong/missing — extract new one
+                    for cookie_header in alt_resp.headers.get_list("set-cookie"):
+                        if "JSESSIONID" in cookie_header:
+                            parts = cookie_header.split(";")[0]
+                            if "=" in parts:
+                                jsessionid = parts.split("=", 1)[1].strip('"')
+                                logger.info(f"Got new JSESSIONID from feed: {jsessionid[:20]}...")
+                    # Retry Voyager with new JSESSIONID
+                    if jsessionid:
+                        retry_headers = _build_cookie_header(li_at, jsessionid)
+                        retry_resp = await c.get(
+                            "https://www.linkedin.com/voyager/api/me",
+                            headers=retry_headers
+                        )
+                        if retry_resp.status_code == 200:
+                            me_data = retry_resp.json()
+                        else:
+                            validation_error = f"Voyager API returned {retry_resp.status_code} after JSESSIONID refresh."
+                    else:
+                        validation_error = "Could not obtain JSESSIONID. Cookie may be invalid."
+                else:
+                    validation_error = f"LinkedIn rejected the cookie (feed returned {alt_resp.status_code})."
+            elif resp.status_code == 401:
+                validation_error = "Cookie is expired or invalid (401 Unauthorized)."
+            else:
+                validation_error = f"Unexpected response from LinkedIn (HTTP {resp.status_code})."
     except httpx.RequestError as e:
-        raise HTTPException(status_code=500, detail=f"Network error: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Network error connecting to LinkedIn: {str(e)}")
+
+    if validation_error and not me_data:
+        # Even if Voyager /me fails, let's try one more thing — just save and let the user test
+        # Some cookies work for search but /me returns errors
+        logger.warning(f"Cookie validation issue: {validation_error}")
+
+        # Try a simpler validation: just check if LinkedIn recognizes us
+        try:
+            async with httpx.AsyncClient(timeout=10, follow_redirects=True) as c:
+                check_resp = await c.get(
+                    "https://www.linkedin.com/voyager/api/identity/profiles/me/profileView",
+                    headers=_build_cookie_header(li_at, jsessionid)
+                )
+                if check_resp.status_code == 200:
+                    me_data = check_resp.json()
+                    logger.info("Alternate profile endpoint worked!")
+        except:
+            pass
+
+    # If still no me_data, save anyway with a warning (user says it's a live cookie)
+    if not me_data:
+        # Save the cookie anyway but flag it
+        await db.li_search_config.update_one(
+            {"type": "cookie"},
+            {"$set": {
+                "li_at": li_at,
+                "jsessionid": jsessionid,
+                "profile_name": "LinkedIn User",
+                "profile_occupation": "",
+                "updated_at": datetime.now(timezone.utc),
+                "validation_warning": validation_error
+            }},
+            upsert=True
+        )
+        return {
+            "success": True,
+            "profile": "LinkedIn User (validation skipped)",
+            "occupation": "",
+            "warning": validation_error or "Could not verify profile, but cookie saved. Try running a search to test."
+        }
 
     # Extract profile info
-    mini_profile = me_data.get("miniProfile", {})
+    mini_profile = me_data.get("miniProfile", me_data.get("profile", {}))
+    if not isinstance(mini_profile, dict):
+        mini_profile = {}
     first = mini_profile.get("firstName", "")
     last = mini_profile.get("lastName", "")
     occupation = mini_profile.get("occupation", "")
 
+    # Fallback: check included array
+    if not first and "included" in me_data:
+        for item in me_data.get("included", []):
+            if item.get("firstName"):
+                first = item.get("firstName", "")
+                last = item.get("lastName", "")
+                occupation = item.get("occupation", "")
+                break
+
+    name = f"{first} {last}".strip() or "LinkedIn User"
+
     await db.li_search_config.update_one(
         {"type": "cookie"},
         {"$set": {
-            "li_at": data.li_at,
-            "jsessionid": data.jsessionid or "",
-            "profile_name": f"{first} {last}".strip(),
+            "li_at": li_at,
+            "jsessionid": jsessionid,
+            "profile_name": name,
             "profile_occupation": occupation,
-            "updated_at": datetime.now(timezone.utc)
+            "updated_at": datetime.now(timezone.utc),
+            "validation_warning": None
         }},
         upsert=True
     )
 
     return {
         "success": True,
-        "profile": f"{first} {last}".strip(),
+        "profile": name,
         "occupation": occupation
     }
 

@@ -173,7 +173,11 @@ const LinkedInSearch = () => {
       const res = await axios.post(`${API}/li-search/cookie`, {
         li_at: liAt.trim(), jsessionid: jsessionId.trim() || null
       });
-      setCookieMsg({ type: "success", text: `Connected as ${res.data.profile}` });
+      if (res.data.warning) {
+        setCookieMsg({ type: "success", text: `Cookie saved. ${res.data.warning}` });
+      } else {
+        setCookieMsg({ type: "success", text: `Connected as ${res.data.profile}` });
+      }
       fetchCookieStatus();
       setLiAt("");
       setJsessionId("");
@@ -350,30 +354,29 @@ const LinkedInSearch = () => {
             </span>
           )}
         </div>
-        {!cookieStatus?.has_cookie && (
-          <div className="lisearch-cookie-form">
-            <p className="lisearch-hint">
-              Paste your LinkedIn <code>li_at</code> cookie to enable search & messaging.
-              Open LinkedIn → F12 → Application → Cookies → copy <code>li_at</code> value.
-            </p>
-            <div className="lisearch-input-row">
-              <input data-testid="li-at-input" className="lisearch-input" placeholder="li_at cookie value"
-                value={liAt} onChange={e => setLiAt(e.target.value)} />
-              <input data-testid="jsession-input" className="lisearch-input lisearch-input-sm" placeholder="JSESSIONID (optional)"
-                value={jsessionId} onChange={e => setJsessionId(e.target.value)} />
-              <button data-testid="save-cookie-btn" className="lisearch-btn lisearch-btn-primary"
-                onClick={handleSaveCookie} disabled={savingCookie || !liAt.trim()}>
-                {savingCookie ? <Loader2 size={16} className="spin" /> : "Connect"}
-              </button>
-            </div>
-            {cookieMsg && (
-              <div className={`lisearch-msg lisearch-msg-${cookieMsg.type}`} data-testid="cookie-msg">
-                {cookieMsg.type === "success" ? <CheckCircle size={14} /> : <XCircle size={14} />}
-                {cookieMsg.text}
-              </div>
-            )}
+        <div className="lisearch-cookie-form">
+          <p className="lisearch-hint">
+            Paste your LinkedIn <code>li_at</code> cookie to enable search & messaging.
+            Open LinkedIn → F12 → Application → Cookies → copy <code>li_at</code> value.
+            {cookieStatus?.has_cookie && " You can update the cookie below if the current one expired."}
+          </p>
+          <div className="lisearch-input-row">
+            <input data-testid="li-at-input" className="lisearch-input" placeholder="li_at cookie value"
+              value={liAt} onChange={e => setLiAt(e.target.value)} />
+            <input data-testid="jsession-input" className="lisearch-input lisearch-input-sm" placeholder="JSESSIONID (optional)"
+              value={jsessionId} onChange={e => setJsessionId(e.target.value)} />
+            <button data-testid="save-cookie-btn" className="lisearch-btn lisearch-btn-primary"
+              onClick={handleSaveCookie} disabled={savingCookie || !liAt.trim()}>
+              {savingCookie ? <Loader2 size={16} className="spin" /> : cookieStatus?.has_cookie ? "Update" : "Connect"}
+            </button>
           </div>
-        )}
+          {cookieMsg && (
+            <div className={`lisearch-msg lisearch-msg-${cookieMsg.type}`} data-testid="cookie-msg">
+              {cookieMsg.type === "success" ? <CheckCircle size={14} /> : <XCircle size={14} />}
+              {cookieMsg.text}
+            </div>
+          )}
+        </div>
       </div>
 
       {/* ==================== SEARCH TAB ==================== */}
