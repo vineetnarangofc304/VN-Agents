@@ -4,7 +4,7 @@ import {
   Loader2, Search, Send, RefreshCw, Trash2, Filter,
   ExternalLink, MessageSquare, Sparkles, Key, CheckCircle,
   XCircle, Clock, ChevronDown, ChevronUp, Copy, Building2, Tag,
-  Users, Mail, UserCheck, ChevronLeft, ChevronRight
+  Users, Mail, UserCheck, ChevronLeft, ChevronRight, Download
 } from "lucide-react";
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
@@ -68,6 +68,8 @@ const LinkedInSearch = () => {
   const [selectedConns, setSelectedConns] = useState([]);
   const [messageText, setMessageText] = useState("");
   const [msgPurpose, setMsgPurpose] = useState("introduce services");
+  const [syncScript, setSyncScript] = useState(null);
+  const [showSyncScript, setShowSyncScript] = useState(false);
   const [msgCompany, setMsgCompany] = useState("fundle");
   const [generatingMsg, setGeneratingMsg] = useState(false);
   const [sendingMsg, setSendingMsg] = useState(false);
@@ -575,11 +577,54 @@ const LinkedInSearch = () => {
             </div>
           </div>
 
+          {/* Sync Script */}
+          <div className="lisearch-section" data-testid="sync-section">
+            <div className="lisearch-section-header">
+              <Download size={18} /><h3>Sync Connections from LinkedIn</h3>
+            </div>
+            <p className="lisearch-hint" style={{ marginBottom: 12 }}>
+              To import your LinkedIn connections, run a small script in your browser console while on LinkedIn.
+            </p>
+            <div className="lisearch-input-row">
+              <button className="lisearch-btn lisearch-btn-primary" data-testid="show-sync-script-btn"
+                onClick={async () => {
+                  if (!syncScript) {
+                    try {
+                      const res = await axios.get(`${API}/li-search/browser-script`);
+                      setSyncScript(res.data);
+                    } catch(e) { alert("Failed to load script"); }
+                  }
+                  setShowSyncScript(!showSyncScript);
+                }}>
+                {showSyncScript ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+                {showSyncScript ? "Hide Script" : "Show Sync Script"}
+              </button>
+            </div>
+            {showSyncScript && syncScript && (
+              <div style={{ marginTop: 12 }}>
+                <div className="lisearch-hint" style={{ marginBottom: 8 }}>
+                  {syncScript.instructions?.map((step, i) => (
+                    <div key={i} style={{ marginBottom: 4 }}>{step}</div>
+                  ))}
+                </div>
+                <div style={{ position: "relative" }}>
+                  <textarea className="lisearch-textarea" readOnly value={syncScript.script} rows={6}
+                    style={{ fontFamily: "monospace", fontSize: 11 }} data-testid="sync-script-textarea" />
+                  <button className="lisearch-btn lisearch-btn-outline lisearch-btn-sm"
+                    style={{ position: "absolute", top: 8, right: 8 }}
+                    onClick={() => { navigator.clipboard.writeText(syncScript.script); alert("Script copied!"); }}>
+                    <Copy size={12} /> Copy
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+
           {/* Connections List */}
           <div className="lisearch-section" data-testid="connections-section">
             <div className="lisearch-section-header">
               <Users size={18} /><h3>Your Connections</h3>
-              <span className="lisearch-count">{connectionsTotal} total</span>
+              <span className="lisearch-count">{connectionsTotal} synced</span>
             </div>
 
             <div className="lisearch-input-row" style={{ marginBottom: 12 }}>
@@ -597,6 +642,11 @@ const LinkedInSearch = () => {
 
             {loadingConns ? (
               <div className="lisearch-progress"><Loader2 size={18} className="spin" /> Loading connections...</div>
+            ) : connections.length === 0 ? (
+              <div className="lisearch-empty" style={{ padding: "30px 20px" }}>
+                <Users size={28} style={{ opacity: 0.3 }} />
+                <p>No connections synced yet. Use the sync script above to import your LinkedIn connections.</p>
+              </div>
             ) : (
               <>
                 <div className="lisearch-conn-toolbar">

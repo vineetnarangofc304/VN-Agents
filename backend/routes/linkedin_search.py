@@ -1204,45 +1204,6 @@ async def _send_linkedin_message(li_at: str, jsessionid: str, recipient_urn: str
             return {"success": False, "error": f"HTTP {resp.status_code}", "detail": resp.text[:300]}
 
 
-@router.get("/connections")
-async def get_connections(
-    start: int = 0,
-    count: int = 40,
-    keyword: str = ""
-):
-    """Fetch 1st-degree LinkedIn connections."""
-    config = await db.li_search_config.find_one({"type": "cookie"})
-    if not config or not config.get("li_at"):
-        raise HTTPException(status_code=400, detail="No LinkedIn cookie configured")
-
-    li_at = config["li_at"]
-    jsessionid = config.get("jsessionid", "")
-
-    # Primary: Playwright-based
-    connections = await _playwright_connections(li_at, keyword)
-
-    if connections:
-        return {
-            "connections": connections,
-            "total": len(connections),
-            "start": start,
-            "count": count
-        }
-
-    # Fallback: Voyager API
-    try:
-        raw = await _fetch_connections(li_at, jsessionid, start, count, keyword)
-        parsed_connections, paging = _parse_connections(raw)
-        return {
-            "connections": parsed_connections,
-            "total": paging.get("total", len(parsed_connections)),
-            "start": start,
-            "count": count
-        }
-    except Exception as e:
-        logger.error(f"Both Playwright and API connections failed: {e}")
-        raise HTTPException(status_code=500, detail="Could not fetch connections. Your LinkedIn cookie may not be working from this server.")
-
 
 @router.post("/message/send")
 async def send_message(data: MessageRequest):
@@ -1361,3 +1322,153 @@ async def get_message_log(skip: int = 0, limit: int = 50):
             doc["sent_at"] = doc["sent_at"].isoformat()
         messages.append(doc)
     return {"messages": messages, "total": total}
+
+
+# ==================== BROWSER PUSH ENDPOINTS ====================
+
+@router.post("/connections/push")
+async def push_connections(data: dict):
+    """Receive connections data pushed from browser console script."""
+    connections = data.get("connections", [])
+    if not connections:
+        raise HTTPException(status_code=400, detail="No connections data")
+
+    stored = 0
+    for conn in connections:
+        public_id = conn.get("public_id", "")
+        if not public_id:
+            continue
+        # Upsert by public_id
+        await db.li_connections.update_one(
+            {"public_id": public_id},
+            {"$set": {
+                "first_name": conn.get("first_name", ""),
+                "last_name": conn.get("last_name", ""),
+                "full_name": conn.get("full_name", ""),
+                "occupation": conn.get("occupation", ""),
+                "profile_url": conn.get("profile_url", f"https://www.linkedin.com/in/{public_id}"),
+                "avatar_url": conn.get("avatar_url", ""),
+                "public_id": public_id,
+                "urn": conn.get("urn", ""),
+                "synced_at": datetime.now(timezone.utc),
+            }},
+            upsert=True
+        )
+        stored += 1
+
+    return {"success": True, "stored": stored, "total": await db.li_connections.count_documents({})}
+
+
+@router.get("/connections")
+async def get_connections(
+    start: int = 0,
+    count: int = 40,
+    keyword: str = ""
+):
+    """Fetch stored LinkedIn connections."""
+    query = {}
+    if keyword:
+        query["$or"] = [
+            {"full_name": {"$regex": keyword, "$options": "i"}},
+            {"first_name": {"$regex": keyword, "$options": "i"}},
+            {"last_name": {"$regex": keyword, "$options": "i"}},
+            {"occupation": {"$regex": keyword, "$options": "i"}},
+        ]
+
+    total = await db.li_connections.count_documents(query)
+    cursor = db.li_connections.find(query).sort("full_name", 1).skip(start).limit(count)
+    connections = []
+    async for doc in cursor:
+        doc["_id"] = str(doc["_id"])
+        if isinstance(doc.get("synced_at"), datetime):
+            doc["synced_at"] = doc["synced_at"].isoformat()
+        connections.append(doc)
+
+    return {
+        "connections": connections,
+        "total": total,
+        "start": start,
+        "count": count
+    }
+
+
+@router.get("/browser-script")
+async def get_browser_script():
+    """Return the browser console script for syncing connections."""
+    api_base = os.environ.get("REACT_APP_BACKEND_URL", "")
+    if not api_base:
+        # Fallback
+        api_base = "https://automation-platform-10.preview.emergentagent.com"
+
+    script = f"""
+// === LinkedIn Lead Finder — Connection Sync Script ===
+// Run this in your browser console while on linkedin.com
+// Step 1: Go to https://www.linkedin.com/mynetwork/invite-connect/connections/
+// Step 2: Scroll down to load all connections you want to sync
+// Step 3: Open browser console (F12 → Console) and paste this script
+
+(async () => {{
+  const API = '{api_base}/api/li-search/connections/push';
+  
+  // Collect connection cards from the page
+  const cards = document.querySelectorAll('.mn-connection-card');
+  const connections = [];
+  
+  cards.forEach(card => {{
+    try {{
+      const nameEl = card.querySelector('.mn-connection-card__name');
+      const occEl = card.querySelector('.mn-connection-card__occupation');
+      const linkEl = card.querySelector('a[href*="/in/"]');
+      const imgEl = card.querySelector('img.presence-entity__image, img.EntityPhoto-circle-4');
+      
+      const fullName = nameEl ? nameEl.innerText.trim() : '';
+      const parts = fullName.split(' ');
+      const profileUrl = linkEl ? linkEl.href.split('?')[0] : '';
+      const publicId = profileUrl.split('/in/')[1]?.replace('/', '') || '';
+      
+      if (fullName && publicId) {{
+        connections.push({{
+          full_name: fullName,
+          first_name: parts[0] || '',
+          last_name: parts.slice(1).join(' ') || '',
+          occupation: occEl ? occEl.innerText.trim() : '',
+          profile_url: profileUrl,
+          public_id: publicId,
+          avatar_url: imgEl ? imgEl.src : '',
+          urn: 'urn:li:fsd_profile:' + publicId,
+        }});
+      }}
+    }} catch(e) {{}}
+  }});
+  
+  console.log('Found ' + connections.length + ' connections');
+  
+  if (connections.length === 0) {{
+    console.log('No connections found. Make sure you are on the connections page and have scrolled down.');
+    return;
+  }}
+  
+  // Send to backend
+  try {{
+    const resp = await fetch(API, {{
+      method: 'POST',
+      headers: {{'Content-Type': 'application/json'}},
+      body: JSON.stringify({{ connections }})
+    }});
+    const data = await resp.json();
+    console.log('Synced! Stored: ' + data.stored + ', Total: ' + data.total);
+    alert('Synced ' + data.stored + ' connections to Lead Finder!');
+  }} catch(e) {{
+    console.error('Sync failed:', e);
+    alert('Sync failed. Check console for details.');
+  }}
+}})();
+"""
+    return {"script": script.strip(), "instructions": [
+        "1. Open LinkedIn in your browser and go to: https://www.linkedin.com/mynetwork/invite-connect/connections/",
+        "2. Scroll down to load the connections you want to sync (keep scrolling for more)",
+        "3. Press F12 to open Developer Tools → go to Console tab",
+        "4. Copy and paste the script above into the console and press Enter",
+        "5. Wait for the sync confirmation alert",
+        "6. Come back to Lead Finder to see your connections"
+    ]}
