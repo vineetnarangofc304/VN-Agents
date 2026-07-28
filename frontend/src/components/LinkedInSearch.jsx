@@ -241,9 +241,9 @@ const LinkedInSearch = () => {
 
   // Messaging handlers
   const toggleConnSelection = (conn) => {
-    const urn = conn.urn;
-    if (selectedConns.find(c => c.urn === urn)) {
-      setSelectedConns(selectedConns.filter(c => c.urn !== urn));
+    const id = conn.public_id;
+    if (selectedConns.find(c => c.public_id === id)) {
+      setSelectedConns(selectedConns.filter(c => c.public_id !== id));
     } else {
       setSelectedConns([...selectedConns, conn]);
     }
@@ -275,26 +275,25 @@ const LinkedInSearch = () => {
 
   const handleSendMessages = async () => {
     if (!messageText.trim() || selectedConns.length === 0) return;
-    setSendingMsg(true);
-    setSendResult(null);
+    // Copy message to clipboard and open LinkedIn profiles
     try {
-      if (selectedConns.length === 1) {
-        const res = await axios.post(`${API}/li-search/message/send`, {
-          recipient_urn: selectedConns[0].urn,
-          message_text: messageText
-        });
-        setSendResult(res.data.success ? { sent: 1, failed: 0 } : { sent: 0, failed: 1 });
-      } else {
-        const res = await axios.post(`${API}/li-search/message/bulk`, {
-          recipient_urns: selectedConns.map(c => c.urn),
-          message_text: messageText
-        });
-        setSendResult(res.data);
+      await navigator.clipboard.writeText(messageText);
+      setSendResult({ sent: selectedConns.length, failed: 0, copied: true });
+      // Open first connection's LinkedIn profile for messaging
+      const first = selectedConns[0];
+      if (first.profile_url) {
+        window.open(first.profile_url, "_blank");
       }
-      fetchMessageLog();
     } catch (err) {
-      setSendResult({ sent: 0, failed: selectedConns.length, error: err.response?.data?.detail || "Failed" });
-    } finally { setSendingMsg(false); }
+      // Fallback copy
+      const textarea = document.createElement("textarea");
+      textarea.value = messageText;
+      document.body.appendChild(textarea);
+      textarea.select();
+      document.execCommand("copy");
+      document.body.removeChild(textarea);
+      setSendResult({ sent: selectedConns.length, failed: 0, copied: true });
+    }
   };
 
   const handleConnSearch = () => {
@@ -696,7 +695,7 @@ const LinkedInSearch = () => {
 
                 <div className="lisearch-conn-grid" data-testid="connections-grid">
                   {connections.map(conn => {
-                    const isSelected = selectedConns.find(c => c.urn === conn.urn);
+                    const isSelected = selectedConns.find(c => c.public_id === conn.public_id);
                     return (
                       <div key={conn.urn}
                         className={`lisearch-conn-card ${isSelected ? "lisearch-conn-selected" : ""}`}
@@ -793,19 +792,30 @@ const LinkedInSearch = () => {
 
             <div className="lisearch-input-row" style={{ marginTop: 12 }}>
               <button className="lisearch-btn lisearch-btn-accent" onClick={handleSendMessages}
-                disabled={sendingMsg || !messageText.trim() || selectedConns.length === 0}
+                disabled={!messageText.trim() || selectedConns.length === 0}
                 data-testid="send-messages-btn">
-                {sendingMsg ? <Loader2 size={16} className="spin" /> : <Send size={16} />}
-                Send to {selectedConns.length} Connection{selectedConns.length !== 1 ? "s" : ""}
+                <Copy size={16} />
+                Copy Message & Open LinkedIn
               </button>
             </div>
 
             {sendResult && (
-              <div className={`lisearch-msg ${sendResult.sent > 0 ? "lisearch-msg-success" : "lisearch-msg-error"}`}
-                data-testid="send-result">
-                {sendResult.sent > 0 ? <CheckCircle size={14} /> : <XCircle size={14} />}
-                {sendResult.sent > 0 ? `${sendResult.sent} message(s) sent successfully` : ""}
-                {sendResult.failed > 0 ? ` ${sendResult.failed} failed` : ""}
+              <div className="lisearch-msg lisearch-msg-success" data-testid="send-result">
+                <CheckCircle size={14} />
+                Message copied to clipboard! Paste it in LinkedIn's message box. 
+                {selectedConns.length > 1 && ` (${selectedConns.length} profiles to message)`}
+              </div>
+            )}
+
+            {/* Quick Links to selected connections */}
+            {selectedConns.length > 1 && sendResult?.copied && (
+              <div style={{ marginTop: 8, display: "flex", flexWrap: "wrap", gap: 4 }}>
+                {selectedConns.map(c => (
+                  <a key={c.public_id} href={c.profile_url} target="_blank" rel="noreferrer"
+                    className="lisearch-btn lisearch-btn-outline lisearch-btn-sm">
+                    <ExternalLink size={12} /> {c.first_name}
+                  </a>
+                ))}
               </div>
             )}
           </div>
