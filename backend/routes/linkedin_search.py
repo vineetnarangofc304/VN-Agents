@@ -1475,8 +1475,8 @@ async def get_browser_script():
   }}
 
   const jsonStr = JSON.stringify(connections);
-  await navigator.clipboard.writeText(jsonStr);
-  alert('Copied ' + connections.length + ' connections to clipboard!\\n\\nNow go to Lead Finder → Messaging tab → click "Paste Connections" and paste (Ctrl+V).');
+  copy(jsonStr);
+  alert('Copied ' + connections.length + ' connections to clipboard!\\n\\nNow go to Lead Finder → Messaging tab → paste (Ctrl+V) in the Paste box and click Import.');
   console.log('Copied ' + connections.length + ' connections to clipboard.');
 }})();
 """
