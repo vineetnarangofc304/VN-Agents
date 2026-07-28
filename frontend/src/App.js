@@ -1,5 +1,5 @@
 import { BrowserRouter, Routes, Route } from "react-router-dom";
-import { Receipt, RefreshCw, TrendingUp, Linkedin, BookOpen, ShieldCheck, Radar, SearchCheck, Zap } from "lucide-react";
+import { Receipt, RefreshCw, TrendingUp, Linkedin, BookOpen, ShieldCheck, Radar, SearchCheck, Zap, Landmark } from "lucide-react";
 
 import LandingPage from "./components/LandingPage";
 import AgentLogin from "./components/AgentLogin";
@@ -12,6 +12,7 @@ import AccountChecker from "./components/AccountChecker";
 import CatchmentMining from "./components/CatchmentMining";
 import LinkedInSearch from "./components/LinkedInSearch";
 import ContentStudio from "./components/ContentStudio";
+import BankingAgent from "./components/BankingAgent";
 
 import "./App.css";
 
@@ -72,6 +73,12 @@ const App = () => {
         <Route path="/content-studio" element={
           <AgentLogin agentName="Content Studio" agentIcon={Zap} agentColor="#0066FF">
             <ContentStudio />
+          </AgentLogin>
+        } />
+
+        <Route path="/banking" element={
+          <AgentLogin agentName="Banking Agent" agentIcon={Landmark} agentColor="#0d9488">
+            <BankingAgent />
           </AgentLogin>
         } />
       </Routes>

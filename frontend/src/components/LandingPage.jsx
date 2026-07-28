@@ -1,5 +1,5 @@
 import { useNavigate } from "react-router-dom";
-import { Receipt, RefreshCw, TrendingUp, Linkedin, BookOpen, ShieldCheck, Radar, SearchCheck, Zap } from "lucide-react";
+import { Receipt, RefreshCw, TrendingUp, Linkedin, BookOpen, ShieldCheck, Radar, SearchCheck, Zap, Landmark } from "lucide-react";
 
 const agents = [
   { id: "invoicing", name: "Invoicing Agent", desc: "Process Google Play receipts, extract pages, download as ZIP", icon: Receipt, color: "#3b82f6", path: "/invoicing" },
@@ -11,6 +11,7 @@ const agents = [
   { id: "directory", name: "PDF Extractor", desc: "Extract company data from PDF directories into Excel", icon: BookOpen, color: "#8b5cf6", path: "/directory" },
   { id: "checker", name: "Account Checker", desc: "Bulk-test login accounts and find active ones", icon: ShieldCheck, color: "#ef4444", path: "/checker" },
   { id: "catchment", name: "Catchment Mining", desc: "Crawl web for contact databases — RWA, clubs, govt directories across Delhi NCR", icon: Radar, color: "#14b8a6", path: "/catchment" },
+  { id: "banking", name: "Banking Agent", desc: "Upload bank statements, analyze spending, merchants, categories & cash flow trends", icon: Landmark, color: "#0d9488", path: "/banking" },
 ];
 
 const LandingPage = () => {

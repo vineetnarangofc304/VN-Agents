@@ -36,6 +36,7 @@ from routes.account_checker import router as checker_router
 from routes.hearclear_leads import router as hearclear_leads_router
 from routes.linkedin_search import router as li_search_router
 from routes.content_studio import router as content_studio_router
+from routes.banking_agent import router as banking_router
 
 # MongoDB connection
 mongo_url = os.environ.get('MONGO_URL', '')
@@ -918,6 +919,7 @@ app.include_router(checker_router)
 app.include_router(hearclear_leads_router)
 app.include_router(li_search_router)
 app.include_router(content_studio_router)
+app.include_router(banking_router)
 
 # CORS Configuration
 frontend_url = os.environ.get('FRONTEND_URL', '')
