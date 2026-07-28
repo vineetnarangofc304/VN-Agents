@@ -1326,7 +1326,7 @@ async def get_message_log(skip: int = 0, limit: int = 50):
 
 @router.post("/message/script")
 async def generate_message_script(data: dict):
-    """Generate a browser console script that sends messages by opening each recipient's message page."""
+    """Generate a browser console script that sends bulk messages via LinkedIn's Voyager messaging API."""
     recipients = data.get("recipients", [])
     message = data.get("message", "")
     if not recipients or not message:
@@ -1336,62 +1336,119 @@ async def generate_message_script(data: dict):
     recipients_js = json.dumps(recipients)
 
     script = (
-        "// === LinkedIn Auto-Message Script ===\n"
-        "// Opens each recipient's message page, fills message, sends it\n"
-        "// Run on any linkedin.com page\n\n"
+        "// === LinkedIn Bulk Messenger ===\n"
+        "// Sends messages via LinkedIn's internal API from your browser\n"
+        "// Run on any linkedin.com page while logged in\n\n"
         "(async () => {\n"
         "  const recipients = " + recipients_js + ";\n"
         "  const message = " + message_js + ";\n"
-        "  let sent = 0, failed = 0;\n"
+        "  let sent = 0, failed = 0, skipped = 0;\n"
         "  const delay = ms => new Promise(r => setTimeout(r, ms));\n\n"
+        "  // Get CSRF token\n"
+        "  const getCsrf = () => {\n"
+        "    const m = document.cookie.match(/JSESSIONID=\"?([^;\"]+)/);\n"
+        "    return m ? m[1] : '';\n"
+        "  };\n"
+        "  const csrf = getCsrf();\n"
+        "  if (!csrf) { alert('No CSRF token found. Make sure you are logged into LinkedIn.'); return; }\n\n"
+        "  // Get own profile URN for mailboxUrn\n"
+        "  let myUrn = '';\n"
+        "  try {\n"
+        "    const meResp = await fetch('https://www.linkedin.com/voyager/api/voyagerIdentityDashProfiles?q=memberIdentity&memberIdentity=me&decorationId=com.linkedin.voyager.dash.deco.identity.profile.TopCardSupplementary-166', {\n"
+        "      headers: {'csrf-token': csrf, 'x-restli-protocol-version': '2.0.0'}\n"
+        "    });\n"
+        "    if (meResp.ok) {\n"
+        "      const meData = await meResp.json();\n"
+        "      const included = meData.included || [];\n"
+        "      for (const item of included) {\n"
+        "        if (item.entityUrn && item.entityUrn.includes('fsd_profile')) {\n"
+        "          myUrn = item.entityUrn; break;\n"
+        "        }\n"
+        "      }\n"
+        "    }\n"
+        "  } catch(e) {}\n"
+        "  if (!myUrn) {\n"
+        "    try {\n"
+        "      const me2 = await fetch('https://www.linkedin.com/voyager/api/me', {\n"
+        "        headers: {'csrf-token': csrf, 'x-restli-protocol-version': '2.0.0'}\n"
+        "      });\n"
+        "      if (me2.ok) {\n"
+        "        const d = await me2.json();\n"
+        "        myUrn = d.miniProfile?.entityUrn || (d.included||[]).find(i=>i.entityUrn?.includes('miniProfile'))?.entityUrn || '';\n"
+        "      }\n"
+        "    } catch(e) {}\n"
+        "  }\n"
+        "  console.log('My URN: ' + myUrn);\n\n"
         "  for (let i = 0; i < recipients.length; i++) {\n"
         "    const r = recipients[i];\n"
-        "    console.log('(' + (i+1) + '/' + recipients.length + ') ' + r.name);\n"
-        "    try {\n"
-        "      // Navigate to the profile page\n"
-        "      window.location.href = r.profile_url;\n"
-        "      await delay(4000);\n\n"
-        "      // Click the Message button on their profile\n"
-        "      let msgBtn = null;\n"
-        "      document.querySelectorAll('button, a').forEach(el => {\n"
-        "        const txt = el.innerText.trim();\n"
-        "        if (txt === 'Message' && !msgBtn) msgBtn = el;\n"
-        "      });\n"
-        "      if (!msgBtn) { failed++; console.log('  No Message button found'); await delay(2000); continue; }\n"
-        "      msgBtn.click();\n"
-        "      await delay(2500);\n\n"
-        "      // Find and fill the message box\n"
-        "      let msgBox = null;\n"
-        "      for (let attempt = 0; attempt < 3; attempt++) {\n"
-        "        msgBox = document.querySelector('div.msg-form__contenteditable[contenteditable=\"true\"]')\n"
-        "              || document.querySelector('div[role=\"textbox\"][contenteditable=\"true\"]')\n"
-        "              || document.querySelector('.msg-form__msg-content-container div[contenteditable]');\n"
-        "        if (msgBox) break;\n"
-        "        await delay(1000);\n"
-        "      }\n"
-        "      if (!msgBox) { failed++; console.log('  Message box not found'); await delay(2000); continue; }\n\n"
-        "      msgBox.focus();\n"
-        "      msgBox.innerHTML = '<p>' + message.split('\\n').join('</p><p>') + '</p>';\n"
-        "      msgBox.dispatchEvent(new Event('input', {bubbles: true}));\n"
-        "      await delay(1500);\n\n"
-        "      // Click send\n"
-        "      let sendClicked = false;\n"
-        "      document.querySelectorAll('button').forEach(btn => {\n"
-        "        if (!sendClicked && (btn.classList.contains('msg-form__send-button') || btn.classList.contains('msg-form__send-btn'))) {\n"
-        "          if (!btn.disabled) { btn.click(); sendClicked = true; }\n"
-        "        }\n"
-        "      });\n"
-        "      if (!sendClicked) {\n"
-        "        document.querySelectorAll('button').forEach(btn => {\n"
-        "          if (!sendClicked && btn.innerText.trim() === 'Send' && !btn.disabled) { btn.click(); sendClicked = true; }\n"
+        "    console.log('(' + (i+1) + '/' + recipients.length + ') ' + r.name);\n\n"
+        "    // Get recipient URN\n"
+        "    let recipientUrn = r.entity_urn || '';\n\n"
+        "    // If no URN, look it up by public_id\n"
+        "    if (!recipientUrn && r.public_id) {\n"
+        "      try {\n"
+        "        const profResp = await fetch('https://www.linkedin.com/voyager/api/voyagerIdentityDashProfiles?q=memberIdentity&memberIdentity=' + r.public_id + '&decorationId=com.linkedin.voyager.dash.deco.identity.profile.TopCardSupplementary-166', {\n"
+        "          headers: {'csrf-token': csrf, 'x-restli-protocol-version': '2.0.0'}\n"
         "        });\n"
+        "        if (profResp.ok) {\n"
+        "          const pData = await profResp.json();\n"
+        "          for (const item of (pData.included || [])) {\n"
+        "            if (item.entityUrn && item.entityUrn.includes('fsd_profile')) {\n"
+        "              recipientUrn = item.entityUrn; break;\n"
+        "            }\n"
+        "          }\n"
+        "        } else { console.log('  Profile lookup failed: ' + profResp.status); }\n"
+        "      } catch(e) { console.log('  Profile lookup error: ' + e.message); }\n"
+        "    }\n\n"
+        "    if (!recipientUrn) {\n"
+        "      skipped++;\n"
+        "      console.log('  Skipped — no URN found');\n"
+        "      continue;\n"
+        "    }\n\n"
+        "    // Send message\n"
+        "    try {\n"
+        "      // Try new endpoint first\n"
+        "      const body = {\n"
+        "        message: { body: { text: message, attributes: [] }, renderContentUnions: [] },\n"
+        "        mailboxUrn: myUrn || recipientUrn,\n"
+        "        recipients: [recipientUrn],\n"
+        "        dedupeByClientGeneratedToken: false\n"
+        "      };\n"
+        "      let resp = await fetch('https://www.linkedin.com/voyager/api/voyagerMessagingDashMessengerMessages?action=createMessage', {\n"
+        "        method: 'POST',\n"
+        "        headers: {'csrf-token': csrf, 'content-type': 'application/json', 'x-restli-protocol-version': '2.0.0'},\n"
+        "        body: JSON.stringify(body)\n"
+        "      });\n\n"
+        "      // Fallback to old endpoint\n"
+        "      if (!resp.ok && resp.status !== 201) {\n"
+        "        const oldBody = {\n"
+        "          conversationCreate: {\n"
+        "            eventCreate: { value: { 'com.linkedin.voyager.messaging.create.MessageCreate': { attributedBody: { text: message, attributes: [] }, attachments: [] } } },\n"
+        "            recipients: [recipientUrn], subtype: 'MEMBER_TO_MEMBER'\n"
+        "          }\n"
+        "        };\n"
+        "        resp = await fetch('https://www.linkedin.com/voyager/api/messaging/conversations?action=create', {\n"
+        "          method: 'POST',\n"
+        "          headers: {'csrf-token': csrf, 'content-type': 'application/json', 'x-restli-protocol-version': '2.0.0'},\n"
+        "          body: JSON.stringify(oldBody)\n"
+        "        });\n"
+        "      }\n\n"
+        "      if (resp.ok || resp.status === 201) {\n"
+        "        sent++; console.log('  Sent!');\n"
+        "      } else {\n"
+        "        const err = await resp.text();\n"
+        "        failed++; console.log('  Failed (' + resp.status + '): ' + err.substring(0, 150));\n"
         "      }\n"
-        "      if (sendClicked) { sent++; console.log('  Sent!'); }\n"
-        "      else { failed++; console.log('  Send button not found/disabled'); }\n"
-        "      await delay(2000 + Math.random() * 2000);\n\n"
-        "    } catch(e) { failed++; console.error('  Error: ' + e.message); }\n"
+        "    } catch(e) { failed++; console.error('  Send error: ' + e.message); }\n\n"
+        "    // Rate limit: 3-6 seconds\n"
+        "    if (i < recipients.length - 1) {\n"
+        "      const wait = 3000 + Math.random() * 3000;\n"
+        "      await delay(wait);\n"
+        "    }\n"
         "  }\n\n"
-        "  alert('Done! Sent: ' + sent + ', Failed: ' + failed);\n"
+        "  const summary = 'Done! Sent: ' + sent + ', Failed: ' + failed + (skipped > 0 ? ', Skipped (no URN): ' + skipped : '');\n"
+        "  alert(summary);\n"
+        "  console.log('=== ' + summary + ' ===');\n"
         "})();\n"
     )
 
@@ -1423,7 +1480,8 @@ async def push_connections(data: dict):
                 "profile_url": conn.get("profile_url", f"https://www.linkedin.com/in/{public_id}"),
                 "avatar_url": conn.get("avatar_url", ""),
                 "public_id": public_id,
-                "urn": conn.get("urn", ""),
+                "entity_urn": conn.get("entity_urn", ""),
+                "urn": conn.get("urn", conn.get("entity_urn", "")),
                 "synced_at": datetime.now(timezone.utc),
             }},
             upsert=True
@@ -1486,81 +1544,92 @@ async def get_browser_script():
         api_base = "https://automation-platform-10.preview.emergentagent.com"
 
     script = f"""
-// === LinkedIn Lead Finder — Connection Sync v5 ===
-// Paste in Console on LinkedIn Connections page
+// === LinkedIn Lead Finder — Connection Sync v6 ===
+// Captures entity URNs for bulk messaging
+// Run on LinkedIn Connections page
 
 (async () => {{
   const connections = [];
   const seen = new Set();
-  const allLinks = document.querySelectorAll('a[href*="/in/"]');
-  
-  allLinks.forEach(link => {{
-    try {{
-      const href = link.href.split('?')[0].replace(/\\/$/, '');
-      const publicId = href.split('/in/')[1];
-      if (!publicId || seen.has(publicId) || publicId.length > 100) return;
-      
-      // Walk up from the link to find the card container (max 6 levels)
-      let card = link;
-      for (let i = 0; i < 6; i++) {{
-        if (!card.parentElement) break;
-        card = card.parentElement;
-        const t = card.innerText || '';
-        if (t.includes('Message') || t.includes('Connected on')) break;
-      }}
-      
-      const cardText = card.innerText || '';
-      if (!cardText.includes('Connected') && !cardText.includes('Message')) return;
-      if (card.closest('nav') || card.closest('header')) return;
+  const delay = ms => new Promise(r => setTimeout(r, ms));
 
-      // Split into lines and extract
-      const lines = cardText.split('\\n').map(l => l.trim()).filter(l => l.length > 1);
-      let fullName = '';
-      let occupation = '';
-      
-      for (let i = 0; i < lines.length; i++) {{
-        const line = lines[i];
-        if (line === 'Message' || line.startsWith('Connected on') || line === '...' || line.length > 200) continue;
-        if (!fullName) {{
-          // Name: short text, no special chars, appears before occupation
-          if (line.length <= 60 && !line.includes('|') && !line.includes('@') && !line.includes(',')) {{
-            fullName = line;
-          }}
-        }} else if (!occupation) {{
-          if (line !== 'Message' && !line.startsWith('Connected')) {{
-            occupation = line;
-          }}
-          break;
-        }}
+  // Method 1: Extract from page's embedded data (most reliable for URNs)
+  const getCsrf = () => {{
+    const m = document.cookie.match(/JSESSIONID="?([^;"]+)/);
+    return m ? m[1] : '';
+  }};
+
+  // Fetch connections via Voyager API from within browser (has cookies!)
+  console.log('Fetching connections via API...');
+  let start = 0;
+  let total = 0;
+  
+  while (true) {{
+    try {{
+      const resp = await fetch(
+        'https://www.linkedin.com/voyager/api/relationships/dash/connections?decorationId=com.linkedin.voyager.dash.deco.web.mynetwork.ConnectionListWithProfile-16&count=40&q=search&sortType=RECENTLY_ADDED&start=' + start,
+        {{ headers: {{ 'csrf-token': getCsrf(), 'x-restli-protocol-version': '2.0.0' }} }}
+      );
+      if (!resp.ok) {{
+        console.log('API returned ' + resp.status + ' at start=' + start);
+        break;
       }}
+      const data = await resp.json();
+      const included = data.included || [];
       
-      if (!fullName || fullName.length < 2) return;
-      
-      const imgEl = card.querySelector('img[src*="licdn"], img[src*="profile"]');
-      seen.add(publicId);
-      const parts = fullName.split(' ');
-      
-      connections.push({{
-        full_name: fullName,
-        first_name: parts[0] || '',
-        last_name: parts.slice(1).join(' ') || '',
-        occupation: occupation,
-        profile_url: 'https://www.linkedin.com/in/' + publicId,
-        public_id: publicId,
-        avatar_url: imgEl ? imgEl.src : '',
+      // Extract profiles from included entities
+      included.forEach(item => {{
+        const recipe = item['$recipeType'] || '';
+        if (recipe.includes('MiniProfile') || item.firstName) {{
+          const urn = item.entityUrn || '';
+          const pubId = item.publicIdentifier || '';
+          if (urn && !seen.has(urn)) {{
+            seen.add(urn);
+            const firstName = item.firstName || '';
+            const lastName = item.lastName || '';
+            connections.push({{
+              full_name: firstName + ' ' + lastName,
+              first_name: firstName,
+              last_name: lastName,
+              occupation: item.occupation || '',
+              profile_url: 'https://www.linkedin.com/in/' + pubId,
+              public_id: pubId,
+              entity_urn: urn,
+              avatar_url: '',
+            }});
+          }}
+        }}
       }});
-    }} catch(e) {{}}
-  }});
+
+      total = data.data?.paging?.total || total;
+      console.log('  Fetched ' + connections.length + ' connections (start=' + start + ', total~' + total + ')');
+      
+      // Check if we have more
+      const paging = data.data?.paging || {{}};
+      if (connections.length >= (paging.total || 999999) || included.length < 5) break;
+      start += 40;
+      await delay(1000); // Rate limit
+      
+      // Safety: max 500 for now
+      if (connections.length >= 500) {{
+        console.log('Reached 500 limit. Run again for more.');
+        break;
+      }}
+    }} catch(e) {{
+      console.error('Fetch error at start=' + start + ': ' + e.message);
+      break;
+    }}
+  }}
 
   if (connections.length === 0) {{
-    alert('No connections found! Scroll down first to load connections, then run again.');
+    alert('No connections fetched. Make sure you are logged into LinkedIn.');
     return;
   }}
 
-  // Show first 3 names as verification
   const preview = connections.slice(0,3).map(c => c.full_name).join(', ');
+  const withUrn = connections.filter(c => c.entity_urn).length;
   copy(JSON.stringify(connections));
-  alert('Copied ' + connections.length + ' connections!\\n\\nPreview: ' + preview + '...\\n\\nPaste in Lead Finder → Import.');
+  alert('Copied ' + connections.length + ' connections (' + withUrn + ' with URN for bulk messaging)!\\n\\nPreview: ' + preview + '...\\n\\nPaste in Lead Finder → Import.');
 }})();
 """
     return {"script": script.strip(), "instructions": [

@@ -281,7 +281,8 @@ const LinkedInSearch = () => {
       const recipients = selectedConns.map(c => ({
         name: c.full_name || `${c.first_name} ${c.last_name}`,
         profile_url: c.profile_url,
-        public_id: c.public_id
+        public_id: c.public_id,
+        entity_urn: c.entity_urn || c.urn || ""
       }));
       const res = await axios.post(`${API}/li-search/message/script`, {
         recipients,
