@@ -1,0 +1,36 @@
+{
+  "summary": "Verified fix for POST /api/li-search/message/script (f-string crash on special chars). Backend: 8/8 pytest tests passed including new special-chars test (newlines, $, *, &, %). Frontend e2e: selected 2 connections at /linkedin-search, filled textarea with 'Hello Dr..\\n\\nI am the founder of HearClear.\\n* AI-based screening\\n* $100 & 50%', clicked 'Send to 2 Connections via LinkedIn' — script (2584 chars) returned 200, clipboard contains json.dumps-escaped message, success toast 'Auto-send script copied to clipboard' shown. Regressions: /api/health healthy; /api/li-search/posts returned 20 posts. Login used Agent@2024! via /api/auth/agent-login.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "/api/li-search/connections", "issue": "MongoDB '_id' (ObjectId) leaks into response payload. Per code-review rules, _id should be excluded."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_message_script.py",
+    "/app/test_reports/pytest/message_script.xml"
+  ],
+  "action_items": [
+    "Optional: strip MongoDB '_id' from /api/li-search/connections responses (and similar endpoints) to comply with API hygiene."
+  ],
+  "critical_code_review_comments": [
+    "generate_message_script now correctly uses json.dumps + string concatenation — safe for arbitrary Unicode/special chars.",
+    "Consider adding server-side length limit for message and recipients to prevent oversized script generation.",
+    "MongoDB ObjectId '_id' is being serialized to clients in connections listing endpoint — should be excluded."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_message_script.py (updated test_script_escapes_backticks for new json.dumps output; added test_script_special_chars_newlines_dollar_asterisk)"
+  ],
+  "success_rate": {"backend": "100% (8/8)", "frontend": "100% (send flow OK)"},
+  "test_credentials": "Agent password: Agent@2024! (via /api/auth/agent-login and /linkedin-search password prompt).",
+  "seed_data_creation": "None. Used existing 72 synced connections.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Fix is verified. Backend test file at /app/backend/tests/test_message_script.py covers valid, empty-recipients, empty-message, missing-both, backticks/${} and the newlines+$+*+& special-chars regression. Frontend flow at /linkedin-search → Messaging tab; connections are selected by clicking cards (no checkboxes). Password 'Agent@2024!' via 'Access' button on /linkedin-search page.",
+  "rca of the issue": "Previous impl used Python f-strings whose body embedded a JS backtick template literal containing the raw message. Any '{' or '}' in the message (or accidentally interpreted format specs) or f-string edge cases could crash server rendering; additionally raw newlines and $ in a JS template literal produced malformed JS. Fix: message and recipients are serialized via json.dumps() (proper JS string literal escaping) and the surrounding script is built by string concatenation instead of f-strings. Verified with special-char payload — no 500/502, script returned successfully."
+}

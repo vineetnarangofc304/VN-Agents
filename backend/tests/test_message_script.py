@@ -64,9 +64,26 @@ class TestMessageScript:
         })
         assert r.status_code == 200
         script = r.json()["script"]
-        # backticks must be escaped so the template literal is intact
-        assert "\\`world\\`" in script or "\\`" in script
-        assert "\\${foo}" in script
+        # New impl uses json.dumps (double-quoted string) so raw backticks/${ are fine
+        assert '"Hello `world` ${foo}"' in script
+
+    def test_script_special_chars_newlines_dollar_asterisk(self, client):
+        """The bug: newlines, $, *, & in message crashed f-string. Must now succeed."""
+        msg = "Hello Dr..\n\nI am the founder of HearClear.\n* AI-based screening\n* $100 & 50%"
+        recipients = [
+            {"name": "Dr. Test", "profile_url": "https://www.linkedin.com/in/dr-test/", "public_id": "dr-test"},
+            {"name": "Second Dr", "profile_url": "https://www.linkedin.com/in/second-dr/", "public_id": "second-dr"},
+        ]
+        r = client.post(SCRIPT_URL, json={"recipients": recipients, "message": msg})
+        assert r.status_code == 200, r.text
+        data = r.json()
+        script = data["script"]
+        assert data["recipients_count"] == 2
+        # json.dumps escapes newlines to \n and keeps $ * & as-is inside double quotes
+        import json as _json
+        assert _json.dumps(msg) in script
+        # Ensure it's NOT a backtick template literal for message
+        assert "`" + msg not in script
 
 
 class TestRegressions:
