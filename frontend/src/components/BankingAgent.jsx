@@ -108,17 +108,20 @@ const BankingAgent = () => {
     setLoading(true);
     setError(null);
     try {
-      const res = await axios.get(`${API}/banking/dashboard/${stmtId}`);
+      const res = await axios.get(`${API}/banking/dashboard/${stmtId}`, { timeout: 30000 });
       setDashboard(res.data);
       setActiveStmt(stmtId);
       setView("dashboard");
     } catch (err) {
-      setError(err.response?.data?.detail || "Failed to load dashboard");
+      console.error("Dashboard load error:", err);
+      setError(err.response?.data?.detail || "Failed to load dashboard. Please try again.");
     } finally { setLoading(false); }
   };
 
   const loadTransactions = useCallback(async (stmtId, page = 0) => {
+    if (!stmtId) return;
     setLoading(true);
+    setError(null);
     try {
       const params = { skip: page * 100, limit: 100, sort: sortField, sort_dir: sortDir };
       if (filters.category) params.category = filters.category;
@@ -129,11 +132,15 @@ const BankingAgent = () => {
       if (filters.debit_only) params.debit_only = true;
       if (filters.credit_only) params.credit_only = true;
       if (filters.search) params.search = filters.search;
-      const res = await axios.get(`${API}/banking/transactions/${stmtId}`, { params });
+      const res = await axios.get(`${API}/banking/transactions/${stmtId}`, { params, timeout: 30000 });
       setTransactions(res.data.transactions || []);
       setTxnTotal(res.data.total || 0);
-    } catch (err) { console.error(err); }
-    finally { setLoading(false); }
+    } catch (err) {
+      console.error("Transaction load error:", err);
+      setError("Failed to load transactions. Please try again.");
+      setTransactions([]);
+      setTxnTotal(0);
+    } finally { setLoading(false); }
   }, [filters, sortField, sortDir]);
 
   const handleDeleteStmt = async (stmtId) => {

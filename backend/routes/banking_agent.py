@@ -16,6 +16,21 @@ mongo_url = os.environ.get("MONGO_URL", "")
 client = AsyncIOMotorClient(mongo_url)
 db = client[os.environ.get("DB_NAME", "agent_hub")]
 
+# Create indices for fast queries
+async def _ensure_indices():
+    await db.banking_transactions.create_index([("stmt_id", 1), ("date", -1)])
+    await db.banking_transactions.create_index([("stmt_id", 1), ("category", 1)])
+    await db.banking_transactions.create_index([("stmt_id", 1), ("merchant", 1)])
+    await db.banking_transactions.create_index([("stmt_id", 1), ("txn_type", 1)])
+    await db.banking_statements.create_index("stmt_id", unique=True)
+
+import asyncio
+try:
+    asyncio.get_event_loop().create_task(_ensure_indices())
+except RuntimeError:
+    pass
+
+
 # Merchant → Category mapping
 MERCHANT_CATEGORIES = {
     "zepto": "Food & Groceries", "blinkit": "Food & Groceries", "zomato": "Food & Groceries",
