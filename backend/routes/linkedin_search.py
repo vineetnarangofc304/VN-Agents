@@ -1395,9 +1395,20 @@ async def get_connections(
 @router.get("/browser-script")
 async def get_browser_script():
     """Return the browser console script for syncing connections."""
-    api_base = os.environ.get("REACT_APP_BACKEND_URL", "")
+    api_base = os.environ.get("REACT_APP_BACKEND_URL", "") or os.environ.get("BACKEND_PUBLIC_URL", "")
     if not api_base:
-        # Fallback
+        # Read from frontend .env as fallback
+        try:
+            from pathlib import Path
+            frontend_env = Path(__file__).parent.parent.parent / "frontend" / ".env"
+            if frontend_env.exists():
+                for line in frontend_env.read_text().splitlines():
+                    if line.startswith("REACT_APP_BACKEND_URL="):
+                        api_base = line.split("=", 1)[1].strip()
+                        break
+        except:
+            pass
+    if not api_base:
         api_base = "https://automation-platform-10.preview.emergentagent.com"
 
     script = f"""
