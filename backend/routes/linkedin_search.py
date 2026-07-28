@@ -47,7 +47,7 @@ class CookieInput(BaseModel):
 
 
 class SearchRequest(BaseModel):
-    keywords: List[str]
+    keywords: Optional[List[str]] = None
     date_filter: Optional[str] = "past-month"
 
 
