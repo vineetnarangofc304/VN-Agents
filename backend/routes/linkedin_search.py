@@ -756,23 +756,15 @@ async def save_keywords(data: dict):
 
 @router.post("/search")
 async def trigger_search(req: Optional[SearchRequest] = None):
-    """Trigger a LinkedIn post search."""
-    # Get cookie
-    config = await db.li_search_config.find_one({"type": "cookie"})
-    if not config or not config.get("li_at"):
-        raise HTTPException(status_code=400, detail="No LinkedIn cookie configured. Please save your li_at cookie first.")
-
-    li_at = config["li_at"]
-    jsessionid = config.get("jsessionid", "")
-
+    """Trigger a LinkedIn post search. Note: Due to LinkedIn's anti-bot measures, 
+    server-side search uses web search indexing. The li_at cookie is used for 
+    messaging and commenting only."""
     # Get keywords
     if req and req.keywords:
         keywords = req.keywords
     else:
         kw_config = await db.li_search_config.find_one({"type": "keywords"})
         keywords = kw_config.get("keywords", ["looking for agency"]) if kw_config else ["looking for agency"]
-
-    date_filter = req.date_filter if req else "past-month"
 
     # Check if search already running
     if active_searches.get("running"):
@@ -784,7 +776,12 @@ async def trigger_search(req: Optional[SearchRequest] = None):
     active_searches["job_id"] = job_id
     active_searches["progress"] = {"current_keyword": "", "keywords_done": 0, "total_keywords": len(keywords), "posts_found": 0}
 
-    asyncio.create_task(_run_search(job_id, li_at, jsessionid, keywords, date_filter))
+    # Get cookie if available (for Playwright fallback)
+    config = await db.li_search_config.find_one({"type": "cookie"})
+    li_at = config.get("li_at", "") if config else ""
+    jsessionid = config.get("jsessionid", "") if config else ""
+
+    asyncio.create_task(_run_search(job_id, li_at, jsessionid, keywords, "past-month"))
 
     return {"status": "started", "job_id": job_id, "keywords_count": len(keywords)}
 
