@@ -1412,16 +1412,14 @@ async def get_browser_script():
         api_base = "https://automation-platform-10.preview.emergentagent.com"
 
     script = f"""
-// === LinkedIn Lead Finder — Connection Sync Script v2 ===
-// 1. Be on https://www.linkedin.com/mynetwork/invite-connect/connections/
-// 2. Scroll down to load connections you want (the more you scroll, the more get synced)
+// === LinkedIn Lead Finder — Connection Sync v3 ===
+// 1. Be on LinkedIn Connections page
+// 2. Scroll down to load connections you want
 // 3. Paste this in Console (F12) and press Enter
+// 4. Data copies to clipboard — paste it in Lead Finder
 
 (async () => {{
-  const API = '{api_base}/api/li-search/connections/push';
   const connections = [];
-
-  // Strategy 1: Find all profile links within the connections list
   const allLinks = document.querySelectorAll('a[href*="/in/"]');
   const seen = new Set();
 
@@ -1430,47 +1428,32 @@ async def get_browser_script():
       const href = link.href.split('?')[0].replace(/\\/$/, '');
       const publicId = href.split('/in/')[1];
       if (!publicId || seen.has(publicId)) return;
-
-      // Walk up to find the card container (the nearest li or card-like parent)
       let card = link.closest('li') || link.closest('[class*="connection"]') || link.parentElement?.parentElement?.parentElement;
       if (!card) return;
       const cardText = card.innerText || '';
       if (!cardText || cardText.length < 5) return;
-
-      // Skip nav/header links
       if (card.closest('nav') || card.closest('header')) return;
 
-      // Extract name - first bold/strong text or first line
       let fullName = '';
       const nameEl = card.querySelector('[class*="name"] span[aria-hidden="true"]')
                   || card.querySelector('[class*="card__name"]')
-                  || card.querySelector('span.mn-connection-card__name')
                   || link.querySelector('span[aria-hidden="true"]');
-      if (nameEl) {{
-        fullName = nameEl.innerText.trim();
-      }} else {{
-        // Fallback: first non-empty line of text
+      if (nameEl) {{ fullName = nameEl.innerText.trim(); }}
+      else {{
         const lines = cardText.split('\\n').map(l => l.trim()).filter(l => l && l !== 'Message' && !l.startsWith('Connected'));
         fullName = lines[0] || '';
       }}
-
       if (!fullName || fullName.length < 2 || fullName.length > 80) return;
 
-      // Extract occupation
       let occupation = '';
-      const occEl = card.querySelector('[class*="occupation"]')
-                 || card.querySelector('[class*="subline"]');
-      if (occEl) {{
-        occupation = occEl.innerText.trim();
-      }} else {{
+      const occEl = card.querySelector('[class*="occupation"]') || card.querySelector('[class*="subline"]');
+      if (occEl) {{ occupation = occEl.innerText.trim(); }}
+      else {{
         const lines = cardText.split('\\n').map(l => l.trim()).filter(l => l && l !== fullName && l !== 'Message' && !l.startsWith('Connected'));
         occupation = lines[0] || '';
       }}
 
-      // Extract avatar
       const imgEl = card.querySelector('img[src*="profile"], img[src*="licdn"]');
-      const avatarUrl = imgEl ? imgEl.src : '';
-
       seen.add(publicId);
       const parts = fullName.split(' ');
       connections.push({{
@@ -1480,46 +1463,29 @@ async def get_browser_script():
         occupation: occupation,
         profile_url: 'https://www.linkedin.com/in/' + publicId,
         public_id: publicId,
-        avatar_url: avatarUrl,
+        avatar_url: imgEl ? imgEl.src : '',
         urn: 'urn:li:fsd_profile:' + publicId,
       }});
     }} catch(e) {{}}
   }});
 
-  console.log('Found ' + connections.length + ' connections on this page');
-
   if (connections.length === 0) {{
-    alert('No connections found! Make sure you are on the LinkedIn Connections page and have scrolled down to load some connections.');
+    alert('No connections found! Make sure you are on the LinkedIn Connections page and have scrolled down.');
     return;
   }}
 
-  // Send in batches of 100
-  let totalStored = 0;
-  for (let i = 0; i < connections.length; i += 100) {{
-    const batch = connections.slice(i, i + 100);
-    try {{
-      const resp = await fetch(API, {{
-        method: 'POST',
-        headers: {{'Content-Type': 'application/json'}},
-        body: JSON.stringify({{ connections: batch }})
-      }});
-      const data = await resp.json();
-      totalStored += data.stored || 0;
-      console.log('Batch ' + Math.ceil((i+1)/100) + ': stored ' + data.stored);
-    }} catch(e) {{
-      console.error('Batch failed:', e);
-    }}
-  }}
-  
-  alert('Done! Synced ' + totalStored + ' connections (found ' + connections.length + ' on page). Scroll down for more and run again!');
+  const jsonStr = JSON.stringify(connections);
+  await navigator.clipboard.writeText(jsonStr);
+  alert('Copied ' + connections.length + ' connections to clipboard!\\n\\nNow go to Lead Finder → Messaging tab → click "Paste Connections" and paste (Ctrl+V).');
+  console.log('Copied ' + connections.length + ' connections to clipboard.');
 }})();
 """
     return {"script": script.strip(), "instructions": [
-        "1. Open LinkedIn → My Network → Connections (you should already be there)",
-        "2. Scroll down slowly to load more connections (each scroll loads ~10 more)",
-        "3. When you've loaded enough, press F12 → Console tab",
-        "4. Paste the script and press Enter",
-        "5. You'll see an alert with how many were synced",
-        "6. Scroll more + run again to sync additional connections",
-        "7. Come back to Lead Finder → Messaging tab to see them"
+        "1. You should be on LinkedIn Connections page",
+        "2. Scroll down to load the connections you want to sync",
+        "3. Press F12 → Console → type 'allow pasting' → Enter",
+        "4. Paste the script above and press Enter",
+        "5. You'll see: 'Copied X connections to clipboard!'",
+        "6. Go to Lead Finder → Messaging → click 'Paste Connections'",
+        "7. Press Ctrl+V to paste, then click 'Import'"
     ]}

@@ -70,6 +70,8 @@ const LinkedInSearch = () => {
   const [msgPurpose, setMsgPurpose] = useState("introduce services");
   const [syncScript, setSyncScript] = useState(null);
   const [showSyncScript, setShowSyncScript] = useState(false);
+  const [pasteData, setPasteData] = useState("");
+  const [importing, setImporting] = useState(false);
   const [msgCompany, setMsgCompany] = useState("fundle");
   const [generatingMsg, setGeneratingMsg] = useState(false);
   const [sendingMsg, setSendingMsg] = useState(false);
@@ -305,6 +307,25 @@ const LinkedInSearch = () => {
     if (newPage < 0) return;
     setConnPage(newPage);
     fetchConnections(newPage, connSearch);
+  };
+
+  const handleImportPaste = async () => {
+    if (!pasteData.trim()) return;
+    setImporting(true);
+    try {
+      const connections = JSON.parse(pasteData);
+      if (!Array.isArray(connections)) throw new Error("Not an array");
+      const res = await axios.post(`${API}/li-search/connections/push`, { connections });
+      alert(`Imported ${res.data.stored} connections! Total: ${res.data.total}`);
+      setPasteData("");
+      fetchConnections(0, "");
+    } catch (err) {
+      if (err.message === "Not an array" || err instanceof SyntaxError) {
+        alert("Invalid data. Make sure you copied the data from the LinkedIn console script.");
+      } else {
+        alert(err.response?.data?.detail || "Import failed");
+      }
+    } finally { setImporting(false); }
   };
 
   return (
@@ -618,6 +639,22 @@ const LinkedInSearch = () => {
                 </div>
               </div>
             )}
+
+            {/* Paste & Import */}
+            <div style={{ marginTop: 16 }}>
+              <label className="lisearch-hint" style={{ display: "block", marginBottom: 6, fontWeight: 500 }}>
+                Paste copied connections data below:
+              </label>
+              <textarea className="lisearch-textarea" placeholder='After running the script on LinkedIn, paste the copied data here (Ctrl+V)...'
+                value={pasteData} onChange={e => setPasteData(e.target.value)} rows={3}
+                data-testid="paste-connections-textarea" />
+              <button className="lisearch-btn lisearch-btn-accent" style={{ marginTop: 8 }}
+                onClick={handleImportPaste} disabled={importing || !pasteData.trim()}
+                data-testid="import-connections-btn">
+                {importing ? <Loader2 size={14} className="spin" /> : <Download size={14} />}
+                Import Connections
+              </button>
+            </div>
           </div>
 
           {/* Connections List */}
