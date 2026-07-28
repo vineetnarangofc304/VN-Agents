@@ -278,7 +278,6 @@ const LinkedInSearch = () => {
     setSendingMsg(true);
     setSendResult(null);
     try {
-      // Generate a browser script that sends messages on LinkedIn
       const recipients = selectedConns.map(c => ({
         name: c.full_name || `${c.first_name} ${c.last_name}`,
         profile_url: c.profile_url,
@@ -289,8 +288,20 @@ const LinkedInSearch = () => {
         message: messageText
       });
       const script = res.data.script;
-      // Copy script to clipboard
-      await navigator.clipboard.writeText(script);
+      // Try clipboard, but don't fail if it doesn't work
+      try {
+        await navigator.clipboard.writeText(script);
+      } catch (clipErr) {
+        // Fallback: use textarea trick
+        const ta = document.createElement("textarea");
+        ta.value = script;
+        ta.style.position = "fixed";
+        ta.style.left = "-9999px";
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand("copy");
+        document.body.removeChild(ta);
+      }
       setSendResult({
         sent: selectedConns.length,
         failed: 0,
@@ -298,7 +309,8 @@ const LinkedInSearch = () => {
         scriptText: script
       });
     } catch (err) {
-      setSendResult({ sent: 0, failed: selectedConns.length, error: err.response?.data?.detail || "Failed to generate script" });
+      const detail = err.response?.data?.detail || err.message || "Unknown error";
+      setSendResult({ sent: 0, failed: selectedConns.length, error: detail });
     } finally { setSendingMsg(false); }
   };
 
