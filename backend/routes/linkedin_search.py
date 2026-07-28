@@ -1336,97 +1336,118 @@ async def generate_message_script(data: dict):
     recipients_js = json.dumps(recipients)
 
     script = (
-        "// === LinkedIn Bulk Messenger ===\n"
-        "// Looks up each person by name, gets URN, sends message\n"
+        "// === LinkedIn Bulk Messenger v3 ===\n"
+        "// Uses profile lookup (not typeahead) to resolve URNs, then sends messages\n"
         "// Run on any linkedin.com page\n\n"
         "(async () => {\n"
         "  const recipients = " + recipients_js + ";\n"
         "  const message = " + message_js + ";\n"
-        "  let sent = 0, failed = 0;\n"
+        "  let sent = 0, failed = 0, skipped = 0;\n"
         "  const delay = ms => new Promise(r => setTimeout(r, ms));\n"
         "  const csrf = (document.cookie.match(/JSESSIONID=\"?([^;\"]+)/) || [])[1] || '';\n"
-        "  if (!csrf) { alert('Not logged in'); return; }\n"
+        "  if (!csrf) { alert('Not logged in to LinkedIn'); return; }\n"
         "  const H = {'csrf-token': csrf, 'x-restli-protocol-version': '2.0.0'};\n"
         "  const HP = {...H, 'content-type': 'application/json'};\n\n"
-        "  console.log('Starting bulk message for ' + recipients.length + ' recipients...');\n\n"
+        "  console.log('=== Bulk Messenger: ' + recipients.length + ' recipients ===');\n\n"
         "  for (let i = 0; i < recipients.length; i++) {\n"
         "    const rec = recipients[i];\n"
-        "    const name = rec.name.trim();\n"
         "    console.log('(' + (i+1) + '/' + recipients.length + ') ' + rec.name);\n\n"
         "    let urn = rec.entity_urn || '';\n\n"
-        "    // Look up URN via typeahead (messaging recipient search)\n"
-        "    if (!urn) {\n"
+        "    // Step 1: If no URN, look up via direct profile API (stable endpoint)\n"
+        "    if (!urn && rec.public_id) {\n"
         "      try {\n"
-        "        const searchResp = await fetch(\n"
-        "          'https://www.linkedin.com/voyager/api/voyagerSearchDashReusableTypeahead?q=type&type=MESSAGING_COMPOSE&query=' + encodeURIComponent(name),\n"
+        "        const pResp = await fetch(\n"
+        "          'https://www.linkedin.com/voyager/api/identity/profiles/' + encodeURIComponent(rec.public_id) + '/profileView',\n"
         "          {headers: H}\n"
         "        );\n"
-        "        if (searchResp.ok) {\n"
-        "          const sd = await searchResp.json();\n"
-        "          for (const item of (sd.included || [])) {\n"
+        "        if (pResp.ok) {\n"
+        "          const pd = await pResp.json();\n"
+        "          for (const item of (pd.included || [])) {\n"
         "            if (item.entityUrn && item.entityUrn.includes('fsd_profile')) {\n"
-        "              // Match by publicIdentifier if possible\n"
-        "              if (rec.public_id && item.publicIdentifier === rec.public_id) {\n"
-        "                urn = item.entityUrn; break;\n"
-        "              }\n"
-        "              // Or match by name\n"
-        "              const fn = (item.firstName || '').toLowerCase();\n"
-        "              const ln = (item.lastName || '').toLowerCase();\n"
-        "              const rn = name.toLowerCase();\n"
-        "              if (rn.includes(fn) && rn.includes(ln)) {\n"
-        "                urn = item.entityUrn; break;\n"
-        "              }\n"
+        "              urn = item.entityUrn; break;\n"
         "            }\n"
         "          }\n"
-        "        } else { console.log('  Typeahead: ' + searchResp.status); }\n"
-        "      } catch(e) { console.log('  Typeahead error: ' + e.message); }\n"
+        "          if (!urn) {\n"
+        "            const mp = pd.profile || {};\n"
+        "            if (mp.entityUrn) urn = mp.entityUrn;\n"
+        "            else if (mp.miniProfile?.entityUrn) urn = mp.miniProfile.entityUrn;\n"
+        "          }\n"
+        "          if (urn) console.log('  URN from profile: ' + urn);\n"
+        "        } else {\n"
+        "          console.log('  Profile lookup: HTTP ' + pResp.status);\n"
+        "        }\n"
+        "      } catch(e) { console.log('  Profile lookup error: ' + e.message); }\n"
         "    }\n\n"
-        "    // Fallback: general people search\n"
-        "    if (!urn) {\n"
+        "    // Step 2: Fallback — try dash/profiles endpoint\n"
+        "    if (!urn && rec.public_id) {\n"
         "      try {\n"
-        "        const sr = await fetch(\n"
-        "          'https://www.linkedin.com/voyager/api/search/dash/clusters?q=all&keywords=' + encodeURIComponent(name) + '&filters=List(network->F,resultType->PEOPLE)&origin=FACETED_SEARCH&count=5',\n"
+        "        const dResp = await fetch(\n"
+        "          'https://www.linkedin.com/voyager/api/identity/dash/profiles?q=memberIdentity&memberIdentity=' + encodeURIComponent(rec.public_id),\n"
         "          {headers: H}\n"
         "        );\n"
-        "        if (sr.ok) {\n"
-        "          const sd = await sr.json();\n"
-        "          for (const item of (sd.included || [])) {\n"
-        "            if (item.entityUrn && item.entityUrn.includes('fsd_profile')) {\n"
-        "              if (rec.public_id && item.publicIdentifier === rec.public_id) { urn = item.entityUrn; break; }\n"
-        "              const fn = (item.firstName || '').toLowerCase();\n"
-        "              const ln = (item.lastName || '').toLowerCase();\n"
-        "              const rn = name.toLowerCase();\n"
-        "              if (rn.includes(fn) && fn.length > 1) { urn = item.entityUrn; break; }\n"
+        "        if (dResp.ok) {\n"
+        "          const dd = await dResp.json();\n"
+        "          const elems = dd.data?.elements || dd.elements || [];\n"
+        "          for (const el of elems) {\n"
+        "            if (el.entityUrn?.includes('fsd_profile')) { urn = el.entityUrn; break; }\n"
+        "          }\n"
+        "          if (!urn) {\n"
+        "            for (const item of (dd.included || [])) {\n"
+        "              if (item.entityUrn?.includes('fsd_profile')) { urn = item.entityUrn; break; }\n"
         "            }\n"
         "          }\n"
+        "          if (urn) console.log('  URN from dash: ' + urn);\n"
         "        }\n"
         "      } catch(e) {}\n"
         "    }\n\n"
-        "    if (!urn) { failed++; console.log('  No URN found — skipped'); await delay(1000); continue; }\n"
-        "    console.log('  URN: ' + urn);\n\n"
-        "    // Send message\n"
+        "    if (!urn) {\n"
+        "      skipped++;\n"
+        "      console.log('  SKIP — no URN found for ' + (rec.public_id || rec.name));\n"
+        "      await delay(500);\n"
+        "      continue;\n"
+        "    }\n\n"
+        "    // Step 3: Send message (try new endpoint first, then old)\n"
         "    try {\n"
         "      let ok = false;\n"
-        "      // Method 1: New messaging endpoint\n"
+        "      // Method A: New Voyager messaging\n"
         "      let resp = await fetch('https://www.linkedin.com/voyager/api/voyagerMessagingDashMessengerMessages?action=createMessage', {\n"
         "        method: 'POST', headers: HP,\n"
-        "        body: JSON.stringify({message:{body:{text:message,attributes:[]},renderContentUnions:[]},recipients:[urn],dedupeByClientGeneratedToken:false})\n"
+        "        body: JSON.stringify({\n"
+        "          message: {body: {text: message, attributes: []}, renderContentUnions: []},\n"
+        "          recipients: [urn],\n"
+        "          dedupeByClientGeneratedToken: false\n"
+        "        })\n"
         "      });\n"
-        "      if (resp.ok || resp.status === 201) ok = true;\n\n"
-        "      // Method 2: Old messaging endpoint\n"
+        "      if (resp.ok || resp.status === 201) { ok = true; }\n"
+        "      else { console.log('  Method A: ' + resp.status); }\n\n"
+        "      // Method B: Classic messaging endpoint\n"
         "      if (!ok) {\n"
         "        resp = await fetch('https://www.linkedin.com/voyager/api/messaging/conversations?action=create', {\n"
         "          method: 'POST', headers: HP,\n"
-        "          body: JSON.stringify({conversationCreate:{eventCreate:{value:{'com.linkedin.voyager.messaging.create.MessageCreate':{attributedBody:{text:message,attributes:[]},attachments:[]}}},recipients:[urn],subtype:'MEMBER_TO_MEMBER'}})\n"
+        "          body: JSON.stringify({\n"
+        "            conversationCreate: {\n"
+        "              eventCreate: {value: {'com.linkedin.voyager.messaging.create.MessageCreate': {\n"
+        "                attributedBody: {text: message, attributes: []}, attachments: []\n"
+        "              }}},\n"
+        "              recipients: [urn], subtype: 'MEMBER_TO_MEMBER'\n"
+        "            }\n"
+        "          })\n"
         "        });\n"
-        "        if (resp.ok || resp.status === 201) ok = true;\n"
+        "        if (resp.ok || resp.status === 201) { ok = true; }\n"
+        "        else { console.log('  Method B: ' + resp.status); }\n"
         "      }\n\n"
-        "      if (ok) { sent++; console.log('  Sent!'); }\n"
-        "      else { const e = await resp.text(); failed++; console.log('  Send failed(' + resp.status + '): ' + e.substring(0,120)); }\n"
+        "      if (ok) { sent++; console.log('  SENT'); }\n"
+        "      else {\n"
+        "        failed++;\n"
+        "        try { const et = await resp.text(); console.log('  FAIL: ' + et.substring(0,150)); } catch(e) {}\n"
+        "      }\n"
         "    } catch(e) { failed++; console.error('  Error: ' + e.message); }\n\n"
+        "    // Rate limiting: 3-6s random delay between messages\n"
         "    await delay(3000 + Math.random() * 3000);\n"
         "  }\n\n"
-        "  alert('Done! Sent: ' + sent + ', Failed: ' + failed);\n"
+        "  const summary = 'Done! Sent: ' + sent + ', Failed: ' + failed + ', Skipped: ' + skipped;\n"
+        "  console.log('=== ' + summary + ' ===');\n"
+        "  alert(summary);\n"
         "})();\n"
     )
 
@@ -1504,10 +1525,11 @@ async def get_connections(
 
 @router.get("/browser-script")
 async def get_browser_script():
-    """Return the browser console script for syncing connections."""
+    """Return the browser console script for syncing connections.
+    Uses LinkedIn's Connections API directly (runs in user's browser with their session)
+    to fetch connections with entity_urns — no typeahead/search needed."""
     api_base = os.environ.get("REACT_APP_BACKEND_URL", "") or os.environ.get("BACKEND_PUBLIC_URL", "")
     if not api_base:
-        # Read from frontend .env as fallback
         try:
             from pathlib import Path
             frontend_env = Path(__file__).parent.parent.parent / "frontend" / ".env"
@@ -1522,20 +1544,82 @@ async def get_browser_script():
         api_base = "https://automation-platform-10.preview.emergentagent.com"
 
     script = f"""
-// === LinkedIn Connection Sync v7 ===
-// Uses messaging typeahead API to get URNs for DOM-scraped connections
-// Run on LinkedIn Connections page
+// === LinkedIn Connection Sync v8 ===
+// Fetches connections directly from LinkedIn's Connections API
+// Run on any linkedin.com page (you must be logged in)
 
 (async () => {{
   const delay = ms => new Promise(r => setTimeout(r, ms));
   const csrf = (document.cookie.match(/JSESSIONID="?([^;"]+)/) || [])[1] || '';
   if (!csrf) {{ alert('Not logged into LinkedIn'); return; }}
+  const H = {{'csrf-token': csrf, 'x-restli-protocol-version': '2.0.0'}};
 
-  // Step 1: Scrape visible connections from DOM
-  console.log('Step 1: Scraping connections from page...');
+  console.log('Fetching connections via API...');
+  const allConns = [];
+  let start = 0;
+  const batchSize = 40;
+  let totalAvailable = Infinity;
+
+  // Paginate through connections API
+  while (start < totalAvailable && start < 2500) {{
+    try {{
+      const url = 'https://www.linkedin.com/voyager/api/relationships/dash/connections'
+        + '?decorationId=com.linkedin.voyager.dash.deco.web.mynetwork.ConnectionListWithProfile-16'
+        + '&count=' + batchSize + '&q=search&sortType=RECENTLY_ADDED&start=' + start;
+      const resp = await fetch(url, {{headers: H}});
+      if (!resp.ok) {{
+        console.log('API returned ' + resp.status + ' at start=' + start);
+        // If decoration fails, try simpler decoration
+        if (start === 0) {{
+          console.log('Trying alternate decoration...');
+          const url2 = 'https://www.linkedin.com/voyager/api/relationships/dash/connections'
+            + '?decorationId=com.linkedin.voyager.dash.deco.web.mynetwork.ConnectionListWithProfile-15'
+            + '&count=' + batchSize + '&q=search&sortType=RECENTLY_ADDED&start=0';
+          const resp2 = await fetch(url2, {{headers: H}});
+          if (!resp2.ok) {{
+            console.log('Alt decoration also failed: ' + resp2.status + '. Falling back to DOM scrape...');
+            break;
+          }}
+          const d2 = await resp2.json();
+          totalAvailable = d2.data?.paging?.total || d2.paging?.total || 0;
+          _processApiResponse(d2, allConns);
+          start += batchSize;
+          await delay(800);
+          continue;
+        }}
+        break;
+      }}
+      const data = await resp.json();
+      if (start === 0) {{
+        totalAvailable = data.data?.paging?.total || data.paging?.total || 0;
+        console.log('Total connections: ' + totalAvailable);
+      }}
+      const before = allConns.length;
+      _processApiResponse(data, allConns);
+      const added = allConns.length - before;
+      console.log('Batch ' + (Math.floor(start/batchSize)+1) + ': +' + added + ' connections (total: ' + allConns.length + ')');
+      if (added === 0) break;
+      start += batchSize;
+      await delay(800);
+    }} catch(e) {{
+      console.log('Error at start=' + start + ': ' + e.message);
+      break;
+    }}
+  }}
+
+  // If API approach got results, use them
+  if (allConns.length > 0) {{
+    const withUrn = allConns.filter(c => c.entity_urn).length;
+    const preview = allConns.slice(0,3).map(c => c.full_name).join(', ');
+    copy(JSON.stringify(allConns));
+    alert('Copied ' + allConns.length + ' connections (' + withUrn + ' with URN)!\\nPreview: ' + preview + '...\\nPaste in Lead Finder → Import.');
+    return;
+  }}
+
+  // Fallback: DOM scrape if API failed
+  console.log('Falling back to DOM scrape...');
   const connections = [];
   const seen = new Set();
-  
   document.querySelectorAll('a[href*="/in/"]').forEach(link => {{
     try {{
       const href = link.href.split('?')[0].replace(/\\/$/, '');
@@ -1545,7 +1629,7 @@ async def get_browser_script():
       for (let i = 0; i < 6; i++) {{
         if (!card.parentElement) break;
         card = card.parentElement;
-        if ((card.innerText || '').includes('Message') || (card.innerText || '').includes('Connected')) break;
+        if ((card.innerText||'').includes('Message') || (card.innerText||'').includes('Connected')) break;
       }}
       const cardText = card.innerText || '';
       if (!cardText.includes('Connected') && !cardText.includes('Message')) return;
@@ -1560,47 +1644,74 @@ async def get_browser_script():
       if (!fullName || fullName.length < 2) return;
       seen.add(publicId);
       const parts = fullName.split(' ');
-      connections.push({{ full_name: fullName, first_name: parts[0]||'', last_name: parts.slice(1).join(' ')||'', occupation, profile_url: 'https://www.linkedin.com/in/' + publicId, public_id: publicId, entity_urn: '', avatar_url: '' }});
+      connections.push({{ full_name: fullName, first_name: parts[0]||'', last_name: parts.slice(1).join(' ')||'', occupation, profile_url: 'https://www.linkedin.com/in/'+publicId, public_id: publicId, entity_urn: '', avatar_url: '' }});
     }} catch(e) {{}}
   }});
-  console.log('Found ' + connections.length + ' connections in DOM');
 
-  // Step 2: Look up URNs via typeahead for each connection
-  console.log('Step 2: Looking up URNs...');
+  // For DOM-scraped connections, get URNs via profile lookup
+  console.log('Looking up URNs for ' + connections.length + ' connections...');
   let urnCount = 0;
   for (let i = 0; i < connections.length; i++) {{
     const c = connections[i];
     try {{
-      const r = await fetch('https://www.linkedin.com/voyager/api/voyagerSearchDashReusableTypeahead?q=type&type=MESSAGING_COMPOSE&query=' + encodeURIComponent(c.first_name + ' ' + c.last_name), {{
-        headers: {{'csrf-token': csrf, 'x-restli-protocol-version': '2.0.0'}}
-      }});
+      const r = await fetch('https://www.linkedin.com/voyager/api/identity/profiles/' + encodeURIComponent(c.public_id) + '/profileView', {{headers: H}});
       if (r.ok) {{
         const d = await r.json();
         for (const item of (d.included || [])) {{
-          if (item.entityUrn && item.entityUrn.includes('fsd_profile') && item.publicIdentifier === c.public_id) {{
-            c.entity_urn = item.entityUrn;
-            urnCount++;
-            break;
+          if (item.entityUrn && item.entityUrn.includes('fsd_profile')) {{
+            c.entity_urn = item.entityUrn; urnCount++; break;
           }}
         }}
       }}
     }} catch(e) {{}}
-    if (i % 5 === 4) await delay(500);
+    if (i % 3 === 2) await delay(600);
   }}
   console.log('Got URNs for ' + urnCount + '/' + connections.length);
 
-  if (connections.length === 0) {{ alert('No connections found. Scroll down to load more.'); return; }}
+  if (connections.length === 0) {{ alert('No connections found. Make sure you are on LinkedIn.'); return; }}
   const preview = connections.slice(0,3).map(c => c.full_name).join(', ');
   copy(JSON.stringify(connections));
   alert('Copied ' + connections.length + ' connections (' + urnCount + ' with URN)!\\nPreview: ' + preview + '...\\nPaste in Lead Finder → Import.');
+
+  function _processApiResponse(data, arr) {{
+    const included = data.included || [];
+    const profiles = {{}};
+    for (const item of included) {{
+      const recipe = item['$recipeType'] || '';
+      const urn = item.entityUrn || '';
+      if (recipe.includes('MiniProfile') || recipe.includes('FullProfile') || (item.firstName && urn.includes('fsd_profile'))) {{
+        profiles[urn] = {{
+          full_name: ((item.firstName||'') + ' ' + (item.lastName||'')).trim(),
+          first_name: item.firstName || '',
+          last_name: item.lastName || '',
+          occupation: item.occupation || '',
+          public_id: item.publicIdentifier || '',
+          profile_url: 'https://www.linkedin.com/in/' + (item.publicIdentifier || ''),
+          entity_urn: urn,
+          avatar_url: ''
+        }};
+        const pic = item.picture;
+        if (pic) {{
+          const vi = pic['com.linkedin.common.VectorImage'];
+          if (vi && vi.artifacts && vi.artifacts.length > 0) {{
+            profiles[urn].avatar_url = (vi.rootUrl || '') + vi.artifacts[0].fileIdentifyingUrlPathSegment;
+          }}
+        }}
+      }}
+    }}
+    for (const p of Object.values(profiles)) {{
+      if (p.full_name && !arr.find(x => x.public_id === p.public_id)) {{
+        arr.push(p);
+      }}
+    }}
+  }}
 }})();
 """
     return {"script": script.strip(), "instructions": [
-        "1. You should be on LinkedIn Connections page",
-        "2. Scroll down to load the connections you want to sync",
-        "3. Press F12 → Console → type 'allow pasting' → Enter",
-        "4. Paste the script above and press Enter",
-        "5. You'll see: 'Copied X connections to clipboard!'",
-        "6. Go to Lead Finder → Messaging → click 'Paste Connections'",
-        "7. Press Ctrl+V to paste, then click 'Import'"
+        "1. Open LinkedIn in your browser (any page — you just need to be logged in)",
+        "2. Press F12 → Console → type 'allow pasting' → Enter",
+        "3. Paste the script and press Enter",
+        "4. Wait while it fetches your connections (you'll see progress in console)",
+        "5. When the alert says 'Copied X connections' — the data is on your clipboard",
+        "6. Come back here → Messaging tab → paste into the import box → click Import"
     ]}

@@ -44,8 +44,8 @@ Build a multi-agent platform serving 9 completely independent agents, each acces
 ## Prioritized Backlog
 
 ### P0 (Needs User Action)
+- **Verify Bulk Messaging Script** — Updated sync script (v8) and messaging script (v3) to use stable profile lookup APIs instead of broken typeahead/blended search. User needs to re-sync connections and test bulk send from LinkedIn browser console. (Jul 2026)
 - Connect Vineet's LinkedIn via Content Studio OAuth
-- Provide `li_at` cookie for LinkedIn Lead Finder
 - Verify production deployment
 
 ### P1 (Content Studio Phase 2)
