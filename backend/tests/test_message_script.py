@@ -86,8 +86,8 @@ class TestMessageScript:
         assert "`" + msg not in script
 
 
-class TestVoyagerAPIScript:
-    """Verify the script uses Voyager API and NOT window.location."""
+class TestDOMComposeScript:
+    """Verify the script uses LinkedIn's DOM compose overlay (not Voyager API)."""
 
     def _get_script(self, client):
         r = client.post(SCRIPT_URL, json={
@@ -100,28 +100,30 @@ class TestVoyagerAPIScript:
         assert r.status_code == 200, r.text
         return r.json()["script"]
 
-    def test_uses_voyager_messaging_endpoint(self, client):
+    def test_no_voyager_messaging_endpoint(self, client):
         script = self._get_script(client)
-        assert "voyager/api/messaging/conversations?action=create" in script
+        assert "voyager/api/messaging" not in script
 
-    def test_uses_identity_profiles_endpoint(self, client):
+    def test_no_identity_profiles_endpoint(self, client):
         script = self._get_script(client)
-        assert "voyager/api/identity/profiles/" in script
+        assert "identity/profiles" not in script
 
-    def test_extracts_csrf_from_jsessionid_cookie(self, client):
+    def test_uses_typeahead(self, client):
         script = self._get_script(client)
-        assert "JSESSIONID" in script
-        assert "document.cookie" in script
-        assert "csrf-token" in script
+        assert "typeahead" in script.lower()
+
+    def test_uses_contenteditable(self, client):
+        script = self._get_script(client)
+        assert "contenteditable" in script
+
+    def test_uses_msg_form_send(self, client):
+        script = self._get_script(client)
+        assert "msg-form__send" in script
 
     def test_no_window_location(self, client):
         script = self._get_script(client)
         assert "window.location.href" not in script
         assert "window.location" not in script
-
-    def test_uses_fetch(self, client):
-        script = self._get_script(client)
-        assert "fetch(" in script or "fetch (" in script
 
     def test_multiline_special_chars(self, client):
         import json as _json

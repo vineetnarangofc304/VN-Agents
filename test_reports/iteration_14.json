@@ -1,0 +1,31 @@
+{
+  "summary": "Backend-only verification of the rewritten POST /api/li-search/message/script that now generates a DOM-based LinkedIn messaging-overlay auto-send script (no Voyager API, no page navigation). Updated /app/backend/tests/test_message_script.py: replaced obsolete TestVoyagerAPIScript with TestDOMComposeScript covering the 7 requested assertions. Ran pytest: 15/15 passed (0.89s).",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "POST /api/li-search/message/script", "issue": "Recipient identification uses only the first two space-delimited words of `name` for typeahead; recipients with same first+last name may match the wrong person. Consider preferring public_id or full name."},
+      {"endpoint": "POST /api/li-search/message/script", "issue": "No server-side limits on message length or recipients array size (DoS surface, though endpoint is internal)."},
+      {"endpoint": "POST /api/li-search/message/script", "issue": "profile_url / public_id fields are embedded into the script but never actually used by the DOM automation flow — dead data in the generated JS."}
+    ]
+  },
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_message_script.py",
+    "/app/test_reports/pytest/message_script_v14.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "Script correctly avoids voyager/api/messaging and identity/profiles (which returns 410 Gone) — good pivot to DOM.",
+    "Uses json.dumps for both message and recipients — safe against backticks/${}/newlines/quotes.",
+    "innerHTML assignment on the msg contenteditable box uses `message.replace(/\\n/g, '</p><p>')` — since `message` is a JS string variable (not user-supplied HTML), XSS surface is limited, but note that any '<' in the user's message will be interpreted as HTML in the compose box. Consider escaping < & > before wrapping in <p>.",
+    "Only the first two words of the recipient name are typed into typeahead (`name.split(' ')[0] + ' ' + (name.split(' ')[1] || '')`); can misfire for common names — recommend typing full name or falling back to public_id search.",
+    "No retry / verification that the suggestion actually corresponds to the intended recipient (public_id is available but unused)."
+  ],
+  "updated_files": ["/app/backend/tests/test_message_script.py"],
+  "success_rate": {"backend": "100% (15/15)", "frontend": "n/a (backend-only per request)"},
+  "test_credentials": "Agent@2024! (not used — backend-only run).",
+  "seed_data_creation": "None.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "test_message_script.py now has TestDOMComposeScript instead of TestVoyagerAPIScript. Assertions verify: no voyager/api/messaging, no identity/profiles, presence of 'typeahead', 'contenteditable', 'msg-form__send', absence of window.location, and json-escaped multiline/special chars. Generator lives at /app/backend/routes/linkedin_search.py lines 1327-1431. Regression checks: /api/health healthy, /api/li-search/posts >=20."
+}
