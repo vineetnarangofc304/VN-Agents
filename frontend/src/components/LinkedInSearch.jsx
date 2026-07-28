@@ -697,7 +697,7 @@ const LinkedInSearch = () => {
                   {connections.map(conn => {
                     const isSelected = selectedConns.find(c => c.public_id === conn.public_id);
                     return (
-                      <div key={conn.urn}
+                      <div key={conn.public_id}
                         className={`lisearch-conn-card ${isSelected ? "lisearch-conn-selected" : ""}`}
                         onClick={() => toggleConnSelection(conn)}
                         data-testid={`conn-${conn.public_id}`}>
@@ -747,7 +747,7 @@ const LinkedInSearch = () => {
               <div className="lisearch-selected-preview">
                 <span>Sending to: </span>
                 {selectedConns.slice(0, 5).map(c => (
-                  <span key={c.urn} className="lisearch-keyword-tag">
+                  <span key={c.public_id} className="lisearch-keyword-tag">
                     {c.first_name} {c.last_name}
                     <button onClick={() => toggleConnSelection(c)} className="lisearch-keyword-remove">&times;</button>
                   </span>
