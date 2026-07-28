@@ -1324,6 +1324,107 @@ async def get_message_log(skip: int = 0, limit: int = 50):
     return {"messages": messages, "total": total}
 
 
+@router.post("/message/script")
+async def generate_message_script(data: dict):
+    """Generate a browser console script that sends messages on LinkedIn."""
+    recipients = data.get("recipients", [])
+    message = data.get("message", "")
+    if not recipients or not message:
+        raise HTTPException(status_code=400, detail="Recipients and message required")
+
+    # Escape message for JS
+    escaped_msg = message.replace("\\", "\\\\").replace("`", "\\`").replace("${", "\\${")
+
+    recipients_js = json.dumps(recipients)
+
+    script = f"""
+// === LinkedIn Auto-Message Script ===
+// This will send your message to each connection
+// Run this on any linkedin.com page
+
+(async () => {{
+  const recipients = {recipients_js};
+  const message = `{escaped_msg}`;
+  let sent = 0, failed = 0;
+
+  for (let i = 0; i < recipients.length; i++) {{
+    const r = recipients[i];
+    console.log('Messaging ' + (i+1) + '/' + recipients.length + ': ' + r.name);
+
+    try {{
+      // Navigate to new message thread with this person
+      const msgUrl = 'https://www.linkedin.com/messaging/thread/new/?recipient=' + encodeURIComponent(r.profile_url);
+      window.location.href = msgUrl;
+
+      // Wait for page load
+      await new Promise(resolve => setTimeout(resolve, 4000));
+
+      // Try to find the message input
+      let msgBox = document.querySelector('div.msg-form__contenteditable[contenteditable="true"]')
+                || document.querySelector('[role="textbox"]')
+                || document.querySelector('.msg-form__msg-content-container div[contenteditable]');
+
+      if (!msgBox) {{
+        // Fallback: try the compose overlay
+        await new Promise(resolve => setTimeout(resolve, 2000));
+        msgBox = document.querySelector('div[contenteditable="true"][role="textbox"]')
+              || document.querySelector('.msg-form__contenteditable');
+      }}
+
+      if (msgBox) {{
+        // Focus and type
+        msgBox.focus();
+        msgBox.innerHTML = '<p>' + message.replace(/\\n/g, '</p><p>') + '</p>';
+        msgBox.dispatchEvent(new Event('input', {{ bubbles: true }}));
+        await new Promise(resolve => setTimeout(resolve, 1000));
+
+        // Find and click send button
+        const sendBtn = document.querySelector('button.msg-form__send-button')
+                     || document.querySelector('button[type="submit"].msg-form__send-btn')
+                     || document.querySelector('button.msg-form__send-btn');
+        
+        if (sendBtn && !sendBtn.disabled) {{
+          sendBtn.click();
+          sent++;
+          console.log('  Sent to ' + r.name);
+        }} else {{
+          // Try alternative send
+          const allBtns = document.querySelectorAll('button');
+          let clicked = false;
+          allBtns.forEach(btn => {{
+            if (btn.innerText.trim() === 'Send' && !clicked) {{
+              btn.click();
+              clicked = true;
+              sent++;
+              console.log('  Sent to ' + r.name + ' (alt)');
+            }}
+          }});
+          if (!clicked) {{
+            failed++;
+            console.log('  Send button not found for ' + r.name);
+          }}
+        }}
+      }} else {{
+        failed++;
+        console.log('  Message box not found for ' + r.name);
+      }}
+
+      // Rate limit: wait 5-8 seconds between messages
+      const wait = 5000 + Math.random() * 3000;
+      await new Promise(resolve => setTimeout(resolve, wait));
+
+    }} catch(e) {{
+      failed++;
+      console.error('  Error for ' + r.name + ': ' + e.message);
+    }}
+  }}
+
+  alert('Done! Sent: ' + sent + ', Failed: ' + failed);
+}})();
+"""
+    return {"script": script.strip(), "recipients_count": len(recipients)}
+
+
 # ==================== BROWSER PUSH ENDPOINTS ====================
 
 @router.post("/connections/push")

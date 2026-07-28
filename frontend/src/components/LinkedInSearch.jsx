@@ -275,25 +275,31 @@ const LinkedInSearch = () => {
 
   const handleSendMessages = async () => {
     if (!messageText.trim() || selectedConns.length === 0) return;
-    // Copy message to clipboard and open LinkedIn profiles
+    setSendingMsg(true);
+    setSendResult(null);
     try {
-      await navigator.clipboard.writeText(messageText);
-      setSendResult({ sent: selectedConns.length, failed: 0, copied: true });
-      // Open first connection's LinkedIn profile for messaging
-      const first = selectedConns[0];
-      if (first.profile_url) {
-        window.open(first.profile_url, "_blank");
-      }
+      // Generate a browser script that sends messages on LinkedIn
+      const recipients = selectedConns.map(c => ({
+        name: c.full_name || `${c.first_name} ${c.last_name}`,
+        profile_url: c.profile_url,
+        public_id: c.public_id
+      }));
+      const res = await axios.post(`${API}/li-search/message/script`, {
+        recipients,
+        message: messageText
+      });
+      const script = res.data.script;
+      // Copy script to clipboard
+      await navigator.clipboard.writeText(script);
+      setSendResult({
+        sent: selectedConns.length,
+        failed: 0,
+        script: true,
+        scriptText: script
+      });
     } catch (err) {
-      // Fallback copy
-      const textarea = document.createElement("textarea");
-      textarea.value = messageText;
-      document.body.appendChild(textarea);
-      textarea.select();
-      document.execCommand("copy");
-      document.body.removeChild(textarea);
-      setSendResult({ sent: selectedConns.length, failed: 0, copied: true });
-    }
+      setSendResult({ sent: 0, failed: selectedConns.length, error: err.response?.data?.detail || "Failed to generate script" });
+    } finally { setSendingMsg(false); }
   };
 
   const handleConnSearch = () => {
@@ -792,30 +798,39 @@ const LinkedInSearch = () => {
 
             <div className="lisearch-input-row" style={{ marginTop: 12 }}>
               <button className="lisearch-btn lisearch-btn-accent" onClick={handleSendMessages}
-                disabled={!messageText.trim() || selectedConns.length === 0}
+                disabled={sendingMsg || !messageText.trim() || selectedConns.length === 0}
                 data-testid="send-messages-btn">
-                <Copy size={16} />
-                Copy Message & Open LinkedIn
+                {sendingMsg ? <Loader2 size={16} className="spin" /> : <Send size={16} />}
+                Send to {selectedConns.length} Connection{selectedConns.length !== 1 ? "s" : ""} via LinkedIn
               </button>
             </div>
 
-            {sendResult && (
-              <div className="lisearch-msg lisearch-msg-success" data-testid="send-result">
-                <CheckCircle size={14} />
-                Message copied to clipboard! Paste it in LinkedIn's message box. 
-                {selectedConns.length > 1 && ` (${selectedConns.length} profiles to message)`}
+            {sendResult?.script && (
+              <div style={{ marginTop: 12 }}>
+                <div className="lisearch-msg lisearch-msg-success" data-testid="send-result">
+                  <CheckCircle size={14} />
+                  Auto-send script copied to clipboard! Paste it in LinkedIn's console (F12 → Console → allow pasting → Ctrl+V → Enter)
+                </div>
+                <details style={{ marginTop: 8 }}>
+                  <summary className="lisearch-hint" style={{ cursor: "pointer", fontWeight: 500 }}>
+                    View/Copy Script
+                  </summary>
+                  <div style={{ position: "relative", marginTop: 8 }}>
+                    <textarea className="lisearch-textarea" readOnly value={sendResult.scriptText} rows={5}
+                      style={{ fontFamily: "monospace", fontSize: 11 }} />
+                    <button className="lisearch-btn lisearch-btn-outline lisearch-btn-sm"
+                      style={{ position: "absolute", top: 8, right: 8 }}
+                      onClick={() => { navigator.clipboard.writeText(sendResult.scriptText); }}>
+                      <Copy size={12} /> Copy
+                    </button>
+                  </div>
+                </details>
               </div>
             )}
 
-            {/* Quick Links to selected connections */}
-            {selectedConns.length > 1 && sendResult?.copied && (
-              <div style={{ marginTop: 8, display: "flex", flexWrap: "wrap", gap: 4 }}>
-                {selectedConns.map(c => (
-                  <a key={c.public_id} href={c.profile_url} target="_blank" rel="noreferrer"
-                    className="lisearch-btn lisearch-btn-outline lisearch-btn-sm">
-                    <ExternalLink size={12} /> {c.first_name}
-                  </a>
-                ))}
+            {sendResult?.error && (
+              <div className="lisearch-msg lisearch-msg-error" style={{ marginTop: 12 }}>
+                <XCircle size={14} /> {sendResult.error}
               </div>
             )}
           </div>
