@@ -86,6 +86,56 @@ class TestMessageScript:
         assert "`" + msg not in script
 
 
+class TestVoyagerAPIScript:
+    """Verify the script uses Voyager API and NOT window.location."""
+
+    def _get_script(self, client):
+        r = client.post(SCRIPT_URL, json={
+            "recipients": [
+                {"name": "Alice", "profile_url": "https://www.linkedin.com/in/alice/", "public_id": "alice"},
+                {"name": "Bob", "profile_url": "https://www.linkedin.com/in/bob/", "public_id": "bob"},
+            ],
+            "message": "Hello!"
+        })
+        assert r.status_code == 200, r.text
+        return r.json()["script"]
+
+    def test_uses_voyager_messaging_endpoint(self, client):
+        script = self._get_script(client)
+        assert "voyager/api/messaging/conversations?action=create" in script
+
+    def test_uses_identity_profiles_endpoint(self, client):
+        script = self._get_script(client)
+        assert "voyager/api/identity/profiles/" in script
+
+    def test_extracts_csrf_from_jsessionid_cookie(self, client):
+        script = self._get_script(client)
+        assert "JSESSIONID" in script
+        assert "document.cookie" in script
+        assert "csrf-token" in script
+
+    def test_no_window_location(self, client):
+        script = self._get_script(client)
+        assert "window.location.href" not in script
+        assert "window.location" not in script
+
+    def test_uses_fetch(self, client):
+        script = self._get_script(client)
+        assert "fetch(" in script or "fetch (" in script
+
+    def test_multiline_special_chars(self, client):
+        import json as _json
+        msg = "Line1\nLine2\n* bullet\n$100 & 50% `code`"
+        r = client.post(SCRIPT_URL, json={
+            "recipients": [{"name": "T", "profile_url": "u", "public_id": "t"}],
+            "message": msg
+        })
+        assert r.status_code == 200
+        script = r.json()["script"]
+        # message must be json-encoded (newlines escaped as \n)
+        assert _json.dumps(msg) in script
+
+
 class TestRegressions:
     def test_health(self, client):
         r = client.get(f"{BASE_URL}/api/health")

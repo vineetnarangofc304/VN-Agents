@@ -1,0 +1,39 @@
+{
+  "summary": "Verified new Voyager-API-based auto-send script (no window.location). Backend: 14/14 pytest tests passed including 6 new TestVoyagerAPIScript cases asserting voyager/api/messaging/conversations?action=create, voyager/api/identity/profiles/, JSESSIONID+csrf-token extraction, absence of window.location, fetch() usage, and json-escaped multi-line/special-char messages. Frontend e2e at /linkedin-search (Agent@2024!): opened Messaging tab, selected 2 connections (Aakash Shrivastava, Aamir Zaidi via data-testid conn-*), composed a multi-line message with newlines, $, %, &, clicked 'Send to 2 Connections via LinkedIn'. Clipboard (3127 chars) contained: voyager/api/messaging/conversations?action=create OK, voyager/api/identity/profiles/ OK, no window.location OK, JSESSIONID OK, csrf-token OK, fetch( OK, escaped \\n\\n OK, $100 & 50% OK. Success toast 'Auto-send script copied to clipboard! Paste it in LinkedIn's console (F12 → Console → allow pasting → Ctrl+V → Enter)' shown. Regressions: /api/health healthy, /api/li-search/posts returns 20 posts. Empty message → 400 verified.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "generate_message_script", "issue": "Line 1364: `memberUrn.replace('fs_miniProfile', 'fs_miniProfile')` is a no-op. Likely intended to convert miniProfile URN to messaging URN (e.g., replace 'fs_miniProfile' with 'fs_messagingParticipant' or build 'urn:li:fs_messagingMember:(<memberId>)'). Messaging may fail at runtime on LinkedIn."},
+      {"endpoint": "/api/li-search/connections", "issue": "MongoDB '_id' (ObjectId) still leaks into response payload (carried from prior iteration; not re-verified as part of this scope)."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_message_script.py",
+    "/app/test_reports/pytest/message_script_v13.xml"
+  ],
+  "action_items": [
+    "Fix no-op URN conversion in generate_message_script (linkedin_search.py line ~1364). Should convert miniProfile URN into a messaging recipient URN, otherwise the Voyager POST will 400 on LinkedIn.",
+    "(Optional) Add server-side size limits for message length and recipients list."
+  ],
+  "critical_code_review_comments": [
+    "generate_message_script: `memberUrn.replace('fs_miniProfile', 'fs_miniProfile')` replaces a token with itself — bug. Recipient URN construction needs real logic.",
+    "Script uses json.dumps for message/recipients — safe from special char injection (verified with newlines, $, *, &, %).",
+    "Script correctly avoids window.location; runs entirely as async fetch() calls with 3-6s jitter — good for rate limiting.",
+    "CSRF extraction from JSESSIONID cookie regex is correct."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_message_script.py (added TestVoyagerAPIScript class with 6 tests)"
+  ],
+  "success_rate": {"backend": "100% (14/14)", "frontend": "100% (send flow OK; script contents verified in clipboard)"},
+  "test_credentials": "Agent@2024! (password gate on /linkedin-search).",
+  "seed_data_creation": "None. Used existing 72 synced connections.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Backend endpoint POST /api/li-search/message/script now returns a Voyager API-based JS script (no window.location). Tests at /app/backend/tests/test_message_script.py. Frontend selectors: connection cards use data-testid='conn-<publicId>'; Messaging tab is a button role='button' name='Messaging'; send button text 'Send to N Connections via LinkedIn'; message textarea is the last textarea on the page. Password gate uses 'Agent@2024!'. Known outstanding: no-op URN replace inside generated script (line ~1364 of routes/linkedin_search.py) — script will run in browser but LinkedIn POST likely returns 400 until URN construction is fixed. Cannot be verified from server (needs real linkedin.com session).",
+  "rca of the issue": "Prior script used window.location.href to navigate to each recipient's message thread, which destroyed the JS context after the first send. Current fix rewrites the client script to call LinkedIn Voyager APIs (identity/profiles + messaging/conversations?action=create) via fetch(), with CSRF extracted from the JSESSIONID cookie. No navigation is needed and script continues iterating through all recipients with 3-6s jitter. Verified structurally (backend tests + frontend clipboard). Note: recipient URN transformation on line ~1364 is a no-op and likely needs real logic before end-to-end sending will work on LinkedIn."
+}
