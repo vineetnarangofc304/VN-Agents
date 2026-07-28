@@ -1412,50 +1412,42 @@ async def get_browser_script():
         api_base = "https://automation-platform-10.preview.emergentagent.com"
 
     script = f"""
-// === LinkedIn Lead Finder — Connection Sync v3 ===
-// 1. Be on LinkedIn Connections page
-// 2. Scroll down to load connections you want
-// 3. Paste this in Console (F12) and press Enter
-// 4. Data copies to clipboard — paste it in Lead Finder
+// === LinkedIn Lead Finder — Connection Sync v4 ===
+// Paste in Console on LinkedIn Connections page
 
 (async () => {{
   const connections = [];
-  const allLinks = document.querySelectorAll('a[href*="/in/"]');
   const seen = new Set();
 
-  allLinks.forEach(link => {{
+  // Each connection card is an <li> with a profile link
+  document.querySelectorAll('li').forEach(li => {{
     try {{
-      const href = link.href.split('?')[0].replace(/\\/$/, '');
+      const profileLink = li.querySelector('a[href*="/in/"]');
+      if (!profileLink) return;
+      
+      const href = profileLink.href.split('?')[0].replace(/\\/$/, '');
       const publicId = href.split('/in/')[1];
-      if (!publicId || seen.has(publicId)) return;
-      let card = link.closest('li') || link.closest('[class*="connection"]') || link.parentElement?.parentElement?.parentElement;
-      if (!card) return;
-      const cardText = card.innerText || '';
-      if (!cardText || cardText.length < 5) return;
-      if (card.closest('nav') || card.closest('header')) return;
+      if (!publicId || seen.has(publicId) || publicId.length > 100) return;
+      
+      if (li.closest('nav') || li.closest('header') || li.closest('[role="banner"]')) return;
 
-      let fullName = '';
-      const nameEl = card.querySelector('[class*="name"] span[aria-hidden="true"]')
-                  || card.querySelector('[class*="card__name"]')
-                  || link.querySelector('span[aria-hidden="true"]');
-      if (nameEl) {{ fullName = nameEl.innerText.trim(); }}
-      else {{
-        const lines = cardText.split('\\n').map(l => l.trim()).filter(l => l && l !== 'Message' && !l.startsWith('Connected'));
-        fullName = lines[0] || '';
-      }}
-      if (!fullName || fullName.length < 2 || fullName.length > 80) return;
+      const cardText = li.innerText || '';
+      if (!cardText.includes('Message') && !cardText.includes('Connected')) return;
 
+      const lines = cardText.split('\\n').map(l => l.trim()).filter(l => l.length > 0);
+      
+      const fullName = lines[0] || '';
+      if (!fullName || fullName.length < 2 || fullName.length > 80 || fullName === 'Message') return;
+      
       let occupation = '';
-      const occEl = card.querySelector('[class*="occupation"]') || card.querySelector('[class*="subline"]');
-      if (occEl) {{ occupation = occEl.innerText.trim(); }}
-      else {{
-        const lines = cardText.split('\\n').map(l => l.trim()).filter(l => l && l !== fullName && l !== 'Message' && !l.startsWith('Connected'));
-        occupation = lines[0] || '';
+      if (lines[1] && !lines[1].startsWith('Connected') && lines[1] !== 'Message') {{
+        occupation = lines[1];
       }}
 
-      const imgEl = card.querySelector('img[src*="profile"], img[src*="licdn"]');
+      const imgEl = li.querySelector('img[src*="licdn"], img[src*="profile"]');
       seen.add(publicId);
       const parts = fullName.split(' ');
+      
       connections.push({{
         full_name: fullName,
         first_name: parts[0] || '',
@@ -1470,14 +1462,12 @@ async def get_browser_script():
   }});
 
   if (connections.length === 0) {{
-    alert('No connections found! Make sure you are on the LinkedIn Connections page and have scrolled down.');
+    alert('No connections found! Make sure you are on the Connections page and scrolled down.');
     return;
   }}
 
-  const jsonStr = JSON.stringify(connections);
-  copy(jsonStr);
-  alert('Copied ' + connections.length + ' connections to clipboard!\\n\\nNow go to Lead Finder → Messaging tab → paste (Ctrl+V) in the Paste box and click Import.');
-  console.log('Copied ' + connections.length + ' connections to clipboard.');
+  copy(JSON.stringify(connections));
+  alert('Copied ' + connections.length + ' connections!\\nGo to Lead Finder → Messaging → paste in the box → Import.');
 }})();
 """
     return {"script": script.strip(), "instructions": [
