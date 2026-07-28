@@ -146,13 +146,15 @@ const BankingAgent = () => {
   };
 
   const handleFilterMerchant = (merchant) => {
-    setFilters(f => ({ ...f, merchant, category: "" }));
+    setFilters(f => ({ ...f, merchant, category: "", txn_type: "" }));
+    setShowFilters(true);
     setTxnPage(0);
     setView("transactions");
   };
 
   const handleFilterCategory = (category) => {
-    setFilters(f => ({ ...f, category, merchant: "" }));
+    setFilters(f => ({ ...f, category, merchant: "", txn_type: "" }));
+    setShowFilters(true);
     setTxnPage(0);
     setView("transactions");
   };
@@ -318,15 +320,14 @@ const BankingAgent = () => {
                 <ResponsiveContainer width="100%" height={320}>
                   <PieChart>
                     <Pie data={pieData} dataKey="debit" nameKey="category" cx="50%" cy="50%"
-                      innerRadius={60} outerRadius={120} paddingAngle={2} label={({ category, percent }) =>
-                        percent > 0.04 ? `${category} ${(percent * 100).toFixed(0)}%` : ""
-                      } labelLine={false}>
+                      innerRadius={60} outerRadius={120} paddingAngle={2}>
                       {pieData.map((entry, i) => (
                         <Cell key={i} fill={CATEGORY_COLORS[entry.category] || "#64748b"} cursor="pointer" />
                       ))}
                     </Pie>
                     <Tooltip formatter={v => INR_FULL(v)}
                       contentStyle={{ background: "#1e293b", border: "1px solid #334155", borderRadius: 8, color: "#e2e8f0" }} />
+                    <Legend formatter={(value) => <span style={{ color: "#cbd5e1", fontSize: 11 }}>{value}</span>} />
                   </PieChart>
                 </ResponsiveContainer>
               </div>
@@ -516,7 +517,7 @@ const BankingAgent = () => {
             <div className="banking-filter-grid" data-testid="filter-grid">
               <div className="banking-filter-item">
                 <label>Category</label>
-                <select value={filters.category} onChange={e => { setFilters(f => ({ ...f, category: e.target.value })); setTxnPage(0); }}
+                <select value={filters.category} onChange={e => { setFilters(f => ({ ...f, category: e.target.value, merchant: "" })); setTxnPage(0); }}
                   className="banking-select" data-testid="filter-category">
                   <option value="">All Categories</option>
                   {categories.map(c => <option key={c.category} value={c.category}>{c.category} ({c.count})</option>)}

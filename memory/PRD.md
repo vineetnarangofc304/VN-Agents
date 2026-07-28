@@ -35,6 +35,17 @@ Build a multi-agent platform serving 9 completely independent agents, each acces
 - **Content Library**: All generated content with pillar/status/score filters
 - **Light Theme UI**: Apple/Stripe quality, Manrope + Inter typography
 
+### Agent 10: Banking Agent (`/banking`) — NEW (Jul 2026)
+- **PDF Upload**: Password-protected bank statement parsing (pdfplumber)
+- **Auto-Categorization**: 20+ merchant/category mappings (Gaming, Food, Transport, Bills, etc.)
+- **Dashboard**: Summary cards (Opening/Closing Balance, Debits, Credits, Net Flow)
+- **Overview Tab**: Monthly debits vs credits bar chart, category pie chart, transaction type breakdown
+- **Categories Tab**: Horizontal bar chart + clickable table
+- **Merchants Tab**: Top 15 merchant chart + full merchant table
+- **Trends Tab**: Daily balance area chart, monthly net cash flow
+- **Transactions View**: Searchable, sortable, filterable table (2877 txns), pagination (100/page)
+- **Filters**: Category, txn type, date range, debit/credit only, text search
+
 ## Background Schedulers
 - DDC Farm: Daily at 3 PM IST
 - Credits Scanner: Daily at 6 AM IST
