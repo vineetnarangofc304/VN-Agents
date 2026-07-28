@@ -19,10 +19,19 @@ def test_browser_script_returns_script_and_instructions(s):
     data = r.json()
     assert "script" in data and isinstance(data["script"], str) and len(data["script"]) > 100
     assert "instructions" in data and isinstance(data["instructions"], list)
-    assert len(data["instructions"]) == 6
+    assert len(data["instructions"]) == 7
     # script references push endpoint
-    assert "/api/li-search/connections/push" in data["script"]
-    assert ".mn-connection-card" in data["script"]
+    s = data["script"]
+    assert "/api/li-search/connections/push" in s
+    # v2 selectors
+    assert 'a[href*="/in/"]' in s
+    assert "closest" in s
+    assert "aria-hidden" in s
+    # batch sending logic (batches of 100)
+    assert "slice(i, i + 100)" in s or "batch" in s.lower()
+    # instructions mention scrolling/re-run
+    joined = " ".join(data["instructions"]).lower()
+    assert "scroll" in joined
 
 
 # ---- connections/push endpoint ----

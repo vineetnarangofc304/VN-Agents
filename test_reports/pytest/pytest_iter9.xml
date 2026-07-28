@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="1" skipped="0" tests="7" time="0.843" timestamp="2026-07-28T10:26:46.995669+00:00" hostname="agent-env-5efc1481-6167-4868-89a8-23ea5b338560"><testcase classname="backend.tests.test_connections_sync" name="test_browser_script_returns_script_and_instructions" time="0.215" /><testcase classname="backend.tests.test_connections_sync" name="test_push_empty_returns_400" time="0.051" /><testcase classname="backend.tests.test_connections_sync" name="test_push_missing_field_returns_400" time="0.045" /><testcase classname="backend.tests.test_connections_sync" name="test_push_and_retrieve_connections" time="0.236" /><testcase classname="backend.tests.test_connections_sync" name="test_health" time="0.043" /><testcase classname="backend.tests.test_connections_sync" name="test_posts_still_returns_20" time="0.047" /><testcase classname="backend.tests.test_connections_sync" name="test_cleanup_test_connections" time="0.079"><failure message="pymongo.errors.InvalidURI: Invalid URI scheme: URI must begin with 'mongodb://' or 'mongodb+srv://'">backend/tests/test_connections_sync.py:120: in test_cleanup_test_connections
+    n = asyncio.get_event_loop().run_until_complete(_clean())
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.11/asyncio/base_events.py:654: in run_until_complete
+    return future.result()
+           ^^^^^^^^^^^^^^^
+backend/tests/test_connections_sync.py:114: in _clean
+    client = AsyncIOMotorClient(mongo_url)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/root/.venv/lib/python3.11/site-packages/motor/core.py:148: in __init__
+    delegate = self.__delegate_class__(*args, **kwargs)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/root/.venv/lib/python3.11/site-packages/pymongo/mongo_client.py:766: in __init__
+    res = uri_parser.parse_uri(
+/root/.venv/lib/python3.11/site-packages/pymongo/uri_parser.py:496: in parse_uri
+    raise InvalidURI(f"Invalid URI scheme: URI must begin with '{SCHEME}' or '{SRV_SCHEME}'")
+E   pymongo.errors.InvalidURI: Invalid URI scheme: URI must begin with 'mongodb://' or 'mongodb+srv://'</failure></testcase></testsuite></testsuites>

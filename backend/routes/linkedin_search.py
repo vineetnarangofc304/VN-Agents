@@ -1412,74 +1412,114 @@ async def get_browser_script():
         api_base = "https://automation-platform-10.preview.emergentagent.com"
 
     script = f"""
-// === LinkedIn Lead Finder — Connection Sync Script ===
-// Run this in your browser console while on linkedin.com
-// Step 1: Go to https://www.linkedin.com/mynetwork/invite-connect/connections/
-// Step 2: Scroll down to load all connections you want to sync
-// Step 3: Open browser console (F12 → Console) and paste this script
+// === LinkedIn Lead Finder — Connection Sync Script v2 ===
+// 1. Be on https://www.linkedin.com/mynetwork/invite-connect/connections/
+// 2. Scroll down to load connections you want (the more you scroll, the more get synced)
+// 3. Paste this in Console (F12) and press Enter
 
 (async () => {{
   const API = '{api_base}/api/li-search/connections/push';
-  
-  // Collect connection cards from the page
-  const cards = document.querySelectorAll('.mn-connection-card');
   const connections = [];
-  
-  cards.forEach(card => {{
+
+  // Strategy 1: Find all profile links within the connections list
+  const allLinks = document.querySelectorAll('a[href*="/in/"]');
+  const seen = new Set();
+
+  allLinks.forEach(link => {{
     try {{
-      const nameEl = card.querySelector('.mn-connection-card__name');
-      const occEl = card.querySelector('.mn-connection-card__occupation');
-      const linkEl = card.querySelector('a[href*="/in/"]');
-      const imgEl = card.querySelector('img.presence-entity__image, img.EntityPhoto-circle-4');
-      
-      const fullName = nameEl ? nameEl.innerText.trim() : '';
-      const parts = fullName.split(' ');
-      const profileUrl = linkEl ? linkEl.href.split('?')[0] : '';
-      const publicId = profileUrl.split('/in/')[1]?.replace('/', '') || '';
-      
-      if (fullName && publicId) {{
-        connections.push({{
-          full_name: fullName,
-          first_name: parts[0] || '',
-          last_name: parts.slice(1).join(' ') || '',
-          occupation: occEl ? occEl.innerText.trim() : '',
-          profile_url: profileUrl,
-          public_id: publicId,
-          avatar_url: imgEl ? imgEl.src : '',
-          urn: 'urn:li:fsd_profile:' + publicId,
-        }});
+      const href = link.href.split('?')[0].replace(/\\/$/, '');
+      const publicId = href.split('/in/')[1];
+      if (!publicId || seen.has(publicId)) return;
+
+      // Walk up to find the card container (the nearest li or card-like parent)
+      let card = link.closest('li') || link.closest('[class*="connection"]') || link.parentElement?.parentElement?.parentElement;
+      if (!card) return;
+      const cardText = card.innerText || '';
+      if (!cardText || cardText.length < 5) return;
+
+      // Skip nav/header links
+      if (card.closest('nav') || card.closest('header')) return;
+
+      // Extract name - first bold/strong text or first line
+      let fullName = '';
+      const nameEl = card.querySelector('[class*="name"] span[aria-hidden="true"]')
+                  || card.querySelector('[class*="card__name"]')
+                  || card.querySelector('span.mn-connection-card__name')
+                  || link.querySelector('span[aria-hidden="true"]');
+      if (nameEl) {{
+        fullName = nameEl.innerText.trim();
+      }} else {{
+        // Fallback: first non-empty line of text
+        const lines = cardText.split('\\n').map(l => l.trim()).filter(l => l && l !== 'Message' && !l.startsWith('Connected'));
+        fullName = lines[0] || '';
       }}
+
+      if (!fullName || fullName.length < 2 || fullName.length > 80) return;
+
+      // Extract occupation
+      let occupation = '';
+      const occEl = card.querySelector('[class*="occupation"]')
+                 || card.querySelector('[class*="subline"]');
+      if (occEl) {{
+        occupation = occEl.innerText.trim();
+      }} else {{
+        const lines = cardText.split('\\n').map(l => l.trim()).filter(l => l && l !== fullName && l !== 'Message' && !l.startsWith('Connected'));
+        occupation = lines[0] || '';
+      }}
+
+      // Extract avatar
+      const imgEl = card.querySelector('img[src*="profile"], img[src*="licdn"]');
+      const avatarUrl = imgEl ? imgEl.src : '';
+
+      seen.add(publicId);
+      const parts = fullName.split(' ');
+      connections.push({{
+        full_name: fullName,
+        first_name: parts[0] || '',
+        last_name: parts.slice(1).join(' ') || '',
+        occupation: occupation,
+        profile_url: 'https://www.linkedin.com/in/' + publicId,
+        public_id: publicId,
+        avatar_url: avatarUrl,
+        urn: 'urn:li:fsd_profile:' + publicId,
+      }});
     }} catch(e) {{}}
   }});
-  
-  console.log('Found ' + connections.length + ' connections');
-  
+
+  console.log('Found ' + connections.length + ' connections on this page');
+
   if (connections.length === 0) {{
-    console.log('No connections found. Make sure you are on the connections page and have scrolled down.');
+    alert('No connections found! Make sure you are on the LinkedIn Connections page and have scrolled down to load some connections.');
     return;
   }}
-  
-  // Send to backend
-  try {{
-    const resp = await fetch(API, {{
-      method: 'POST',
-      headers: {{'Content-Type': 'application/json'}},
-      body: JSON.stringify({{ connections }})
-    }});
-    const data = await resp.json();
-    console.log('Synced! Stored: ' + data.stored + ', Total: ' + data.total);
-    alert('Synced ' + data.stored + ' connections to Lead Finder!');
-  }} catch(e) {{
-    console.error('Sync failed:', e);
-    alert('Sync failed. Check console for details.');
+
+  // Send in batches of 100
+  let totalStored = 0;
+  for (let i = 0; i < connections.length; i += 100) {{
+    const batch = connections.slice(i, i + 100);
+    try {{
+      const resp = await fetch(API, {{
+        method: 'POST',
+        headers: {{'Content-Type': 'application/json'}},
+        body: JSON.stringify({{ connections: batch }})
+      }});
+      const data = await resp.json();
+      totalStored += data.stored || 0;
+      console.log('Batch ' + Math.ceil((i+1)/100) + ': stored ' + data.stored);
+    }} catch(e) {{
+      console.error('Batch failed:', e);
+    }}
   }}
+  
+  alert('Done! Synced ' + totalStored + ' connections (found ' + connections.length + ' on page). Scroll down for more and run again!');
 }})();
 """
     return {"script": script.strip(), "instructions": [
-        "1. Open LinkedIn in your browser and go to: https://www.linkedin.com/mynetwork/invite-connect/connections/",
-        "2. Scroll down to load the connections you want to sync (keep scrolling for more)",
-        "3. Press F12 to open Developer Tools → go to Console tab",
-        "4. Copy and paste the script above into the console and press Enter",
-        "5. Wait for the sync confirmation alert",
-        "6. Come back to Lead Finder to see your connections"
+        "1. Open LinkedIn → My Network → Connections (you should already be there)",
+        "2. Scroll down slowly to load more connections (each scroll loads ~10 more)",
+        "3. When you've loaded enough, press F12 → Console tab",
+        "4. Paste the script and press Enter",
+        "5. You'll see an alert with how many were synced",
+        "6. Scroll more + run again to sync additional connections",
+        "7. Come back to Lead Finder → Messaging tab to see them"
     ]}
