@@ -1351,7 +1351,7 @@ async def generate_message_script(data: dict):
         "  console.log('Starting bulk message for ' + recipients.length + ' recipients...');\n\n"
         "  for (let i = 0; i < recipients.length; i++) {\n"
         "    const rec = recipients[i];\n"
-        "    const name = rec.name.replace(/[^a-zA-Z\\s]/g, '').trim();\n"
+        "    const name = rec.name.trim();\n"
         "    console.log('(' + (i+1) + '/' + recipients.length + ') ' + rec.name);\n\n"
         "    let urn = rec.entity_urn || '';\n\n"
         "    // Look up URN via typeahead (messaging recipient search)\n"
