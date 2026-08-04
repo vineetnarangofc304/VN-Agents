@@ -1551,34 +1551,14 @@ async def generate_compose_script(data: dict):
     message_js = json.dumps(message)
     recipients_js = json.dumps(recipients)
 
-    # Script uses localStorage to persist across page navigations — no new tabs
+    # Script opens ONE compose tab at a time, panel stays on original tab
     script = """
-// === LinkedIn Bulk Compose v5 ===
-// Same-tab messaging with persistent floating panel
+// === LinkedIn Bulk Compose v6 ===
+// Panel stays here. Opens one compose tab at a time.
 (function() {
-  var KEY = 'bulk_compose_data';
-  var R, M, idx, sent;
-
-  // Check if resuming from localStorage
-  var saved = localStorage.getItem(KEY);
-  if (saved) {
-    try {
-      var d = JSON.parse(saved);
-      R = d.R; M = d.M; idx = d.idx; sent = d.sent;
-      console.log('Resuming bulk compose at ' + (idx+1) + '/' + R.length);
-    } catch(e) { localStorage.removeItem(KEY); }
-  }
-
-  // If fresh start, use embedded data
-  if (!R) {
-    R = """ + recipients_js + """;
-    M = """ + message_js + """;
-    idx = 0; sent = 0;
-  }
-
-  function save() {
-    localStorage.setItem(KEY, JSON.stringify({R:R, M:M, idx:idx, sent:sent}));
-  }
+  var R = """ + recipients_js + """;
+  var M = """ + message_js + """;
+  var idx = 0, sent = 0;
 
   function copyMsg() {
     try {
@@ -1589,27 +1569,26 @@ async def generate_compose_script(data: dict):
     } catch(e) {}
   }
 
-  // Remove old panel if exists
-  var old = document.getElementById('bc-wrap-v5');
+  // Remove old panel
+  var old = document.getElementById('bc-wrap-v6');
   if (old) old.remove();
 
-  // Build panel
   var wrap = document.createElement('div');
-  wrap.id = 'bc-wrap-v5';
-  wrap.style.cssText = 'position:fixed;top:10px;right:10px;width:340px;background:#1a1a2e;color:#fff;border-radius:12px;padding:18px;z-index:999999;font-family:system-ui,sans-serif;box-shadow:0 8px 32px rgba(0,0,0,0.5);border:1px solid #444';
+  wrap.id = 'bc-wrap-v6';
+  wrap.style.cssText = 'position:fixed;bottom:80px;right:10px;width:320px;background:#1b1b2f;color:#fff;border-radius:14px;padding:16px;z-index:999999;font-family:system-ui,sans-serif;box-shadow:0 8px 32px rgba(0,0,0,0.6);border:1px solid #333';
 
   var header = document.createElement('div');
-  header.style.cssText = 'display:flex;justify-content:space-between;margin-bottom:10px';
-  var title = document.createElement('b');
-  title.textContent = 'Bulk Compose';
-  title.style.fontSize = '13px';
+  header.style.cssText = 'display:flex;justify-content:space-between;align-items:center;margin-bottom:10px';
+  var titleSpan = document.createElement('span');
+  titleSpan.style.cssText = 'font-size:13px;font-weight:700';
+  titleSpan.textContent = 'Bulk Compose';
   var prog = document.createElement('span');
-  prog.style.cssText = 'font-size:12px;color:#94a3b8';
+  prog.style.cssText = 'font-size:11px;color:#94a3b8;margin-left:8px';
   var closeBtn = document.createElement('button');
   closeBtn.textContent = 'X';
-  closeBtn.style.cssText = 'background:none;border:none;color:#999;cursor:pointer;font-size:14px;padding:0';
-  closeBtn.onclick = function() { wrap.remove(); localStorage.removeItem(KEY); };
-  header.appendChild(title);
+  closeBtn.style.cssText = 'background:none;border:none;color:#666;cursor:pointer;font-size:14px;padding:0 4px';
+  closeBtn.onclick = function() { wrap.remove(); };
+  header.appendChild(titleSpan);
   header.appendChild(prog);
   header.appendChild(closeBtn);
   wrap.appendChild(header);
@@ -1619,74 +1598,73 @@ async def generate_compose_script(data: dict):
   wrap.appendChild(nameEl);
 
   var occEl = document.createElement('div');
-  occEl.style.cssText = 'font-size:11px;color:#94a3b8;margin-bottom:8px';
+  occEl.style.cssText = 'font-size:10px;color:#94a3b8;margin-bottom:8px';
   wrap.appendChild(occEl);
 
-  var msgBox = document.createElement('div');
-  msgBox.style.cssText = 'background:#0f172a;border-radius:6px;padding:8px;font-size:10px;color:#cbd5e1;margin-bottom:10px;max-height:50px;overflow:auto;white-space:pre-wrap';
-  msgBox.textContent = M;
-  wrap.appendChild(msgBox);
+  var msgPreview = document.createElement('div');
+  msgPreview.style.cssText = 'background:#111;border-radius:6px;padding:8px;font-size:10px;color:#aaa;margin-bottom:10px;max-height:40px;overflow:hidden;white-space:pre-wrap';
+  msgPreview.textContent = M.length > 100 ? M.substring(0,100) + '...' : M;
+  wrap.appendChild(msgPreview);
 
   var btnRow = document.createElement('div');
-  btnRow.style.cssText = 'display:flex;gap:6px';
+  btnRow.style.cssText = 'display:flex;gap:6px;margin-bottom:8px';
 
   var openBtn = document.createElement('button');
-  openBtn.textContent = 'Open Compose';
-  openBtn.style.cssText = 'flex:1;background:#0a66c2;color:#fff;border:none;padding:9px;border-radius:8px;cursor:pointer;font-size:13px;font-weight:600';
+  openBtn.style.cssText = 'flex:1;background:#0a66c2;color:#fff;border:none;padding:10px;border-radius:8px;cursor:pointer;font-size:13px;font-weight:600';
 
   var skipBtn = document.createElement('button');
   skipBtn.textContent = 'Skip';
-  skipBtn.style.cssText = 'background:#334155;color:#fff;border:none;padding:9px 14px;border-radius:8px;cursor:pointer;font-size:13px';
+  skipBtn.style.cssText = 'background:#334155;color:#fff;border:none;padding:10px 14px;border-radius:8px;cursor:pointer;font-size:12px';
 
   btnRow.appendChild(openBtn);
   btnRow.appendChild(skipBtn);
   wrap.appendChild(btnRow);
 
   var hint = document.createElement('div');
-  hint.style.cssText = 'margin-top:6px;font-size:10px;color:#64748b;text-align:center';
-  hint.textContent = 'Opens compose in this tab. After sending, press Back to continue.';
+  hint.style.cssText = 'font-size:9px;color:#64748b;text-align:center;line-height:1.4';
   wrap.appendChild(hint);
 
   document.body.appendChild(wrap);
 
+  var composeWin = null;
+
   function show() {
     if (idx >= R.length) {
       nameEl.textContent = 'All done!';
-      occEl.textContent = '';
-      prog.textContent = 'Sent: ' + sent + '/' + R.length;
-      msgBox.style.display = 'none';
+      nameEl.style.color = '#22c55e';
+      occEl.textContent = 'Completed: ' + sent + ' sent, ' + (R.length - sent) + ' skipped';
+      msgPreview.style.display = 'none';
       btnRow.style.display = 'none';
-      hint.textContent = 'Finished! Close this panel.';
-      localStorage.removeItem(KEY);
+      hint.textContent = 'You can close this panel now.';
       return;
     }
     var r = R[idx];
-    prog.textContent = (idx+1) + '/' + R.length + ' (sent: ' + sent + ')';
+    prog.textContent = (idx+1) + '/' + R.length;
     nameEl.textContent = r.name || 'Unknown';
+    nameEl.style.color = '#fff';
     occEl.textContent = r.occupation || '';
+    openBtn.textContent = 'Compose + Copy Msg';
+    hint.innerHTML = 'Opens compose in new tab. Paste message (Ctrl+V), Send, close tab, come back here.';
     copyMsg();
   }
 
   openBtn.onclick = function() {
     var r = R[idx];
-    if (!r || !r.public_id) { idx++; save(); show(); return; }
+    if (!r || !r.public_id) { idx++; show(); return; }
     copyMsg();
+    // Close previous compose tab if still open
+    if (composeWin && !composeWin.closed) {
+      try { composeWin.close(); } catch(e) {}
+    }
+    composeWin = window.open('https://www.linkedin.com/messaging/compose/?recipient=' + encodeURIComponent(r.public_id), 'linkedin_compose');
     sent++; idx++;
-    save();
-    // Navigate in same tab
-    window.location.href = 'https://www.linkedin.com/messaging/compose/?recipient=' + encodeURIComponent(r.public_id);
+    show();
   };
 
-  skipBtn.onclick = function() { idx++; save(); show(); };
+  skipBtn.onclick = function() { idx++; show(); };
 
   show();
-  console.log('Bulk Compose v5: ' + R.length + ' recipients. Panel ready.');
-
-  // Auto-resume: watch for page loads
-  if (saved) {
-    hint.textContent = 'Resumed! Paste (Ctrl+V) your message, Send, then come back here.';
-    hint.style.color = '#22c55e';
-  }
+  console.log('Bulk Compose v6 ready: ' + R.length + ' recipients. Panel at bottom-right.');
 })();
 """
 
