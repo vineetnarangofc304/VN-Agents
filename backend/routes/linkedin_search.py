@@ -1739,219 +1739,205 @@ async def get_connections(
 
 @router.get("/browser-script")
 async def get_browser_script():
-    """Return a simple, bulletproof browser script to sync LinkedIn connections."""
+    """Return script to sync ALL first-degree LinkedIn connections."""
 
     script = """
-// === LinkedIn Connection Sync v9 ===
-// Works on ANY LinkedIn page. Scrapes visible profiles + fetches URNs.
-// Run in Chrome DevTools Console (F12 → Console → type 'allow pasting')
+// === LinkedIn Connection Sync v10 ===
+// Fetches ALL 1st degree connections via API (no cap)
+// Falls back to DOM scraping only if API completely fails
 
 (async () => {
-  console.log('%c=== LinkedIn Sync v9 Starting ===', 'color: #0a66c2; font-size: 14px; font-weight: bold');
+  console.log('=== LinkedIn Sync v10 ===');
+  var delay = function(ms) { return new Promise(function(r) { setTimeout(r, ms); }); };
+  var csrf = (document.cookie.match(/JSESSIONID="?([^;"]+)/) || [])[1] || '';
+  if (!csrf) { alert('Not logged into LinkedIn'); return; }
+  var H = {'csrf-token': csrf, 'x-restli-protocol-version': '2.0.0'};
+  var results = [];
+  var seenIds = {};
 
-  const delay = ms => new Promise(r => setTimeout(r, ms));
-  const csrf = (document.cookie.match(/JSESSIONID="?([^;"]+)/) || [])[1] || '';
-  if (!csrf) { alert('ERROR: Not logged into LinkedIn. Please log in first.'); return; }
-  console.log('CSRF token found. Starting sync...');
+  function addResult(item) {
+    var pid = item.publicIdentifier || item.public_id || '';
+    if (!pid || seenIds[pid]) return;
+    seenIds[pid] = true;
+    results.push({
+      full_name: ((item.firstName||'') + ' ' + (item.lastName||'')).trim() || item.full_name || '',
+      first_name: item.firstName || item.first_name || '',
+      last_name: item.lastName || item.last_name || '',
+      occupation: item.occupation || '',
+      profile_url: 'https://www.linkedin.com/in/' + pid,
+      public_id: pid,
+      entity_urn: item.entityUrn || item.entity_urn || '',
+      avatar_url: ''
+    });
+  }
 
-  const H = {'csrf-token': csrf, 'x-restli-protocol-version': '2.0.0'};
-  const results = [];
-  const seenIds = new Set();
+  // ========== STEP 1: Connections API (primary — fetches ALL connections) ==========
+  console.log('Step 1: Fetching all connections via API...');
+  var apiWorked = false;
+  var decorations = ['-16', '-15', '-14', '-13', '-12', '-11', '-10'];
 
-  // ========== METHOD 1: Scrape profiles visible on this page ==========
-  console.log('Step 1: Scraping profiles from current page...');
-  document.querySelectorAll('a[href*="/in/"]').forEach(link => {
+  for (var di = 0; di < decorations.length; di++) {
+    if (apiWorked) break;
+    var dec = decorations[di];
     try {
-      const href = link.href.split('?')[0].replace(/\\/$/, '');
-      const match = href.match(/\\/in\\/([a-zA-Z0-9_-]+)/);
-      if (!match) return;
-      const publicId = match[1];
-      if (seenIds.has(publicId) || publicId.length > 100 || publicId.length < 2) return;
-      if (link.closest('nav') || link.closest('header') || link.closest('footer')) return;
+      var testUrl = 'https://www.linkedin.com/voyager/api/relationships/dash/connections'
+        + '?decorationId=com.linkedin.voyager.dash.deco.web.mynetwork.ConnectionListWithProfile' + dec
+        + '&count=40&q=search&sortType=RECENTLY_ADDED&start=0';
+      var testResp = await fetch(testUrl, {headers: H, credentials: 'include'});
+      if (!testResp.ok) {
+        console.log('  Decoration ' + dec + ': HTTP ' + testResp.status);
+        continue;
+      }
+      var testData = await testResp.json();
+      var total = 0;
+      if (testData.data && testData.data.paging) total = testData.data.paging.total || 0;
+      else if (testData.paging) total = testData.paging.total || 0;
 
-      // Walk up to find the card container
-      let container = link.parentElement;
-      for (let i = 0; i < 8 && container; i++) {
-        const text = container.innerText || '';
-        if (text.length > 30 && text.length < 2000) break;
-        container = container.parentElement;
+      if (total === 0) {
+        console.log('  Decoration ' + dec + ': 0 total, trying next...');
+        continue;
       }
 
-      const cardText = (container?.innerText || '').trim();
-      if (cardText.length < 5) return;
+      apiWorked = true;
+      console.log('  Decoration ' + dec + ' works! Total connections: ' + total);
 
-      // Extract name: first non-empty line that's not a badge/button
-      const lines = cardText.split('\\n').map(l => l.trim()).filter(l =>
-        l.length > 1 && l.length < 80 &&
-        !['Message', 'Connect', 'Follow', 'Pending', 'More', '...', 'Promoted'].includes(l) &&
-        !l.startsWith('Sent') && !l.startsWith('Connected') && !l.match(/^\\d/)
-      );
-
-      let fullName = '';
-      let occupation = '';
-      for (const line of lines) {
-        if (!fullName && line.length <= 50 && !line.includes('|') && !line.includes('mutual')) {
-          fullName = line.replace(/[\\u2022\\u00B7]/g, '').trim();
-          continue;
-        }
-        if (fullName && !occupation && !line.includes('mutual') && line.length > 3) {
-          occupation = line;
-          break;
+      // Process first page
+      var included = testData.included || [];
+      for (var j = 0; j < included.length; j++) {
+        var item = included[j];
+        if (item.firstName && (item.entityUrn || item.publicIdentifier)) {
+          addResult(item);
         }
       }
-      if (!fullName || fullName.length < 2) return;
+      console.log('  Page 1: ' + results.length + ' connections');
 
-      seenIds.add(publicId);
-      const parts = fullName.split(' ');
-      results.push({
-        full_name: fullName,
-        first_name: parts[0] || '',
-        last_name: parts.slice(1).join(' ') || '',
-        occupation: occupation || '',
-        profile_url: 'https://www.linkedin.com/in/' + publicId,
-        public_id: publicId,
-        entity_urn: '',
-        avatar_url: ''
-      });
-    } catch(e) {}
-  });
-  console.log('Found ' + results.length + ' profiles on page');
-
-  // ========== METHOD 2: Also try Connections API for bulk fetch ==========
-  if (results.length < 10) {
-    console.log('Step 2: Fetching more via Connections API...');
-    const decorations = ['-16', '-15', '-14', '-13'];
-    let apiWorked = false;
-
-    for (const dec of decorations) {
-      if (apiWorked) break;
-      try {
-        const url = 'https://www.linkedin.com/voyager/api/relationships/dash/connections'
-          + '?decorationId=com.linkedin.voyager.dash.deco.web.mynetwork.ConnectionListWithProfile' + dec
-          + '&count=40&q=search&sortType=RECENTLY_ADDED&start=0';
-        const resp = await fetch(url, {headers: H});
-        if (resp.ok) {
-          const data = await resp.json();
-          const total = data.data?.paging?.total || data.paging?.total || 0;
-          console.log('Connections API (decoration' + dec + '): Total=' + total);
-
-          // Process up to 500 connections
-          let processed = 0;
-          const processPage = (d) => {
-            for (const item of (d.included || [])) {
-              if (!item.firstName || !item.entityUrn) continue;
-              const urn = item.entityUrn || '';
-              if (!urn.includes('fsd_profile') && !urn.includes('miniProfile')) continue;
-              const pid = item.publicIdentifier || '';
-              if (!pid || seenIds.has(pid)) continue;
-              seenIds.add(pid);
-              results.push({
-                full_name: ((item.firstName||'') + ' ' + (item.lastName||'')).trim(),
-                first_name: item.firstName || '',
-                last_name: item.lastName || '',
-                occupation: item.occupation || '',
-                profile_url: 'https://www.linkedin.com/in/' + pid,
-                public_id: pid,
-                entity_urn: urn,
-                avatar_url: ''
-              });
-              processed++;
+      // Paginate through ALL remaining connections
+      for (var s = 40; s < total; s += 40) {
+        await delay(500 + Math.random() * 300);
+        try {
+          var nextUrl = 'https://www.linkedin.com/voyager/api/relationships/dash/connections'
+            + '?decorationId=com.linkedin.voyager.dash.deco.web.mynetwork.ConnectionListWithProfile' + dec
+            + '&count=40&q=search&sortType=RECENTLY_ADDED&start=' + s;
+          var nr = await fetch(nextUrl, {headers: H, credentials: 'include'});
+          if (!nr.ok) { console.log('  Stopped at page ' + Math.floor(s/40+1) + ': HTTP ' + nr.status); break; }
+          var nd = await nr.json();
+          var before = results.length;
+          var inc = nd.included || [];
+          for (var k = 0; k < inc.length; k++) {
+            if (inc[k].firstName && (inc[k].entityUrn || inc[k].publicIdentifier)) {
+              addResult(inc[k]);
             }
-          };
+          }
+          var added = results.length - before;
+          if (s % 200 === 0 || added === 0) {
+            console.log('  Fetched ' + results.length + '/' + total + ' connections...');
+          }
+          if (added === 0) break;
+        } catch(e) { console.log('  Error at ' + s + ': ' + e.message); break; }
+      }
+      console.log('API done: ' + results.length + ' connections fetched');
+    } catch(e) {
+      console.log('  Decoration ' + dec + ' error: ' + e.message);
+    }
+  }
 
-          processPage(data);
+  // ========== STEP 1b: If API failed, try without decoration ==========
+  if (!apiWorked) {
+    console.log('Trying API without decoration...');
+    try {
+      var plainUrl = 'https://www.linkedin.com/voyager/api/relationships/dash/connections?q=search&sortType=RECENTLY_ADDED&count=40&start=0';
+      var plainResp = await fetch(plainUrl, {headers: H, credentials: 'include'});
+      if (plainResp.ok) {
+        var pd = await plainResp.json();
+        var total = pd.data?.paging?.total || pd.paging?.total || 0;
+        console.log('  Plain API: Total=' + total);
+        var inc = pd.included || [];
+        for (var j = 0; j < inc.length; j++) {
+          if (inc[j].firstName) addResult(inc[j]);
+        }
+        if (results.length > 0) {
           apiWorked = true;
-          console.log('  Page 1: +' + processed + ' connections');
-
-          // Fetch more pages
-          for (let s = 40; s < Math.min(total, 500); s += 40) {
+          for (var s = 40; s < total; s += 40) {
             await delay(600);
             try {
-              const nextUrl = 'https://www.linkedin.com/voyager/api/relationships/dash/connections'
-                + '?decorationId=com.linkedin.voyager.dash.deco.web.mynetwork.ConnectionListWithProfile' + dec
-                + '&count=40&q=search&sortType=RECENTLY_ADDED&start=' + s;
-              const nr = await fetch(nextUrl, {headers: H});
-              if (nr.ok) {
-                const before = results.length;
-                processPage(await nr.json());
-                const added = results.length - before;
-                console.log('  Page ' + (Math.floor(s/40)+1) + ': +' + added + ' (total: ' + results.length + ')');
-                if (added === 0) break;
-              } else break;
+              var nu = 'https://www.linkedin.com/voyager/api/relationships/dash/connections?q=search&sortType=RECENTLY_ADDED&count=40&start=' + s;
+              var nr = await fetch(nu, {headers: H, credentials: 'include'});
+              if (!nr.ok) break;
+              var nd = await nr.json();
+              var before = results.length;
+              var ninc = nd.included || [];
+              for (var k = 0; k < ninc.length; k++) { if (ninc[k].firstName) addResult(ninc[k]); }
+              if (results.length === before) break;
+              if (s % 200 === 0) console.log('  Fetched ' + results.length + '/' + total);
             } catch(e) { break; }
           }
-        } else {
-          console.log('Connections API decoration' + dec + ': HTTP ' + resp.status);
         }
-      } catch(e) {
-        console.log('Connections API error: ' + e.message);
       }
-    }
+    } catch(e) { console.log('  Plain API error: ' + e.message); }
   }
 
-  // ========== METHOD 3: Get URNs for profiles that don't have them ==========
-  const needUrn = results.filter(r => !r.entity_urn);
-  if (needUrn.length > 0) {
-    console.log('Step 3: Looking up URNs for ' + needUrn.length + ' profiles...');
-    let urnOk = 0, urnFail = 0;
-    for (let i = 0; i < needUrn.length; i++) {
-      const c = needUrn[i];
+  // ========== STEP 2: DOM scraping fallback ==========
+  if (!apiWorked || results.length < 5) {
+    console.log('Step 2: Scraping profiles from current page...');
+    document.querySelectorAll('a[href*="/in/"]').forEach(function(link) {
       try {
-        const r = await fetch('https://www.linkedin.com/voyager/api/identity/profiles/' + encodeURIComponent(c.public_id) + '/profileView', {headers: H});
-        if (r.ok) {
-          const d = await r.json();
-          for (const item of (d.included || [])) {
-            if (item.entityUrn && item.entityUrn.includes('fsd_profile')) {
-              c.entity_urn = item.entityUrn;
-              urnOk++;
-              break;
-            }
-          }
-          if (!c.entity_urn) urnFail++;
-        } else {
-          console.log('  Profile ' + c.public_id + ': HTTP ' + r.status);
-          urnFail++;
+        var href = link.href.split('?')[0].replace(/\\/$/, '');
+        var m = href.match(/\\/in\\/([a-zA-Z0-9_-]+)/);
+        if (!m) return;
+        var pid = m[1];
+        if (seenIds[pid] || pid.length > 100 || pid.length < 2) return;
+        if (link.closest('nav') || link.closest('header') || link.closest('footer')) return;
+        var container = link.parentElement;
+        for (var i = 0; i < 8 && container; i++) {
+          var txt = container.innerText || '';
+          if (txt.length > 30 && txt.length < 2000) break;
+          container = container.parentElement;
         }
-      } catch(e) { urnFail++; }
-      if (i % 5 === 4) {
-        console.log('  URN progress: ' + (i+1) + '/' + needUrn.length + ' (' + urnOk + ' found)');
-        await delay(500);
-      }
-    }
-    console.log('URN lookup complete: ' + urnOk + ' found, ' + urnFail + ' failed');
+        var cardText = (container && container.innerText || '').trim();
+        if (cardText.length < 5) return;
+        var lines = cardText.split('\\n').map(function(l){return l.trim()}).filter(function(l) {
+          return l.length > 1 && l.length < 80 && ['Message','Connect','Follow','Pending','More','...','Promoted'].indexOf(l) === -1;
+        });
+        var fn = '', occ = '';
+        for (var li = 0; li < lines.length; li++) {
+          var line = lines[li];
+          if (!fn && line.length <= 50 && line.indexOf('|') === -1 && line.indexOf('mutual') === -1) { fn = line; continue; }
+          if (fn && !occ && line.indexOf('mutual') === -1 && line.length > 3) { occ = line; break; }
+        }
+        if (!fn || fn.length < 2) return;
+        var parts = fn.split(' ');
+        addResult({firstName: parts[0], lastName: parts.slice(1).join(' '), occupation: occ, publicIdentifier: pid, entityUrn: ''});
+      } catch(e) {}
+    });
+    console.log('DOM scrape: ' + results.length + ' total connections');
   }
 
-  // ========== DONE: Copy results ==========
-  const withUrn = results.filter(r => r.entity_urn).length;
+  // ========== DONE ==========
   if (results.length === 0) {
-    alert('No profiles found on this page.\\n\\nTry:\\n1. Go to LinkedIn connections page\\n2. Scroll down to load more\\n3. Run script again');
+    alert('No connections found. Make sure you are logged into LinkedIn.');
     return;
   }
 
-  try {
-    copy(JSON.stringify(results));
-  } catch(e) {
-    // Fallback for copy()
-    const ta = document.createElement('textarea');
+  var withUrn = results.filter(function(r){return r.entity_urn}).length;
+  try { copy(JSON.stringify(results)); } catch(e) {
+    var ta = document.createElement('textarea');
     ta.value = JSON.stringify(results);
-    document.body.appendChild(ta);
-    ta.select();
-    document.execCommand('copy');
-    document.body.removeChild(ta);
+    ta.style.cssText = 'position:fixed;left:-9999px';
+    document.body.appendChild(ta); ta.select();
+    document.execCommand('copy'); document.body.removeChild(ta);
   }
 
-  const preview = results.slice(0,3).map(c => c.full_name).join(', ');
-  const msg = 'SUCCESS! Copied ' + results.length + ' connections (' + withUrn + ' with URN)\\n\\nPreview: ' + preview + '...\\n\\nNow go to Lead Finder → Messaging tab → Paste & Import';
-  console.log('%c' + msg, 'color: #22c55e; font-size: 13px');
+  var preview = results.slice(0,3).map(function(c){return c.full_name}).join(', ');
+  var msg = 'Copied ' + results.length + ' connections (' + withUrn + ' with URN)!\\nPreview: ' + preview + '...\\nPaste in Lead Finder > Messaging > Import';
+  console.log(msg);
   alert(msg);
 })();
 """
     return {"script": script.strip(), "instructions": [
-        "1. Open LinkedIn (any page — connections page, search results, or even your feed)",
-        "2. SCROLL DOWN to load the profiles you want to sync",
-        "3. Press F12 → Console tab → type 'allow pasting' and press Enter",
-        "4. Paste the script and press Enter",
-        "5. Watch the console for progress messages",
-        "6. When the alert appears — data is copied to your clipboard",
-        "7. Go to Lead Finder → Messaging → paste in the import box → Import"
+        "1. Open LinkedIn (any page — just be logged in)",
+        "2. Press F12 → Console → type 'allow pasting' → Enter",
+        "3. Paste the script → Enter",
+        "4. Wait while it fetches ALL your connections (progress shown in console)",
+        "5. Alert shows total — data is on your clipboard",
+        "6. Go to Lead Finder → Messaging → paste in import box → Import"
     ]}
