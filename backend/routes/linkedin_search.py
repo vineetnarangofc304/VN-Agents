@@ -1484,7 +1484,149 @@ async def generate_message_script(data: dict):
     return {"script": script.strip(), "recipients_count": len(recipients)}
 
 
-# ==================== BROWSER PUSH ENDPOINTS ====================
+@router.get("/message/intercept-script")
+async def get_intercept_script():
+    """Return a script that intercepts LinkedIn's messaging requests to capture the exact format."""
+    script = """
+// === LinkedIn Message Interceptor ===
+// Captures the EXACT request LinkedIn sends when you message someone
+// Step 1: Run this script
+// Step 2: Send a message to anyone via LinkedIn's normal UI
+// Step 3: The captured format will be logged in the console — copy it
+
+(function() {
+  console.log('%c=== Message Interceptor Active ===%c', 'color:#0a66c2;font-size:14px;font-weight:bold', '');
+  console.log('Now send a message to someone using LinkedIn\\'s normal UI...');
+  console.log('The interceptor will capture the exact request format.');
+
+  // Intercept fetch
+  const origFetch = window.fetch;
+  window.fetch = async function(...args) {
+    const [url, opts] = args;
+    const urlStr = typeof url === 'string' ? url : url?.url || '';
+
+    if (urlStr.includes('messaging') && opts?.method?.toUpperCase() === 'POST') {
+      console.log('%c=== CAPTURED MESSAGING REQUEST ===%c', 'color:#22c55e;font-size:13px;font-weight:bold', '');
+      console.log('URL:', urlStr);
+      console.log('Method:', opts.method);
+
+      // Headers
+      const hdrs = {};
+      if (opts.headers) {
+        if (opts.headers instanceof Headers) {
+          opts.headers.forEach((v, k) => { hdrs[k] = v; });
+        } else if (typeof opts.headers === 'object') {
+          Object.assign(hdrs, opts.headers);
+        }
+      }
+      console.log('Headers:', JSON.stringify(hdrs, null, 2));
+
+      // Body
+      if (opts.body) {
+        try {
+          const parsed = JSON.parse(opts.body);
+          console.log('Body (parsed):', JSON.stringify(parsed, null, 2));
+        } catch(e) {
+          console.log('Body (raw):', opts.body);
+        }
+      }
+
+      console.log('%c=== Copy the above and share with me ===%c', 'color:#f59e0b;font-size:12px;font-weight:bold', '');
+
+      // Also copy to clipboard
+      try {
+        const captured = { url: urlStr, headers: hdrs, body: opts.body ? JSON.parse(opts.body) : null };
+        copy(JSON.stringify(captured, null, 2));
+        console.log('(Auto-copied to clipboard!)');
+      } catch(e) {}
+    }
+
+    return origFetch.apply(this, args);
+  };
+
+  // Also intercept XMLHttpRequest
+  const origOpen = XMLHttpRequest.prototype.open;
+  const origSend = XMLHttpRequest.prototype.send;
+  XMLHttpRequest.prototype.open = function(method, url, ...rest) {
+    this._captUrl = url;
+    this._captMethod = method;
+    return origOpen.apply(this, [method, url, ...rest]);
+  };
+  XMLHttpRequest.prototype.send = function(body) {
+    if (this._captUrl?.includes('messaging') && this._captMethod?.toUpperCase() === 'POST') {
+      console.log('%c=== CAPTURED XHR MESSAGING ===%c', 'color:#22c55e;font-size:13px;font-weight:bold', '');
+      console.log('URL:', this._captUrl);
+      if (body) {
+        try { console.log('Body:', JSON.stringify(JSON.parse(body), null, 2)); }
+        catch(e) { console.log('Body:', body); }
+      }
+    }
+    return origSend.apply(this, arguments);
+  };
+
+  console.log('Interceptor ready. Send a message now...');
+})();
+"""
+    return {
+        "script": script.strip(),
+        "instructions": [
+            "1. Open LinkedIn in Chrome, press F12 → Console → 'allow pasting'",
+            "2. Paste this interceptor script → Enter",
+            "3. Now send a message to ANY connection using LinkedIn's normal 'Message' button",
+            "4. The console will show the EXACT request format captured",
+            "5. Copy the captured output and share it with me",
+        ]
+    }
+
+
+@router.post("/message/compose-script")
+async def generate_compose_script(data: dict):
+    """Generate a script that opens LinkedIn compose URLs for each recipient (Option A)."""
+    recipients = data.get("recipients", [])
+    message = data.get("message", "")
+    if not recipients or not message:
+        raise HTTPException(status_code=400, detail="Recipients and message required")
+
+    message_js = json.dumps(message)
+    recipients_js = json.dumps(recipients)
+
+    script = (
+        "// === LinkedIn Auto-Compose v1 ===\n"
+        "// Opens messaging compose for each recipient, auto-fills message\n"
+        "// You just need to click Send for each\n\n"
+        "(async () => {\n"
+        "  const recipients = " + recipients_js + ";\n"
+        "  const message = " + message_js + ";\n"
+        "  const delay = ms => new Promise(r => setTimeout(r, ms));\n\n"
+        "  console.log('%c=== Auto-Compose: ' + recipients.length + ' recipients ===%c', 'color:#0a66c2;font-size:14px;font-weight:bold', '');\n"
+        "  console.log('Each recipient will open in a new tab with message pre-filled.');\n"
+        "  console.log('You just click Send in each tab.');\n\n"
+        "  // Copy message to clipboard for easy pasting\n"
+        "  try { await navigator.clipboard.writeText(message); } catch(e) {\n"
+        "    const ta = document.createElement('textarea'); ta.value = message;\n"
+        "    document.body.appendChild(ta); ta.select(); document.execCommand('copy');\n"
+        "    document.body.removeChild(ta);\n"
+        "  }\n"
+        "  console.log('Message copied to clipboard!');\n\n"
+        "  for (let i = 0; i < recipients.length; i++) {\n"
+        "    const rec = recipients[i];\n"
+        "    const pid = rec.public_id || '';\n"
+        "    if (!pid) { console.log('(' + (i+1) + ') SKIP — no public_id'); continue; }\n\n"
+        "    // LinkedIn messaging deep link\n"
+        "    const url = 'https://www.linkedin.com/messaging/compose/?recipient=' + encodeURIComponent(pid);\n"
+        "    console.log('(' + (i+1) + '/' + recipients.length + ') ' + rec.name + ' → Opening...');\n"
+        "    window.open(url, '_blank');\n\n"
+        "    // Wait before opening next (to avoid popup blocker)\n"
+        "    if (i < recipients.length - 1) {\n"
+        "      console.log('  Waiting 3s before next...');\n"
+        "      await delay(3000);\n"
+        "    }\n"
+        "  }\n\n"
+        "  alert('Opened ' + recipients.length + ' compose windows!\\nMessage is on your clipboard — paste with Ctrl+V in each.');\n"
+        "})();\n"
+    )
+
+    return {"script": script.strip(), "recipients_count": len(recipients)}
 
 @router.post("/connections/push")
 async def push_connections(data: dict):

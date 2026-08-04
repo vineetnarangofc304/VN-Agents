@@ -809,12 +809,47 @@ const LinkedInSearch = () => {
               value={messageText} onChange={e => setMessageText(e.target.value)} rows={5}
               data-testid="message-textarea" />
 
-            <div className="lisearch-input-row" style={{ marginTop: 12 }}>
+            <div className="lisearch-input-row" style={{ marginTop: 12, gap: 8 }}>
               <button className="lisearch-btn lisearch-btn-accent" onClick={handleSendMessages}
                 disabled={sendingMsg || !messageText.trim() || selectedConns.length === 0}
                 data-testid="send-messages-btn">
                 {sendingMsg ? <Loader2 size={16} className="spin" /> : <Send size={16} />}
-                Send to {selectedConns.length} Connection{selectedConns.length !== 1 ? "s" : ""} via LinkedIn
+                API Script ({selectedConns.length})
+              </button>
+              <button className="lisearch-btn lisearch-btn-primary" data-testid="compose-btn"
+                disabled={sendingMsg || !messageText.trim() || selectedConns.length === 0}
+                onClick={async () => {
+                  setSendingMsg(true);
+                  setSendResult(null);
+                  try {
+                    const recipients = selectedConns.map(c => ({
+                      name: c.full_name || `${c.first_name} ${c.last_name}`,
+                      public_id: c.public_id,
+                      entity_urn: c.entity_urn || c.urn || ""
+                    }));
+                    const res = await axios.post(`${API}/li-search/message/compose-script`, {
+                      recipients, message: messageText
+                    });
+                    try { await navigator.clipboard.writeText(res.data.script); } catch(e) {}
+                    setSendResult({ script: true, scriptText: res.data.script, compose: true });
+                  } catch(err) {
+                    setSendResult({ error: err.response?.data?.detail || "Failed" });
+                  } finally { setSendingMsg(false); }
+                }}>
+                <ExternalLink size={16} />
+                Open Compose ({selectedConns.length})
+              </button>
+            </div>
+            <div style={{ marginTop: 6 }}>
+              <button className="lisearch-btn lisearch-btn-outline lisearch-btn-sm" data-testid="intercept-btn"
+                onClick={async () => {
+                  try {
+                    const res = await axios.get(`${API}/li-search/message/intercept-script`);
+                    try { await navigator.clipboard.writeText(res.data.script); } catch(e) {}
+                    setSendResult({ script: true, scriptText: res.data.script, intercept: true });
+                  } catch(e) { alert("Failed to load script"); }
+                }}>
+                <Search size={12} /> Capture LinkedIn's Message Format (Debug)
               </button>
             </div>
 
@@ -822,14 +857,19 @@ const LinkedInSearch = () => {
               <div style={{ marginTop: 12 }}>
                 <div className="lisearch-msg lisearch-msg-success" data-testid="send-result">
                   <CheckCircle size={14} />
-                  Auto-send script copied to clipboard! Paste it in LinkedIn's console (F12 → Console → allow pasting → Ctrl+V → Enter)
+                  {sendResult.compose
+                    ? "Auto-Compose script copied! Paste in LinkedIn console — it opens a compose window for each recipient with your message on the clipboard."
+                    : sendResult.intercept
+                    ? "Interceptor script copied! Paste in LinkedIn console, then send a message normally. The exact request format will be captured."
+                    : "API script copied! Paste in LinkedIn console (F12 → Console → allow pasting → Ctrl+V → Enter)"
+                  }
                 </div>
-                <details style={{ marginTop: 8 }}>
+                <details style={{ marginTop: 8 }} open={sendResult.intercept}>
                   <summary className="lisearch-hint" style={{ cursor: "pointer", fontWeight: 500 }}>
                     View/Copy Script
                   </summary>
                   <div style={{ position: "relative", marginTop: 8 }}>
-                    <textarea className="lisearch-textarea" readOnly value={sendResult.scriptText} rows={5}
+                    <textarea className="lisearch-textarea" readOnly value={sendResult.scriptText} rows={6}
                       style={{ fontFamily: "monospace", fontSize: 11 }} />
                     <button className="lisearch-btn lisearch-btn-outline lisearch-btn-sm"
                       style={{ position: "absolute", top: 8, right: 8 }}
