@@ -1551,88 +1551,102 @@ async def generate_compose_script(data: dict):
     message_js = json.dumps(message)
     recipients_js = json.dumps(recipients)
 
-    # This script creates a floating panel on LinkedIn that lets user
-    # click through recipients one by one, opening compose for each
+    # Script uses pure DOM creation to bypass LinkedIn's HTML sanitization
     script = """
-// === LinkedIn Bulk Compose v3 ===
-// Creates a floating panel to message recipients one by one
+// === LinkedIn Bulk Compose v4 ===
 (function() {
   var R = """ + recipients_js + """;
   var M = """ + message_js + """;
-  var idx = 0;
-  var sent = 0;
+  var idx = 0, sent = 0;
 
-  // Copy message to clipboard
   function copyMsg() {
-    try { navigator.clipboard.writeText(M); } catch(e) {
+    try {
       var t = document.createElement('textarea');
-      t.value = M; t.style.position = 'fixed'; t.style.left = '-9999px';
-      document.body.appendChild(t); t.select();
+      t.value = M; t.style.cssText = 'position:fixed;left:-9999px;top:0';
+      document.body.appendChild(t); t.focus(); t.select();
       document.execCommand('copy'); document.body.removeChild(t);
-    }
+    } catch(e) { console.log('Copy failed: ' + e.message); }
   }
-  copyMsg();
 
-  // Create floating panel
-  var panel = document.createElement('div');
-  panel.id = 'bulk-compose-panel';
-  panel.innerHTML = `
-    <div style="position:fixed;top:10px;right:10px;width:380px;background:#1a1a2e;color:#fff;border-radius:12px;padding:20px;z-index:99999;font-family:-apple-system,BlinkMacSystemFont,sans-serif;box-shadow:0 8px 32px rgba(0,0,0,0.4);border:1px solid #333">
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
-        <span style="font-size:14px;font-weight:600">Bulk Compose</span>
-        <span id="bc-progress" style="font-size:12px;color:#94a3b8">0/${R.length}</span>
-        <button onclick="document.getElementById('bulk-compose-panel').remove()" style="background:none;border:none;color:#94a3b8;cursor:pointer;font-size:18px">&times;</button>
-      </div>
-      <div id="bc-name" style="font-size:16px;font-weight:700;margin-bottom:4px"></div>
-      <div id="bc-occ" style="font-size:12px;color:#94a3b8;margin-bottom:12px"></div>
-      <div id="bc-msg" style="background:#0f172a;border-radius:8px;padding:10px;font-size:11px;color:#cbd5e1;margin-bottom:12px;max-height:80px;overflow:auto;white-space:pre-wrap"></div>
-      <div style="display:flex;gap:8px">
-        <button id="bc-open" style="flex:1;background:#0a66c2;color:#fff;border:none;padding:10px;border-radius:8px;cursor:pointer;font-size:13px;font-weight:600">Open Compose</button>
-        <button id="bc-skip" style="background:#334155;color:#fff;border:none;padding:10px 16px;border-radius:8px;cursor:pointer;font-size:13px">Skip</button>
-      </div>
-      <div id="bc-done" style="display:none;text-align:center;padding:16px;color:#22c55e;font-weight:600"></div>
-      <div style="margin-top:8px;font-size:10px;color:#64748b;text-align:center">Message auto-copied to clipboard. Paste (Ctrl+V) in compose window, then Send.</div>
-    </div>
-  `;
-  document.body.appendChild(panel);
+  // Build panel with DOM API (not innerHTML — LinkedIn strips IDs from innerHTML)
+  var wrap = document.createElement('div');
+  wrap.style.cssText = 'position:fixed;top:10px;right:10px;width:360px;background:#1a1a2e;color:#fff;border-radius:12px;padding:20px;z-index:999999;font-family:system-ui,sans-serif;box-shadow:0 8px 32px rgba(0,0,0,0.5);border:1px solid #444';
 
-  function showCurrent() {
+  var header = document.createElement('div');
+  header.style.cssText = 'display:flex;justify-content:space-between;margin-bottom:12px';
+  var title = document.createElement('b');
+  title.textContent = 'Bulk Compose';
+  title.style.fontSize = '14px';
+  var prog = document.createElement('span');
+  prog.style.cssText = 'font-size:12px;color:#94a3b8';
+  var closeBtn = document.createElement('button');
+  closeBtn.textContent = 'X';
+  closeBtn.style.cssText = 'background:none;border:none;color:#999;cursor:pointer;font-size:14px';
+  closeBtn.onclick = function() { wrap.remove(); };
+  header.appendChild(title);
+  header.appendChild(prog);
+  header.appendChild(closeBtn);
+  wrap.appendChild(header);
+
+  var nameEl = document.createElement('div');
+  nameEl.style.cssText = 'font-size:16px;font-weight:700;margin-bottom:4px';
+  wrap.appendChild(nameEl);
+
+  var occEl = document.createElement('div');
+  occEl.style.cssText = 'font-size:11px;color:#94a3b8;margin-bottom:10px';
+  wrap.appendChild(occEl);
+
+  var msgBox = document.createElement('div');
+  msgBox.style.cssText = 'background:#0f172a;border-radius:8px;padding:10px;font-size:11px;color:#cbd5e1;margin-bottom:12px;max-height:60px;overflow:auto;white-space:pre-wrap';
+  msgBox.textContent = M;
+  wrap.appendChild(msgBox);
+
+  var btnRow = document.createElement('div');
+  btnRow.style.cssText = 'display:flex;gap:8px';
+  var openBtn = document.createElement('button');
+  openBtn.textContent = 'Open Compose';
+  openBtn.style.cssText = 'flex:1;background:#0a66c2;color:#fff;border:none;padding:10px;border-radius:8px;cursor:pointer;font-size:13px;font-weight:600';
+  var skipBtn = document.createElement('button');
+  skipBtn.textContent = 'Skip';
+  skipBtn.style.cssText = 'background:#334155;color:#fff;border:none;padding:10px 16px;border-radius:8px;cursor:pointer;font-size:13px';
+  btnRow.appendChild(openBtn);
+  btnRow.appendChild(skipBtn);
+  wrap.appendChild(btnRow);
+
+  var hint = document.createElement('div');
+  hint.style.cssText = 'margin-top:8px;font-size:10px;color:#64748b;text-align:center';
+  hint.textContent = 'Message copied to clipboard. Paste (Ctrl+V) in compose, then Send.';
+  wrap.appendChild(hint);
+
+  document.body.appendChild(wrap);
+
+  function show() {
     if (idx >= R.length) {
-      document.getElementById('bc-name').textContent = 'All done!';
-      document.getElementById('bc-occ').textContent = '';
-      document.getElementById('bc-msg').style.display = 'none';
-      document.getElementById('bc-open').style.display = 'none';
-      document.getElementById('bc-skip').style.display = 'none';
-      document.getElementById('bc-done').style.display = 'block';
-      document.getElementById('bc-done').textContent = 'Sent: ' + sent + ' / ' + R.length;
+      nameEl.textContent = 'All done!';
+      occEl.textContent = 'Sent: ' + sent + ' / ' + R.length;
+      msgBox.style.display = 'none';
+      btnRow.style.display = 'none';
       return;
     }
     var r = R[idx];
-    document.getElementById('bc-progress').textContent = (idx+1) + '/' + R.length + ' (sent: ' + sent + ')';
-    document.getElementById('bc-name').textContent = r.name || 'Unknown';
-    document.getElementById('bc-occ').textContent = r.occupation || r.profile_url || '';
-    document.getElementById('bc-msg').textContent = M;
+    prog.textContent = (idx+1) + '/' + R.length + ' (sent: ' + sent + ')';
+    nameEl.textContent = r.name || 'Unknown';
+    occEl.textContent = r.occupation || '';
     copyMsg();
   }
 
-  document.getElementById('bc-open').addEventListener('click', function() {
+  openBtn.onclick = function() {
     var r = R[idx];
-    var pid = r.public_id;
-    if (!pid) { idx++; showCurrent(); return; }
-    // Open LinkedIn messaging compose
-    window.open('https://www.linkedin.com/messaging/compose/?recipient=' + encodeURIComponent(pid), '_blank');
-    sent++;
-    idx++;
-    showCurrent();
-  });
+    if (!r || !r.public_id) { idx++; show(); return; }
+    copyMsg();
+    window.open('https://www.linkedin.com/messaging/compose/?recipient=' + encodeURIComponent(r.public_id), '_blank');
+    sent++; idx++; show();
+  };
 
-  document.getElementById('bc-skip').addEventListener('click', function() {
-    idx++;
-    showCurrent();
-  });
+  skipBtn.onclick = function() { idx++; show(); };
 
-  showCurrent();
-  console.log('Bulk Compose panel ready. ' + R.length + ' recipients loaded.');
+  show();
+  console.log('Bulk Compose panel loaded. ' + R.length + ' recipients. Click Open Compose for each.');
 })();
 """
 
