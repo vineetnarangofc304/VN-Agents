@@ -4,7 +4,7 @@ import {
   Loader2, Search, Send, RefreshCw, Trash2, Filter,
   ExternalLink, MessageSquare, Sparkles, Key, CheckCircle,
   XCircle, Clock, ChevronDown, ChevronUp, Copy, Building2, Tag,
-  Users, Mail, UserCheck, ChevronLeft, ChevronRight, Download
+  Users, Mail, UserCheck, ChevronLeft, ChevronRight, Download, Plug
 } from "lucide-react";
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
@@ -809,7 +809,7 @@ const LinkedInSearch = () => {
               value={messageText} onChange={e => setMessageText(e.target.value)} rows={5}
               data-testid="message-textarea" />
 
-            <div className="lisearch-input-row" style={{ marginTop: 12, gap: 8 }}>
+            <div className="lisearch-input-row" style={{ marginTop: 12, gap: 8, flexWrap: "wrap" }}>
               <button className="lisearch-btn lisearch-btn-accent" onClick={handleSendMessages}
                 disabled={sendingMsg || !messageText.trim() || selectedConns.length === 0}
                 data-testid="send-messages-btn">
@@ -825,7 +825,8 @@ const LinkedInSearch = () => {
                     const recipients = selectedConns.map(c => ({
                       name: c.full_name || `${c.first_name} ${c.last_name}`,
                       public_id: c.public_id,
-                      entity_urn: c.entity_urn || c.urn || ""
+                      entity_urn: c.entity_urn || c.urn || "",
+                      occupation: c.occupation || ""
                     }));
                     const res = await axios.post(`${API}/li-search/message/compose-script`, {
                       recipients, message: messageText
@@ -837,7 +838,31 @@ const LinkedInSearch = () => {
                   } finally { setSendingMsg(false); }
                 }}>
                 <ExternalLink size={16} />
-                Open Compose ({selectedConns.length})
+                Compose Script ({selectedConns.length})
+              </button>
+              <button className="lisearch-btn" data-testid="ext-queue-btn"
+                style={{ background: "#7c3aed", color: "#fff", border: "none" }}
+                disabled={sendingMsg || !messageText.trim() || selectedConns.length === 0}
+                onClick={async () => {
+                  setSendingMsg(true);
+                  setSendResult(null);
+                  try {
+                    const recipients = selectedConns.map(c => ({
+                      name: c.full_name || `${c.first_name} ${c.last_name}`,
+                      public_id: c.public_id,
+                      entity_urn: c.entity_urn || c.urn || "",
+                      occupation: c.occupation || ""
+                    }));
+                    await axios.post(`${API}/li-search/message/queue`, {
+                      recipients, message: messageText
+                    });
+                    setSendResult({ queued: true, count: recipients.length });
+                  } catch(err) {
+                    setSendResult({ error: err.response?.data?.detail || "Failed" });
+                  } finally { setSendingMsg(false); }
+                }}>
+                <Plug size={16} />
+                Extension Queue ({selectedConns.length})
               </button>
             </div>
             <div style={{ marginTop: 6 }}>
@@ -851,7 +876,20 @@ const LinkedInSearch = () => {
                 }}>
                 <Search size={12} /> Capture LinkedIn's Message Format (Debug)
               </button>
+              <a href="/linkedin-lead-agent-extension.zip" download
+                className="lisearch-btn lisearch-btn-outline lisearch-btn-sm"
+                style={{ textDecoration: "none", display: "inline-flex", alignItems: "center", gap: 4 }}
+                data-testid="download-ext">
+                <Download size={12} /> Download Chrome Extension
+              </a>
             </div>
+
+            {sendResult?.queued && (
+              <div className="lisearch-msg lisearch-msg-success" style={{ marginTop: 12 }} data-testid="queue-result">
+                <CheckCircle size={14} />
+                Queued {sendResult.count} messages! Open LinkedIn with the extension installed — click the ⚡ button → "Check Message Queue"
+              </div>
+            )}
 
             {sendResult?.script && (
               <div style={{ marginTop: 12 }}>

@@ -1737,6 +1737,38 @@ async def get_connections(
     }
 
 
+@router.get("/message/queue")
+async def get_message_queue():
+    """Get pending message queue for the Chrome extension."""
+    queue = await db.li_message_queue.find_one({"status": "pending"}, sort=[("created_at", -1)])
+    if not queue:
+        return {"recipients": [], "message": ""}
+    queue["_id"] = str(queue["_id"])
+    return {
+        "recipients": queue.get("recipients", []),
+        "message": queue.get("message", ""),
+        "queue_id": queue["_id"]
+    }
+
+
+@router.post("/message/queue")
+async def create_message_queue(data: dict):
+    """Create a message queue for the Chrome extension to pick up."""
+    recipients = data.get("recipients", [])
+    message = data.get("message", "")
+    if not recipients or not message:
+        raise HTTPException(status_code=400, detail="Recipients and message required")
+    doc = {
+        "recipients": recipients,
+        "message": message,
+        "status": "pending",
+        "created_at": datetime.now(timezone.utc),
+    }
+    result = await db.li_message_queue.insert_one(doc)
+    return {"success": True, "queue_id": str(result.inserted_id), "count": len(recipients)}
+
+
+
 @router.get("/browser-script")
 async def get_browser_script():
     """Return script to sync ALL first-degree LinkedIn connections."""

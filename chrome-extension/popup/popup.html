@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { width: 320px; font-family: system-ui, -apple-system, sans-serif; background: #0f172a; color: #e2e8f0; }
+    .header { padding: 16px; background: #1e293b; border-bottom: 1px solid #334155; display: flex; align-items: center; gap: 10px; }
+    .header img { width: 28px; height: 28px; border-radius: 6px; }
+    .header h1 { font-size: 14px; font-weight: 700; }
+    .header span { font-size: 10px; color: #64748b; }
+    .section { padding: 14px 16px; border-bottom: 1px solid #1e293b; }
+    .section h2 { font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; color: #64748b; margin-bottom: 8px; }
+    .input-row { display: flex; gap: 6px; margin-bottom: 8px; }
+    input[type="text"] { flex: 1; background: #1e293b; border: 1px solid #334155; border-radius: 6px; padding: 8px 10px; color: #e2e8f0; font-size: 12px; outline: none; }
+    input[type="text"]:focus { border-color: #0a66c2; }
+    .btn { padding: 8px 14px; border: none; border-radius: 6px; font-size: 12px; font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 6px; transition: all 0.15s; }
+    .btn-primary { background: #0a66c2; color: #fff; }
+    .btn-primary:hover { background: #004182; }
+    .btn-save { background: #22c55e; color: #fff; }
+    .btn-save:hover { background: #16a34a; }
+    .btn-sm { padding: 6px 10px; font-size: 11px; }
+    .stat { display: flex; justify-content: space-between; padding: 6px 0; }
+    .stat-label { color: #94a3b8; font-size: 12px; }
+    .stat-value { color: #e2e8f0; font-size: 12px; font-weight: 600; }
+    .status { font-size: 11px; padding: 8px 12px; border-radius: 6px; margin-top: 8px; }
+    .status-ok { background: #052e16; color: #86efac; }
+    .status-err { background: #450a0a; color: #fca5a5; }
+    .footer { padding: 10px 16px; text-align: center; }
+    .footer a { color: #0a66c2; text-decoration: none; font-size: 11px; }
+    .footer a:hover { text-decoration: underline; }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <img src="../icons/icon48.png" alt="">
+    <div>
+      <h1>LinkedIn Lead Agent</h1>
+      <span>v1.0.0</span>
+    </div>
+  </div>
+
+  <div class="section">
+    <h2>Backend URL</h2>
+    <div class="input-row">
+      <input type="text" id="backendUrl" placeholder="https://your-app.preview.emergentagent.com">
+      <button class="btn btn-save btn-sm" id="saveUrl">Save</button>
+    </div>
+    <div id="urlStatus"></div>
+  </div>
+
+  <div class="section">
+    <h2>Stats</h2>
+    <div class="stat">
+      <span class="stat-label">Connections Synced</span>
+      <span class="stat-value" id="connCount">—</span>
+    </div>
+    <div class="stat">
+      <span class="stat-label">Messages Sent</span>
+      <span class="stat-value" id="msgCount">—</span>
+    </div>
+    <div class="stat">
+      <span class="stat-label">Last Sync</span>
+      <span class="stat-value" id="lastSync">Never</span>
+    </div>
+  </div>
+
+  <div class="section">
+    <h2>Quick Actions</h2>
+    <p style="font-size:11px;color:#94a3b8;margin-bottom:8px">Go to any LinkedIn page and use the floating panel (bottom-right) to sync or message.</p>
+    <button class="btn btn-primary" id="openApp" style="width:100%;justify-content:center">Open Lead Finder App</button>
+  </div>
+
+  <div class="footer">
+    <a href="https://www.linkedin.com/mynetwork/invite-connect/connections/" target="_blank">Go to LinkedIn Connections</a>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>

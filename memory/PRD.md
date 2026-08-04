@@ -46,6 +46,15 @@ Build a multi-agent platform serving 9 completely independent agents, each acces
 - **Transactions View**: Searchable, sortable, filterable table (2877 txns), pagination (100/page)
 - **Filters**: Category, txn type, date range, debit/credit only, text search
 
+### Chrome Extension: LinkedIn Lead Agent (NEW - Aug 2026)
+- **Manifest V3** Chrome extension for LinkedIn automation
+- **Floating Panel**: ⚡ button on LinkedIn pages with Sync + Message Queue
+- **Auto-Sync**: Syncs connections directly to backend (no clipboard needed)
+- **Message Queue**: Pick up message queues from the web app
+- **Compose Flow**: One-tab-at-a-time compose with clipboard copy
+- **Popup**: Backend URL config, stats, quick links
+- Download: `/linkedin-lead-agent-extension.zip`
+
 ## Background Schedulers
 - DDC Farm: Daily at 3 PM IST
 - Credits Scanner: Daily at 6 AM IST
