@@ -1742,12 +1742,11 @@ async def get_browser_script():
     """Return script to sync ALL first-degree LinkedIn connections."""
 
     script = """
-// === LinkedIn Connection Sync v10 ===
-// Fetches ALL 1st degree connections via API (no cap)
-// Falls back to DOM scraping only if API completely fails
+// === LinkedIn Connection Sync v11 ===
+// Tries multiple API approaches to get ALL 1st degree connections
 
 (async () => {
-  console.log('=== LinkedIn Sync v10 ===');
+  console.log('=== LinkedIn Sync v11 ===');
   var delay = function(ms) { return new Promise(function(r) { setTimeout(r, ms); }); };
   var csrf = (document.cookie.match(/JSESSIONID="?([^;"]+)/) || [])[1] || '';
   if (!csrf) { alert('Not logged into LinkedIn'); return; }
@@ -1755,161 +1754,215 @@ async def get_browser_script():
   var results = [];
   var seenIds = {};
 
-  function addResult(item) {
-    var pid = item.publicIdentifier || item.public_id || '';
-    if (!pid || seenIds[pid]) return;
+  function addResult(pid, fn, ln, occ, urn) {
+    if (!pid || seenIds[pid]) return false;
     seenIds[pid] = true;
     results.push({
-      full_name: ((item.firstName||'') + ' ' + (item.lastName||'')).trim() || item.full_name || '',
-      first_name: item.firstName || item.first_name || '',
-      last_name: item.lastName || item.last_name || '',
-      occupation: item.occupation || '',
+      full_name: ((fn||'') + ' ' + (ln||'')).trim(),
+      first_name: fn || '', last_name: ln || '',
+      occupation: occ || '',
       profile_url: 'https://www.linkedin.com/in/' + pid,
-      public_id: pid,
-      entity_urn: item.entityUrn || item.entity_urn || '',
-      avatar_url: ''
+      public_id: pid, entity_urn: urn || '', avatar_url: ''
     });
+    return true;
   }
 
-  // ========== STEP 1: Connections API (primary — fetches ALL connections) ==========
-  console.log('Step 1: Fetching all connections via API...');
+  function extractFromIncluded(included) {
+    var count = 0;
+    for (var i = 0; i < included.length; i++) {
+      var item = included[i];
+      if (!item.firstName) continue;
+      var pid = item.publicIdentifier || '';
+      var urn = item.entityUrn || '';
+      if (!pid && urn) {
+        // Try to extract from objectUrn or other fields
+        pid = item.vanityName || '';
+      }
+      if (pid && addResult(pid, item.firstName, item.lastName, item.occupation, urn)) count++;
+    }
+    return count;
+  }
+
+  // ========== METHOD A: Connections API with decoration range -5 to -25 ==========
+  console.log('Method A: Connections API...');
   var apiWorked = false;
-  var decorations = ['-16', '-15', '-14', '-13', '-12', '-11', '-10'];
 
-  for (var di = 0; di < decorations.length; di++) {
+  for (var decNum = 5; decNum <= 25; decNum++) {
     if (apiWorked) break;
-    var dec = decorations[di];
     try {
-      var testUrl = 'https://www.linkedin.com/voyager/api/relationships/dash/connections'
-        + '?decorationId=com.linkedin.voyager.dash.deco.web.mynetwork.ConnectionListWithProfile' + dec
+      var url = 'https://www.linkedin.com/voyager/api/relationships/dash/connections'
+        + '?decorationId=com.linkedin.voyager.dash.deco.web.mynetwork.ConnectionListWithProfile-' + decNum
         + '&count=40&q=search&sortType=RECENTLY_ADDED&start=0';
-      var testResp = await fetch(testUrl, {headers: H, credentials: 'include'});
-      if (!testResp.ok) {
-        console.log('  Decoration ' + dec + ': HTTP ' + testResp.status);
-        continue;
-      }
-      var testData = await testResp.json();
+      var resp = await fetch(url, {headers: H, credentials: 'include'});
+      if (!resp.ok) continue;
+      var data = await resp.json();
+      var included = data.included || [];
+      // Find total from paging - check all possible locations
       var total = 0;
-      if (testData.data && testData.data.paging) total = testData.data.paging.total || 0;
-      else if (testData.paging) total = testData.paging.total || 0;
+      if (data.data && data.data.paging) total = data.data.paging.total || data.data.paging.count || 0;
+      if (!total && data.paging) total = data.paging.total || data.paging.count || 0;
+      if (!total && data.data && data.data['*elements']) total = data.data['*elements'].length || 0;
+      // If no total found but included has items, estimate
+      if (!total && included.length > 0) total = 99999;
 
-      if (total === 0) {
-        console.log('  Decoration ' + dec + ': 0 total, trying next...');
-        continue;
-      }
-
-      apiWorked = true;
-      console.log('  Decoration ' + dec + ' works! Total connections: ' + total);
-
-      // Process first page
-      var included = testData.included || [];
-      for (var j = 0; j < included.length; j++) {
-        var item = included[j];
-        if (item.firstName && (item.entityUrn || item.publicIdentifier)) {
-          addResult(item);
+      var added = extractFromIncluded(included);
+      if (added > 0) {
+        apiWorked = true;
+        console.log('  Decoration -' + decNum + ' works! Added ' + added + ', total~' + total);
+        // Paginate
+        for (var s = 40; s < total; s += 40) {
+          await delay(400 + Math.random() * 200);
+          try {
+            var nu = 'https://www.linkedin.com/voyager/api/relationships/dash/connections'
+              + '?decorationId=com.linkedin.voyager.dash.deco.web.mynetwork.ConnectionListWithProfile-' + decNum
+              + '&count=40&q=search&sortType=RECENTLY_ADDED&start=' + s;
+            var nr = await fetch(nu, {headers: H, credentials: 'include'});
+            if (!nr.ok) { console.log('  Stopped at ' + s + ': HTTP ' + nr.status); break; }
+            var nd = await nr.json();
+            var before = results.length;
+            extractFromIncluded(nd.included || []);
+            var newAdded = results.length - before;
+            if (s % 200 === 0) console.log('  Progress: ' + results.length + ' connections fetched...');
+            if (newAdded === 0) break;
+          } catch(e) { break; }
         }
+        console.log('  Method A done: ' + results.length + ' connections');
       }
-      console.log('  Page 1: ' + results.length + ' connections');
+    } catch(e) {}
+  }
 
-      // Paginate through ALL remaining connections
-      for (var s = 40; s < total; s += 40) {
-        await delay(500 + Math.random() * 300);
-        try {
-          var nextUrl = 'https://www.linkedin.com/voyager/api/relationships/dash/connections'
-            + '?decorationId=com.linkedin.voyager.dash.deco.web.mynetwork.ConnectionListWithProfile' + dec
-            + '&count=40&q=search&sortType=RECENTLY_ADDED&start=' + s;
-          var nr = await fetch(nextUrl, {headers: H, credentials: 'include'});
-          if (!nr.ok) { console.log('  Stopped at page ' + Math.floor(s/40+1) + ': HTTP ' + nr.status); break; }
-          var nd = await nr.json();
-          var before = results.length;
-          var inc = nd.included || [];
-          for (var k = 0; k < inc.length; k++) {
-            if (inc[k].firstName && (inc[k].entityUrn || inc[k].publicIdentifier)) {
-              addResult(inc[k]);
+  // ========== METHOD B: Search API with 1st degree filter ==========
+  if (!apiWorked) {
+    console.log('Method B: Search API (1st degree)...');
+    try {
+      for (var s = 0; s < 50000; s += 49) {
+        var searchUrl = 'https://www.linkedin.com/voyager/api/search/dash/clusters'
+          + '?decorationId=com.linkedin.voyager.dash.deco.search.SearchClusterCollection-186'
+          + '&origin=FACETED_SEARCH&q=all'
+          + '&query=(flagshipSearchIntent:SEARCH_SRP,queryParameters:List((key:network,value:List(F)),(key:resultType,value:List(PEOPLE))))'
+          + '&count=49&start=' + s;
+        var sr = await fetch(searchUrl, {headers: H, credentials: 'include'});
+        if (!sr.ok) {
+          // Try alternate decoration
+          if (s === 0) {
+            for (var sd = 160; sd <= 200; sd += 5) {
+              searchUrl = 'https://www.linkedin.com/voyager/api/search/dash/clusters'
+                + '?decorationId=com.linkedin.voyager.dash.deco.search.SearchClusterCollection-' + sd
+                + '&origin=FACETED_SEARCH&q=all'
+                + '&query=(flagshipSearchIntent:SEARCH_SRP,queryParameters:List((key:network,value:List(F)),(key:resultType,value:List(PEOPLE))))'
+                + '&count=49&start=0';
+              sr = await fetch(searchUrl, {headers: H, credentials: 'include'});
+              if (sr.ok) { console.log('  Search decoration -' + sd + ' works'); break; }
             }
           }
-          var added = results.length - before;
-          if (s % 200 === 0 || added === 0) {
-            console.log('  Fetched ' + results.length + '/' + total + ' connections...');
-          }
-          if (added === 0) break;
-        } catch(e) { console.log('  Error at ' + s + ': ' + e.message); break; }
+          if (!sr.ok) { console.log('  Search API failed: ' + sr.status); break; }
+        }
+        var sd = await sr.json();
+        var before = results.length;
+        extractFromIncluded(sd.included || []);
+        var added = results.length - before;
+        if (s === 0) console.log('  First page: +' + added);
+        if (s % 490 === 0 && s > 0) console.log('  Search progress: ' + results.length + ' found...');
+        if (added === 0) break;
+        apiWorked = results.length > 0;
+        await delay(400 + Math.random() * 300);
       }
-      console.log('API done: ' + results.length + ' connections fetched');
-    } catch(e) {
-      console.log('  Decoration ' + dec + ' error: ' + e.message);
-    }
+      if (apiWorked) console.log('  Method B done: ' + results.length + ' connections');
+    } catch(e) { console.log('  Search error: ' + e.message); }
   }
 
-  // ========== STEP 1b: If API failed, try without decoration ==========
+  // ========== METHOD C: Plain connections API without decoration ==========
   if (!apiWorked) {
-    console.log('Trying API without decoration...');
+    console.log('Method C: Plain connections API...');
     try {
-      var plainUrl = 'https://www.linkedin.com/voyager/api/relationships/dash/connections?q=search&sortType=RECENTLY_ADDED&count=40&start=0';
-      var plainResp = await fetch(plainUrl, {headers: H, credentials: 'include'});
-      if (plainResp.ok) {
-        var pd = await plainResp.json();
-        var total = pd.data?.paging?.total || pd.paging?.total || 0;
-        console.log('  Plain API: Total=' + total);
-        var inc = pd.included || [];
-        for (var j = 0; j < inc.length; j++) {
-          if (inc[j].firstName) addResult(inc[j]);
-        }
-        if (results.length > 0) {
+      var pr = await fetch('https://www.linkedin.com/voyager/api/relationships/dash/connections?q=search&sortType=RECENTLY_ADDED&count=40&start=0', {headers: H, credentials: 'include'});
+      if (pr.ok) {
+        var pd = await pr.json();
+        // Log response structure for debugging
+        console.log('  Response keys: ' + Object.keys(pd).join(', '));
+        if (pd.data) console.log('  data keys: ' + Object.keys(pd.data).join(', '));
+        console.log('  included length: ' + (pd.included || []).length);
+        var added = extractFromIncluded(pd.included || []);
+        if (added > 0) {
           apiWorked = true;
-          for (var s = 40; s < total; s += 40) {
-            await delay(600);
+          console.log('  Plain API works: +' + added);
+          for (var s = 40; s < 50000; s += 40) {
+            await delay(500);
             try {
-              var nu = 'https://www.linkedin.com/voyager/api/relationships/dash/connections?q=search&sortType=RECENTLY_ADDED&count=40&start=' + s;
-              var nr = await fetch(nu, {headers: H, credentials: 'include'});
+              var nr = await fetch('https://www.linkedin.com/voyager/api/relationships/dash/connections?q=search&sortType=RECENTLY_ADDED&count=40&start=' + s, {headers: H, credentials: 'include'});
               if (!nr.ok) break;
               var nd = await nr.json();
               var before = results.length;
-              var ninc = nd.included || [];
-              for (var k = 0; k < ninc.length; k++) { if (ninc[k].firstName) addResult(ninc[k]); }
+              extractFromIncluded(nd.included || []);
               if (results.length === before) break;
-              if (s % 200 === 0) console.log('  Fetched ' + results.length + '/' + total);
+              if (s % 200 === 0) console.log('  Progress: ' + results.length);
             } catch(e) { break; }
+          }
+        } else {
+          console.log('  No connections in included. Checking elements...');
+          var elems = pd.data && pd.data.elements ? pd.data.elements : (pd.elements || []);
+          console.log('  Elements: ' + elems.length);
+          // elements might contain URN references
+          for (var i = 0; i < Math.min(elems.length, 3); i++) {
+            console.log('  Sample element: ' + JSON.stringify(elems[i]).substring(0, 200));
           }
         }
       }
-    } catch(e) { console.log('  Plain API error: ' + e.message); }
+    } catch(e) { console.log('  Error: ' + e.message); }
   }
 
-  // ========== STEP 2: DOM scraping fallback ==========
-  if (!apiWorked || results.length < 5) {
-    console.log('Step 2: Scraping profiles from current page...');
-    document.querySelectorAll('a[href*="/in/"]').forEach(function(link) {
-      try {
-        var href = link.href.split('?')[0].replace(/\\/$/, '');
-        var m = href.match(/\\/in\\/([a-zA-Z0-9_-]+)/);
-        if (!m) return;
-        var pid = m[1];
-        if (seenIds[pid] || pid.length > 100 || pid.length < 2) return;
-        if (link.closest('nav') || link.closest('header') || link.closest('footer')) return;
-        var container = link.parentElement;
-        for (var i = 0; i < 8 && container; i++) {
-          var txt = container.innerText || '';
-          if (txt.length > 30 && txt.length < 2000) break;
-          container = container.parentElement;
-        }
-        var cardText = (container && container.innerText || '').trim();
-        if (cardText.length < 5) return;
-        var lines = cardText.split('\\n').map(function(l){return l.trim()}).filter(function(l) {
-          return l.length > 1 && l.length < 80 && ['Message','Connect','Follow','Pending','More','...','Promoted'].indexOf(l) === -1;
-        });
-        var fn = '', occ = '';
-        for (var li = 0; li < lines.length; li++) {
-          var line = lines[li];
-          if (!fn && line.length <= 50 && line.indexOf('|') === -1 && line.indexOf('mutual') === -1) { fn = line; continue; }
-          if (fn && !occ && line.indexOf('mutual') === -1 && line.length > 3) { occ = line; break; }
-        }
-        if (!fn || fn.length < 2) return;
-        var parts = fn.split(' ');
-        addResult({firstName: parts[0], lastName: parts.slice(1).join(' '), occupation: occ, publicIdentifier: pid, entityUrn: ''});
-      } catch(e) {}
-    });
-    console.log('DOM scrape: ' + results.length + ' total connections');
+  // ========== METHOD D: DOM scraping with auto-scroll ==========
+  if (results.length < 100) {
+    console.log('Method D: DOM scraping with auto-scroll...');
+    var scrollCount = 0;
+    var maxScrolls = 50;
+    var lastCount = 0;
+
+    while (scrollCount < maxScrolls) {
+      // Scrape current visible profiles
+      document.querySelectorAll('a[href*="/in/"]').forEach(function(link) {
+        try {
+          var href = link.href.split('?')[0].replace(/\\/$/, '');
+          var m = href.match(/\\/in\\/([a-zA-Z0-9_-]+)/);
+          if (!m) return;
+          var pid = m[1];
+          if (seenIds[pid] || pid.length > 100 || pid.length < 2) return;
+          if (link.closest('nav') || link.closest('header') || link.closest('footer')) return;
+          var container = link.parentElement;
+          for (var i = 0; i < 8 && container; i++) {
+            var txt = container.innerText || '';
+            if (txt.length > 30 && txt.length < 2000) break;
+            container = container.parentElement;
+          }
+          var ct = (container && container.innerText || '').trim();
+          if (ct.length < 5) return;
+          var lines = ct.split('\\n').map(function(l){return l.trim()}).filter(function(l) {
+            return l.length > 1 && l.length < 80 && ['Message','Connect','Follow','Pending','More','...','Promoted'].indexOf(l) === -1;
+          });
+          var fn = '', occ = '';
+          for (var li = 0; li < lines.length; li++) {
+            if (!fn && lines[li].length <= 50 && lines[li].indexOf('|') === -1 && lines[li].indexOf('mutual') === -1) { fn = lines[li]; continue; }
+            if (fn && !occ && lines[li].indexOf('mutual') === -1 && lines[li].length > 3) { occ = lines[li]; break; }
+          }
+          if (!fn || fn.length < 2) return;
+          var parts = fn.split(' ');
+          addResult(pid, parts[0], parts.slice(1).join(' '), occ, '');
+        } catch(e) {}
+      });
+
+      if (results.length === lastCount) {
+        // No new results after scroll — try clicking "Show more"
+        var showMore = document.querySelector('button.scaffold-finite-scroll__load-button, button[aria-label*="Show more"]');
+        if (showMore) { showMore.click(); await delay(2000); }
+        else break;
+      }
+      lastCount = results.length;
+      scrollCount++;
+      window.scrollTo(0, document.body.scrollHeight);
+      await delay(1500);
+      if (scrollCount % 10 === 0) console.log('  Scrolled ' + scrollCount + 'x, found ' + results.length + ' connections');
+    }
+    console.log('DOM scrape done: ' + results.length + ' connections');
   }
 
   // ========== DONE ==========
@@ -1934,10 +1987,9 @@ async def get_browser_script():
 })();
 """
     return {"script": script.strip(), "instructions": [
-        "1. Open LinkedIn (any page — just be logged in)",
+        "1. Go to LinkedIn Connections page (linkedin.com/mynetwork/invite-connect/connections/)",
         "2. Press F12 → Console → type 'allow pasting' → Enter",
         "3. Paste the script → Enter",
-        "4. Wait while it fetches ALL your connections (progress shown in console)",
-        "5. Alert shows total — data is on your clipboard",
-        "6. Go to Lead Finder → Messaging → paste in import box → Import"
+        "4. Wait — it tries multiple APIs, then auto-scrolls to load more",
+        "5. When done, paste results in Lead Finder → Messaging → Import"
     ]}
