@@ -1542,7 +1542,7 @@ async def get_intercept_script():
 
 @router.post("/message/compose-script")
 async def generate_compose_script(data: dict):
-    """Generate a script that opens LinkedIn compose URLs for each recipient (Option A)."""
+    """Generate a script that creates a floating UI to message each recipient one by one."""
     recipients = data.get("recipients", [])
     message = data.get("message", "")
     if not recipients or not message:
@@ -1551,33 +1551,90 @@ async def generate_compose_script(data: dict):
     message_js = json.dumps(message)
     recipients_js = json.dumps(recipients)
 
-    script = (
-        "// === LinkedIn Auto-Compose v2 ===\n"
-        "// Opens LinkedIn compose for each recipient\n\n"
-        "(async () => {\n"
-        "  const R = " + recipients_js + ";\n"
-        "  const M = " + message_js + ";\n"
-        "  const wait = ms => new Promise(r => setTimeout(r, ms));\n"
-        "  console.log('Auto-Compose: ' + R.length + ' recipients');\n"
-        "  try { await navigator.clipboard.writeText(M); } catch(e) {\n"
-        "    var t = document.createElement('textarea');\n"
-        "    t.value = M; document.body.appendChild(t); t.select();\n"
-        "    document.execCommand('copy'); document.body.removeChild(t);\n"
-        "  }\n"
-        "  console.log('Message copied to clipboard');\n"
-        "  var opened = 0;\n"
-        "  for (var i = 0; i < R.length; i++) {\n"
-        "    var pid = R[i].public_id;\n"
-        "    if (!pid) { console.log('Skip: no public_id'); continue; }\n"
-        "    var u = 'https://www.linkedin.com/messaging/compose/?recipient=' + encodeURIComponent(pid);\n"
-        "    console.log((i+1) + '/' + R.length + ' ' + R[i].name);\n"
-        "    window.open(u, '_blank');\n"
-        "    opened++;\n"
-        "    if (i < R.length - 1) { await wait(3000); }\n"
-        "  }\n"
-        "  alert('Opened ' + opened + ' compose tabs. Message is on clipboard - Ctrl+V and Send in each.');\n"
-        "})();\n"
-    )
+    # This script creates a floating panel on LinkedIn that lets user
+    # click through recipients one by one, opening compose for each
+    script = """
+// === LinkedIn Bulk Compose v3 ===
+// Creates a floating panel to message recipients one by one
+(function() {
+  var R = """ + recipients_js + """;
+  var M = """ + message_js + """;
+  var idx = 0;
+  var sent = 0;
+
+  // Copy message to clipboard
+  function copyMsg() {
+    try { navigator.clipboard.writeText(M); } catch(e) {
+      var t = document.createElement('textarea');
+      t.value = M; t.style.position = 'fixed'; t.style.left = '-9999px';
+      document.body.appendChild(t); t.select();
+      document.execCommand('copy'); document.body.removeChild(t);
+    }
+  }
+  copyMsg();
+
+  // Create floating panel
+  var panel = document.createElement('div');
+  panel.id = 'bulk-compose-panel';
+  panel.innerHTML = `
+    <div style="position:fixed;top:10px;right:10px;width:380px;background:#1a1a2e;color:#fff;border-radius:12px;padding:20px;z-index:99999;font-family:-apple-system,BlinkMacSystemFont,sans-serif;box-shadow:0 8px 32px rgba(0,0,0,0.4);border:1px solid #333">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+        <span style="font-size:14px;font-weight:600">Bulk Compose</span>
+        <span id="bc-progress" style="font-size:12px;color:#94a3b8">0/${R.length}</span>
+        <button onclick="document.getElementById('bulk-compose-panel').remove()" style="background:none;border:none;color:#94a3b8;cursor:pointer;font-size:18px">&times;</button>
+      </div>
+      <div id="bc-name" style="font-size:16px;font-weight:700;margin-bottom:4px"></div>
+      <div id="bc-occ" style="font-size:12px;color:#94a3b8;margin-bottom:12px"></div>
+      <div id="bc-msg" style="background:#0f172a;border-radius:8px;padding:10px;font-size:11px;color:#cbd5e1;margin-bottom:12px;max-height:80px;overflow:auto;white-space:pre-wrap"></div>
+      <div style="display:flex;gap:8px">
+        <button id="bc-open" style="flex:1;background:#0a66c2;color:#fff;border:none;padding:10px;border-radius:8px;cursor:pointer;font-size:13px;font-weight:600">Open Compose</button>
+        <button id="bc-skip" style="background:#334155;color:#fff;border:none;padding:10px 16px;border-radius:8px;cursor:pointer;font-size:13px">Skip</button>
+      </div>
+      <div id="bc-done" style="display:none;text-align:center;padding:16px;color:#22c55e;font-weight:600"></div>
+      <div style="margin-top:8px;font-size:10px;color:#64748b;text-align:center">Message auto-copied to clipboard. Paste (Ctrl+V) in compose window, then Send.</div>
+    </div>
+  `;
+  document.body.appendChild(panel);
+
+  function showCurrent() {
+    if (idx >= R.length) {
+      document.getElementById('bc-name').textContent = 'All done!';
+      document.getElementById('bc-occ').textContent = '';
+      document.getElementById('bc-msg').style.display = 'none';
+      document.getElementById('bc-open').style.display = 'none';
+      document.getElementById('bc-skip').style.display = 'none';
+      document.getElementById('bc-done').style.display = 'block';
+      document.getElementById('bc-done').textContent = 'Sent: ' + sent + ' / ' + R.length;
+      return;
+    }
+    var r = R[idx];
+    document.getElementById('bc-progress').textContent = (idx+1) + '/' + R.length + ' (sent: ' + sent + ')';
+    document.getElementById('bc-name').textContent = r.name || 'Unknown';
+    document.getElementById('bc-occ').textContent = r.occupation || r.profile_url || '';
+    document.getElementById('bc-msg').textContent = M;
+    copyMsg();
+  }
+
+  document.getElementById('bc-open').addEventListener('click', function() {
+    var r = R[idx];
+    var pid = r.public_id;
+    if (!pid) { idx++; showCurrent(); return; }
+    // Open LinkedIn messaging compose
+    window.open('https://www.linkedin.com/messaging/compose/?recipient=' + encodeURIComponent(pid), '_blank');
+    sent++;
+    idx++;
+    showCurrent();
+  });
+
+  document.getElementById('bc-skip').addEventListener('click', function() {
+    idx++;
+    showCurrent();
+  });
+
+  showCurrent();
+  console.log('Bulk Compose panel ready. ' + R.length + ' recipients loaded.');
+})();
+"""
 
     return {"script": script.strip(), "recipients_count": len(recipients)}
 
