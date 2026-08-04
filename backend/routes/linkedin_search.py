@@ -1551,13 +1551,34 @@ async def generate_compose_script(data: dict):
     message_js = json.dumps(message)
     recipients_js = json.dumps(recipients)
 
-    # Script uses pure DOM creation to bypass LinkedIn's HTML sanitization
+    # Script uses localStorage to persist across page navigations — no new tabs
     script = """
-// === LinkedIn Bulk Compose v4 ===
+// === LinkedIn Bulk Compose v5 ===
+// Same-tab messaging with persistent floating panel
 (function() {
-  var R = """ + recipients_js + """;
-  var M = """ + message_js + """;
-  var idx = 0, sent = 0;
+  var KEY = 'bulk_compose_data';
+  var R, M, idx, sent;
+
+  // Check if resuming from localStorage
+  var saved = localStorage.getItem(KEY);
+  if (saved) {
+    try {
+      var d = JSON.parse(saved);
+      R = d.R; M = d.M; idx = d.idx; sent = d.sent;
+      console.log('Resuming bulk compose at ' + (idx+1) + '/' + R.length);
+    } catch(e) { localStorage.removeItem(KEY); }
+  }
+
+  // If fresh start, use embedded data
+  if (!R) {
+    R = """ + recipients_js + """;
+    M = """ + message_js + """;
+    idx = 0; sent = 0;
+  }
+
+  function save() {
+    localStorage.setItem(KEY, JSON.stringify({R:R, M:M, idx:idx, sent:sent}));
+  }
 
   function copyMsg() {
     try {
@@ -1565,57 +1586,65 @@ async def generate_compose_script(data: dict):
       t.value = M; t.style.cssText = 'position:fixed;left:-9999px;top:0';
       document.body.appendChild(t); t.focus(); t.select();
       document.execCommand('copy'); document.body.removeChild(t);
-    } catch(e) { console.log('Copy failed: ' + e.message); }
+    } catch(e) {}
   }
 
-  // Build panel with DOM API (not innerHTML — LinkedIn strips IDs from innerHTML)
+  // Remove old panel if exists
+  var old = document.getElementById('bc-wrap-v5');
+  if (old) old.remove();
+
+  // Build panel
   var wrap = document.createElement('div');
-  wrap.style.cssText = 'position:fixed;top:10px;right:10px;width:360px;background:#1a1a2e;color:#fff;border-radius:12px;padding:20px;z-index:999999;font-family:system-ui,sans-serif;box-shadow:0 8px 32px rgba(0,0,0,0.5);border:1px solid #444';
+  wrap.id = 'bc-wrap-v5';
+  wrap.style.cssText = 'position:fixed;top:10px;right:10px;width:340px;background:#1a1a2e;color:#fff;border-radius:12px;padding:18px;z-index:999999;font-family:system-ui,sans-serif;box-shadow:0 8px 32px rgba(0,0,0,0.5);border:1px solid #444';
 
   var header = document.createElement('div');
-  header.style.cssText = 'display:flex;justify-content:space-between;margin-bottom:12px';
+  header.style.cssText = 'display:flex;justify-content:space-between;margin-bottom:10px';
   var title = document.createElement('b');
   title.textContent = 'Bulk Compose';
-  title.style.fontSize = '14px';
+  title.style.fontSize = '13px';
   var prog = document.createElement('span');
   prog.style.cssText = 'font-size:12px;color:#94a3b8';
   var closeBtn = document.createElement('button');
   closeBtn.textContent = 'X';
-  closeBtn.style.cssText = 'background:none;border:none;color:#999;cursor:pointer;font-size:14px';
-  closeBtn.onclick = function() { wrap.remove(); };
+  closeBtn.style.cssText = 'background:none;border:none;color:#999;cursor:pointer;font-size:14px;padding:0';
+  closeBtn.onclick = function() { wrap.remove(); localStorage.removeItem(KEY); };
   header.appendChild(title);
   header.appendChild(prog);
   header.appendChild(closeBtn);
   wrap.appendChild(header);
 
   var nameEl = document.createElement('div');
-  nameEl.style.cssText = 'font-size:16px;font-weight:700;margin-bottom:4px';
+  nameEl.style.cssText = 'font-size:15px;font-weight:700;margin-bottom:2px';
   wrap.appendChild(nameEl);
 
   var occEl = document.createElement('div');
-  occEl.style.cssText = 'font-size:11px;color:#94a3b8;margin-bottom:10px';
+  occEl.style.cssText = 'font-size:11px;color:#94a3b8;margin-bottom:8px';
   wrap.appendChild(occEl);
 
   var msgBox = document.createElement('div');
-  msgBox.style.cssText = 'background:#0f172a;border-radius:8px;padding:10px;font-size:11px;color:#cbd5e1;margin-bottom:12px;max-height:60px;overflow:auto;white-space:pre-wrap';
+  msgBox.style.cssText = 'background:#0f172a;border-radius:6px;padding:8px;font-size:10px;color:#cbd5e1;margin-bottom:10px;max-height:50px;overflow:auto;white-space:pre-wrap';
   msgBox.textContent = M;
   wrap.appendChild(msgBox);
 
   var btnRow = document.createElement('div');
-  btnRow.style.cssText = 'display:flex;gap:8px';
+  btnRow.style.cssText = 'display:flex;gap:6px';
+
   var openBtn = document.createElement('button');
   openBtn.textContent = 'Open Compose';
-  openBtn.style.cssText = 'flex:1;background:#0a66c2;color:#fff;border:none;padding:10px;border-radius:8px;cursor:pointer;font-size:13px;font-weight:600';
+  openBtn.style.cssText = 'flex:1;background:#0a66c2;color:#fff;border:none;padding:9px;border-radius:8px;cursor:pointer;font-size:13px;font-weight:600';
+
   var skipBtn = document.createElement('button');
   skipBtn.textContent = 'Skip';
-  skipBtn.style.cssText = 'background:#334155;color:#fff;border:none;padding:10px 16px;border-radius:8px;cursor:pointer;font-size:13px';
+  skipBtn.style.cssText = 'background:#334155;color:#fff;border:none;padding:9px 14px;border-radius:8px;cursor:pointer;font-size:13px';
+
   btnRow.appendChild(openBtn);
   btnRow.appendChild(skipBtn);
   wrap.appendChild(btnRow);
 
   var hint = document.createElement('div');
-  hint.style.cssText = 'margin-top:8px;font-size:10px;color:#64748b;text-align:center';
-  hint.textContent = 'Message copied to clipboard. Paste (Ctrl+V) in compose, then Send.';
+  hint.style.cssText = 'margin-top:6px;font-size:10px;color:#64748b;text-align:center';
+  hint.textContent = 'Opens compose in this tab. After sending, press Back to continue.';
   wrap.appendChild(hint);
 
   document.body.appendChild(wrap);
@@ -1623,9 +1652,12 @@ async def generate_compose_script(data: dict):
   function show() {
     if (idx >= R.length) {
       nameEl.textContent = 'All done!';
-      occEl.textContent = 'Sent: ' + sent + ' / ' + R.length;
+      occEl.textContent = '';
+      prog.textContent = 'Sent: ' + sent + '/' + R.length;
       msgBox.style.display = 'none';
       btnRow.style.display = 'none';
+      hint.textContent = 'Finished! Close this panel.';
+      localStorage.removeItem(KEY);
       return;
     }
     var r = R[idx];
@@ -1637,16 +1669,24 @@ async def generate_compose_script(data: dict):
 
   openBtn.onclick = function() {
     var r = R[idx];
-    if (!r || !r.public_id) { idx++; show(); return; }
+    if (!r || !r.public_id) { idx++; save(); show(); return; }
     copyMsg();
-    window.open('https://www.linkedin.com/messaging/compose/?recipient=' + encodeURIComponent(r.public_id), '_blank');
-    sent++; idx++; show();
+    sent++; idx++;
+    save();
+    // Navigate in same tab
+    window.location.href = 'https://www.linkedin.com/messaging/compose/?recipient=' + encodeURIComponent(r.public_id);
   };
 
-  skipBtn.onclick = function() { idx++; show(); };
+  skipBtn.onclick = function() { idx++; save(); show(); };
 
   show();
-  console.log('Bulk Compose panel loaded. ' + R.length + ' recipients. Click Open Compose for each.');
+  console.log('Bulk Compose v5: ' + R.length + ' recipients. Panel ready.');
+
+  // Auto-resume: watch for page loads
+  if (saved) {
+    hint.textContent = 'Resumed! Paste (Ctrl+V) your message, Send, then come back here.';
+    hint.style.color = '#22c55e';
+  }
 })();
 """
 
