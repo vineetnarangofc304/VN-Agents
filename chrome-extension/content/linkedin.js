@@ -17,7 +17,7 @@
   panel.id = 'lla-panel';
   panel.innerHTML = [
     '<div class="lla-header">',
-    '  <h3>Lead Agent <span style="font-size:9px;color:#64748b;font-weight:400">v1.4.1</span></h3>',
+    '  <h3>Lead Agent <span style="font-size:9px;color:#64748b;font-weight:400">v1.5.0</span></h3>',
     '  <button class="lla-close" id="lla-close-btn">&times;</button>',
     '</div>',
     '<div class="lla-body">',
@@ -344,47 +344,47 @@
     for (var i = 0; i < limit; i++) {
       var c = toEnrich[i];
       try {
-        // Contact info endpoint
-        var ciUrl = 'https://www.linkedin.com/voyager/api/identity/profiles/' + encodeURIComponent(c.public_id) + '/profileContactInfo';
+        // Use dash endpoint (old profileContactInfo returns 410)
+        var ciUrl = 'https://www.linkedin.com/voyager/api/identity/dash/profiles?q=memberIdentity&memberIdentity=' + encodeURIComponent(c.public_id) + '&decorationId=com.linkedin.voyager.dash.deco.identity.profile.ProfileContactInfo-13';
         var pr = await fetch(ciUrl, {headers: H, credentials: 'include'});
-        // Log first response for debugging
-        if (i === 0) {
-          log('ContactInfo API: HTTP ' + pr.status, pr.ok ? 'ok' : 'err');
-          if (pr.ok) {
-            var raw = await pr.text();
-            log('Response: ' + raw.substring(0, 300), 'info');
-            var pd = JSON.parse(raw);
-          } else {
-            // Try dash version
-            var ciUrl2 = 'https://www.linkedin.com/voyager/api/identity/dash/profiles?q=memberIdentity&memberIdentity=' + encodeURIComponent(c.public_id) + '&decorationId=com.linkedin.voyager.dash.deco.identity.profile.ProfileContactInfo-13';
-            var pr2 = await fetch(ciUrl2, {headers: H, credentials: 'include'});
-            log('Dash ContactInfo: HTTP ' + pr2.status, pr2.ok ? 'ok' : 'err');
-            if (pr2.ok) {
-              var raw2 = await pr2.text();
-              log('Dash response: ' + raw2.substring(0, 300), 'info');
-            }
-            continue;
-          }
-        } else {
-          if (!pr.ok) continue;
-          var pd = await pr.json();
-        }
+        if (!pr.ok) continue;
+        var pd = await pr.json();
         var email = '', phone = '', city = '';
-        // Direct fields on response
-        if (pd.emailAddress) email = pd.emailAddress;
-        if (pd.phoneNumbers && pd.phoneNumbers.length > 0) phone = pd.phoneNumbers[0].number || '';
-        if (pd.address) city = pd.address;
-        if (pd.data) {
-          if (pd.data.emailAddress) email = pd.data.emailAddress;
-          if (pd.data.phoneNumbers && pd.data.phoneNumbers.length > 0) phone = pd.data.phoneNumbers[0].number || '';
+
+        // Parse elements array
+        var elems = pd.elements || [];
+        for (var ei = 0; ei < elems.length; ei++) {
+          var el = elems[ei];
+          // Email
+          if (el.emailAddress && !email) email = el.emailAddress;
+          // Phone — nested structure: phoneNumbers[].phoneNumber.number
+          if (el.phoneNumbers && el.phoneNumbers.length > 0) {
+            for (var pi = 0; pi < el.phoneNumbers.length; pi++) {
+              var pn = el.phoneNumbers[pi];
+              if (pn.phoneNumber && pn.phoneNumber.number && !phone) {
+                phone = pn.phoneNumber.number;
+                break;
+              }
+              if (pn.number && !phone) phone = pn.number;
+            }
+          }
+          // Address/location
+          if (el.address && !city) city = el.address;
         }
-        // Check included/elements
-        var items = pd.included || pd.elements || [];
-        for (var j = 0; j < items.length; j++) {
-          var item = items[j];
-          if (item.emailAddress && !email) email = item.emailAddress;
-          if (item.phoneNumbers && item.phoneNumbers.length > 0 && !phone) phone = item.phoneNumbers[0].number || '';
+
+        // Also check included array
+        var incl = pd.included || [];
+        for (var j = 0; j < incl.length; j++) {
+          if (incl[j].emailAddress && !email) email = incl[j].emailAddress;
+          if (incl[j].phoneNumbers && !phone) {
+            var pns = incl[j].phoneNumbers;
+            for (var pi = 0; pi < pns.length; pi++) {
+              if (pns[pi].phoneNumber && pns[pi].phoneNumber.number) { phone = pns[pi].phoneNumber.number; break; }
+              if (pns[pi].number) { phone = pns[pi].number; break; }
+            }
+          }
         }
+
         if (email || phone || city) {
           enriched.push({public_id: c.public_id, email: email, phone: phone, city: city, company: ''});
         }
