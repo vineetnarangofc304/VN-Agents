@@ -17,7 +17,7 @@
   panel.id = 'lla-panel';
   panel.innerHTML = [
     '<div class="lla-header">',
-    '  <h3>Lead Agent</h3>',
+    '  <h3>Lead Agent <span style="font-size:9px;color:#64748b;font-weight:400">v1.1.0</span></h3>',
     '  <button class="lla-close" id="lla-close-btn">&times;</button>',
     '</div>',
     '<div class="lla-body">',
@@ -112,81 +112,94 @@
       return count;
     }
 
-    // Method A: Connections API — log response structure, check elements AND included
+    // Method A: Connections API — log FULL first response for debugging
     log('Trying Connections API...', 'info');
     var apiWorked = false;
 
-    for (var decNum = 5; decNum <= 30 && !apiWorked; decNum++) {
-      try {
-        var url = 'https://www.linkedin.com/voyager/api/relationships/dash/connections'
-          + '?decorationId=com.linkedin.voyager.dash.deco.web.mynetwork.ConnectionListWithProfile-' + decNum
-          + '&count=40&q=search&sortType=RECENTLY_ADDED&start=0';
-        var resp = await fetch(url, { headers: H, credentials: 'include' });
-        if (!resp.ok) continue;
-        var data = await resp.json();
-        // Log structure for first attempt only
-        if (decNum === 5) {
-          log('API keys: ' + Object.keys(data).join(','), 'info');
-          if (data.data) log('data keys: ' + Object.keys(data.data).join(','), 'info');
-          log('included: ' + (data.included || []).length + ', elements: ' + ((data.data && data.data.elements) || data.elements || []).length, 'info');
-          // Check for *elements (URN references)
-          if (data.data && data.data['*elements']) log('*elements: ' + data.data['*elements'].length, 'info');
-        }
-        // Extract from included
-        var added = extractFromIncluded(data.included || []);
-        // Also try elements array which might have connection data
-        var elems = (data.data && data.data.elements) || data.elements || [];
-        for (var ei = 0; ei < elems.length; ei++) {
-          var el = elems[ei];
-          if (el.connectedMemberResolutionResult) {
-            var m = el.connectedMemberResolutionResult;
-            if (m.firstName && addResult(m.publicIdentifier || '', m.firstName, m.lastName, m.occupation, m.entityUrn)) added++;
-          }
-          // Also check for nested profile data
-          if (el.connectedMember) {
-            var ref = el.connectedMember;
-            // ref might be a URN string like "urn:li:fsd_profile:xxx" — find matching in included
-            if (typeof ref === 'string') {
-              for (var ii = 0; ii < (data.included || []).length; ii++) {
-                if ((data.included[ii].entityUrn || '') === ref) {
-                  var item = data.included[ii];
-                  if (item.firstName && addResult(item.publicIdentifier || '', item.firstName, item.lastName, item.occupation, item.entityUrn)) added++;
-                  break;
-                }
-              }
-            }
+    // First, do ONE diagnostic call to see what API returns
+    try {
+      var diagUrl = 'https://www.linkedin.com/voyager/api/relationships/dash/connections?decorationId=com.linkedin.voyager.dash.deco.web.mynetwork.ConnectionListWithProfile-16&count=10&q=search&sortType=RECENTLY_ADDED&start=0';
+      var diagResp = await fetch(diagUrl, { headers: H, credentials: 'include' });
+      log('Diag API: HTTP ' + diagResp.status, diagResp.ok ? 'ok' : 'err');
+      if (diagResp.ok) {
+        var diagData = await diagResp.json();
+        var dKeys = Object.keys(diagData);
+        log('Keys: ' + dKeys.join(', '), 'info');
+        log('included: ' + (diagData.included || []).length, 'info');
+        if (diagData.data) {
+          log('data keys: ' + Object.keys(diagData.data).join(', '), 'info');
+          if (diagData.data.paging) log('paging: ' + JSON.stringify(diagData.data.paging), 'info');
+          if (diagData.data['*elements']) log('*elements: ' + diagData.data['*elements'].length, 'info');
+          var elems = diagData.data.elements || [];
+          if (elems.length > 0) {
+            log('elements[0] keys: ' + Object.keys(elems[0]).join(', '), 'info');
+            // Log first element sample
+            log('elem[0]: ' + JSON.stringify(elems[0]).substring(0, 200), 'info');
           }
         }
+        // Try extracting from whatever structure exists
+        var allItems = diagData.included || [];
+        // Also check if elements contain references we need to resolve
+        if (allItems.length > 0) {
+          var sample = allItems[0];
+          log('included[0] keys: ' + Object.keys(sample).join(', '), 'info');
+          if (sample.firstName) log('Has firstName! extracting...', 'ok');
+        }
+        var added = extractFromIncluded(allItems);
         if (added > 0) {
           apiWorked = true;
-          log('Decoration -' + decNum + ' works! +' + added, 'ok');
-          // Determine total
+          log('Extracted ' + added + ' from decoration -16', 'ok');
+          // Paginate with same decoration
           var total = 99999;
-          if (data.data && data.data.paging) total = data.data.paging.total || total;
-          else if (data.paging) total = data.paging.total || total;
-          // Paginate
-          for (var s = 40; s < total; s += 40) {
-            await delay(400 + Math.random() * 200);
+          if (diagData.data && diagData.data.paging) total = diagData.data.paging.total || total;
+          for (var s = 10; s < total; s += 40) {
+            await delay(400);
             try {
-              var nu = url.replace('start=0', 'start=' + s);
+              var nu = 'https://www.linkedin.com/voyager/api/relationships/dash/connections?decorationId=com.linkedin.voyager.dash.deco.web.mynetwork.ConnectionListWithProfile-16&count=40&q=search&sortType=RECENTLY_ADDED&start=' + s;
               var nr = await fetch(nu, { headers: H, credentials: 'include' });
               if (!nr.ok) break;
               var nd = await nr.json();
               var before = results.length;
               extractFromIncluded(nd.included || []);
-              var nElems = (nd.data && nd.data.elements) || nd.elements || [];
-              for (var nei = 0; nei < nElems.length; nei++) {
-                if (nElems[nei].connectedMemberResolutionResult) {
-                  var nm = nElems[nei].connectedMemberResolutionResult;
-                  if (nm.firstName) addResult(nm.publicIdentifier || '', nm.firstName, nm.lastName, nm.occupation, nm.entityUrn);
-                }
-              }
               if (results.length === before) break;
-              if (s % 200 === 0) log('Progress: ' + results.length + '/' + total, 'info');
-            } catch (e) { break; }
+              if (s % 200 === 0) log('API: ' + results.length + ' fetched...', 'info');
+            } catch(e) { break; }
           }
         }
-      } catch (e) { }
+      }
+    } catch(e) { log('Diag error: ' + e.message, 'err'); }
+
+    // If diagnostic didn't work, try other decorations
+    if (!apiWorked) {
+      for (var decNum = 5; decNum <= 30 && !apiWorked; decNum++) {
+        if (decNum === 16) continue; // already tried
+        try {
+          var url = 'https://www.linkedin.com/voyager/api/relationships/dash/connections'
+            + '?decorationId=com.linkedin.voyager.dash.deco.web.mynetwork.ConnectionListWithProfile-' + decNum
+            + '&count=40&q=search&sortType=RECENTLY_ADDED&start=0';
+          var resp = await fetch(url, { headers: H, credentials: 'include' });
+          if (!resp.ok) continue;
+          var data = await resp.json();
+          var added = extractFromIncluded(data.included || []);
+          if (added > 0) {
+            apiWorked = true;
+            log('Decoration -' + decNum + ' works! +' + added, 'ok');
+            for (var s = 40; s < 99999; s += 40) {
+              await delay(400 + Math.random() * 200);
+              try {
+                var nu = url.replace('start=0', 'start=' + s);
+                var nr = await fetch(nu, { headers: H, credentials: 'include' });
+                if (!nr.ok) break;
+                var nd = await nr.json();
+                var before = results.length;
+                extractFromIncluded(nd.included || []);
+                if (results.length === before) break;
+                if (s % 200 === 0) log('Progress: ' + results.length, 'info');
+              } catch (e) { break; }
+            }
+          }
+        } catch (e) { }
+      }
     }
 
     // Method B: Search API
@@ -228,11 +241,11 @@
       }
     }
 
-    // Method C: DOM scraping with PROPER auto-scroll for LinkedIn connections page
+    // Method C: DOM scraping with NATURAL incremental scroll
     if (results.length < 100) {
       log('DOM scraping + auto-scroll...', 'info');
       var staleCount = 0;
-      var maxScrolls = 500; // enough for thousands of connections
+      var maxScrolls = 500;
       for (var scroll = 0; scroll < maxScrolls; scroll++) {
         // Scrape all visible profiles
         document.querySelectorAll('a[href*="/in/"]').forEach(function (link) {
@@ -266,41 +279,34 @@
 
         var beforeScroll = results.length;
 
-        // Scroll — try multiple containers that LinkedIn might use
-        var scrolled = false;
-        var containers = [
-          document.querySelector('.scaffold-finite-scroll__content'),
-          document.querySelector('.mn-connections'),
-          document.querySelector('main'),
-          document.querySelector('.authentication-outlet'),
-          document.documentElement
-        ];
-        for (var ci = 0; ci < containers.length; ci++) {
-          var c = containers[ci];
-          if (c && c.scrollHeight > c.clientHeight + 100) {
-            c.scrollTop = c.scrollHeight;
-            scrolled = true;
-            break;
-          }
-        }
-        if (!scrolled) window.scrollTo(0, document.body.scrollHeight);
+        // Natural scroll — increment by viewport height (triggers lazy loading)
+        window.scrollBy(0, window.innerHeight);
 
-        // Also click any "Show more" or load more buttons
-        var loadBtns = document.querySelectorAll('button.scaffold-finite-scroll__load-button, button[aria-label*="Show more"], button[aria-label*="Load more"]');
-        loadBtns.forEach(function(b) { try { b.click(); } catch(e) {} });
+        // Also try clicking any load-more buttons
+        var btns = document.querySelectorAll(
+          'button.scaffold-finite-scroll__load-button,' +
+          'button[aria-label*="Show more"],' +
+          'button[aria-label*="Load more"],' +
+          'button.artdeco-button--muted'
+        );
+        btns.forEach(function(b) {
+          if (b.offsetParent && (b.textContent || '').toLowerCase().indexOf('show more') >= 0) {
+            try { b.click(); log('Clicked: Show more', 'info'); } catch(e) {}
+          }
+        });
 
         await delay(1200 + Math.random() * 500);
 
         if (results.length === beforeScroll) {
           staleCount++;
-          if (staleCount >= 5) {
-            log('No new connections after 5 scrolls, stopping', 'info');
+          if (staleCount >= 8) {
+            log('No new connections after 8 scrolls. Stopping.', 'info');
             break;
           }
         } else {
           staleCount = 0;
         }
-        if (scroll % 10 === 9) log('Scroll ' + (scroll+1) + ': ' + results.length + ' connections', 'info');
+        if (scroll % 5 === 4) log('Scroll ' + (scroll+1) + ': ' + results.length + ' connections', 'info');
       }
     }
 

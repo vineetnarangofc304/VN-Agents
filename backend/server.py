@@ -951,6 +951,15 @@ async def startup_event():
     await db.users.create_index("email", unique=True)
     await db.invoices.create_index("user_id")
     await db.invoices.create_index("id", unique=True)
+    # LinkedIn CRM indexes
+    await db.li_connections.create_index("public_id", unique=True)
+    await db.li_connections.create_index([("full_name", 1)])
+    await db.li_connections.create_index([("occupation", 1)])
+    await db.li_connections.create_index([("company", 1)])
+    await db.li_connections.create_index([("messages_sent", -1)])
+    await db.li_connections.create_index([("last_contacted", -1)])
+    await db.li_message_log.create_index([("public_id", 1), ("sent_at", -1)])
+    await db.li_message_log.create_index([("sent_at", -1)])
     
     # Seed admin user
     admin_email = os.environ.get("ADMIN_EMAIL", "vineetnarangofc@gmail.com")

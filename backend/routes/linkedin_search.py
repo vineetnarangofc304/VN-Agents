@@ -1672,68 +1672,214 @@ async def generate_compose_script(data: dict):
 
 @router.post("/connections/push")
 async def push_connections(data: dict):
-    """Receive connections data pushed from browser console script."""
+    """Receive connections — upsert by public_id (no duplicates)."""
     connections = data.get("connections", [])
     if not connections:
         raise HTTPException(status_code=400, detail="No connections data")
 
     stored = 0
+    new_count = 0
     for conn in connections:
         public_id = conn.get("public_id", "")
         if not public_id:
             continue
-        # Upsert by public_id
+        occupation = conn.get("occupation", "")
+        # Extract company and city from occupation if possible
+        company = ""
+        city = ""
+        if " at " in occupation:
+            parts = occupation.split(" at ", 1)
+            company = parts[1].strip() if len(parts) > 1 else ""
+        elif " @ " in occupation:
+            parts = occupation.split(" @ ", 1)
+            company = parts[1].strip() if len(parts) > 1 else ""
+        # Check if record exists
+        existing = await db.li_connections.find_one({"public_id": public_id})
+        is_new = existing is None
+
+        update_doc = {
+            "first_name": conn.get("first_name", ""),
+            "last_name": conn.get("last_name", ""),
+            "full_name": conn.get("full_name", ""),
+            "occupation": occupation,
+            "company": company or (existing.get("company", "") if existing else ""),
+            "city": city or (existing.get("city", "") if existing else ""),
+            "profile_url": conn.get("profile_url", f"https://www.linkedin.com/in/{public_id}"),
+            "avatar_url": conn.get("avatar_url", ""),
+            "public_id": public_id,
+            "entity_urn": conn.get("entity_urn", "") or (existing.get("entity_urn", "") if existing else ""),
+            "synced_at": datetime.now(timezone.utc),
+        }
+        # Don't overwrite message stats on re-sync
+        if is_new:
+            update_doc["messages_sent"] = 0
+            update_doc["last_contacted"] = None
+            update_doc["created_at"] = datetime.now(timezone.utc)
+
         await db.li_connections.update_one(
             {"public_id": public_id},
-            {"$set": {
-                "first_name": conn.get("first_name", ""),
-                "last_name": conn.get("last_name", ""),
-                "full_name": conn.get("full_name", ""),
-                "occupation": conn.get("occupation", ""),
-                "profile_url": conn.get("profile_url", f"https://www.linkedin.com/in/{public_id}"),
-                "avatar_url": conn.get("avatar_url", ""),
-                "public_id": public_id,
-                "entity_urn": conn.get("entity_urn", ""),
-                "urn": conn.get("urn", conn.get("entity_urn", "")),
-                "synced_at": datetime.now(timezone.utc),
-            }},
+            {"$set": update_doc},
             upsert=True
         )
         stored += 1
+        if is_new:
+            new_count += 1
 
-    return {"success": True, "stored": stored, "total": await db.li_connections.count_documents({})}
+    total = await db.li_connections.count_documents({})
+    return {"success": True, "stored": stored, "new": new_count, "duplicates": stored - new_count, "total": total}
 
 
 @router.get("/connections")
 async def get_connections(
     start: int = 0,
-    count: int = 40,
-    keyword: str = ""
+    count: int = 50,
+    keyword: str = "",
+    sort_by: str = "full_name",
+    sort_dir: int = 1,
+    filter_contacted: str = "",
+    filter_company: str = "",
+    filter_city: str = "",
 ):
-    """Fetch stored LinkedIn connections."""
+    """Fetch connections with rich search, filters, sorting."""
     query = {}
+    conditions = []
+
     if keyword:
-        query["$or"] = [
+        conditions.append({"$or": [
             {"full_name": {"$regex": keyword, "$options": "i"}},
-            {"first_name": {"$regex": keyword, "$options": "i"}},
-            {"last_name": {"$regex": keyword, "$options": "i"}},
             {"occupation": {"$regex": keyword, "$options": "i"}},
-        ]
+            {"company": {"$regex": keyword, "$options": "i"}},
+            {"city": {"$regex": keyword, "$options": "i"}},
+            {"public_id": {"$regex": keyword, "$options": "i"}},
+        ]})
+
+    if filter_contacted == "yes":
+        conditions.append({"messages_sent": {"$gt": 0}})
+    elif filter_contacted == "no":
+        conditions.append({"$or": [{"messages_sent": 0}, {"messages_sent": {"$exists": False}}]})
+
+    if filter_company:
+        conditions.append({"$or": [
+            {"company": {"$regex": filter_company, "$options": "i"}},
+            {"occupation": {"$regex": filter_company, "$options": "i"}},
+        ]})
+
+    if filter_city:
+        conditions.append({"city": {"$regex": filter_city, "$options": "i"}})
+
+    if conditions:
+        query = {"$and": conditions} if len(conditions) > 1 else conditions[0]
+
+    # Valid sort fields
+    valid_sorts = {"full_name": 1, "occupation": 1, "company": 1, "city": 1,
+                   "last_contacted": -1, "messages_sent": -1, "synced_at": -1, "created_at": -1}
+    sort_field = sort_by if sort_by in valid_sorts else "full_name"
 
     total = await db.li_connections.count_documents(query)
-    cursor = db.li_connections.find(query).sort("full_name", 1).skip(start).limit(count)
+    cursor = db.li_connections.find(query).sort(sort_field, sort_dir).skip(start).limit(count)
     connections = []
     async for doc in cursor:
         doc["_id"] = str(doc["_id"])
-        if isinstance(doc.get("synced_at"), datetime):
-            doc["synced_at"] = doc["synced_at"].isoformat()
+        for dt_field in ["synced_at", "last_contacted", "created_at"]:
+            if isinstance(doc.get(dt_field), datetime):
+                doc[dt_field] = doc[dt_field].isoformat()
         connections.append(doc)
 
+    return {"connections": connections, "total": total, "start": start, "count": count}
+
+
+@router.get("/connections/{public_id}")
+async def get_connection_detail(public_id: str):
+    """Get single connection with message history."""
+    conn = await db.li_connections.find_one({"public_id": public_id})
+    if not conn:
+        raise HTTPException(status_code=404, detail="Connection not found")
+    conn["_id"] = str(conn["_id"])
+    for dt_field in ["synced_at", "last_contacted", "created_at"]:
+        if isinstance(conn.get(dt_field), datetime):
+            conn[dt_field] = conn[dt_field].isoformat()
+
+    # Get message history
+    messages = []
+    cursor = db.li_message_log.find({"public_id": public_id}).sort("sent_at", -1).limit(50)
+    async for msg in cursor:
+        msg["_id"] = str(msg["_id"])
+        if isinstance(msg.get("sent_at"), datetime):
+            msg["sent_at"] = msg["sent_at"].isoformat()
+        messages.append(msg)
+
+    conn["message_history"] = messages
+    return conn
+
+
+@router.post("/messages/log")
+async def log_message(data: dict):
+    """Log a sent message for tracking."""
+    public_id = data.get("public_id", "")
+    message = data.get("message", "")
+    recipient_name = data.get("recipient_name", "")
+    if not public_id or not message:
+        raise HTTPException(status_code=400, detail="public_id and message required")
+
+    now = datetime.now(timezone.utc)
+    await db.li_message_log.insert_one({
+        "public_id": public_id,
+        "recipient_name": recipient_name,
+        "message": message,
+        "sent_at": now,
+    })
+    # Update contact stats
+    await db.li_connections.update_one(
+        {"public_id": public_id},
+        {"$set": {"last_contacted": now}, "$inc": {"messages_sent": 1}}
+    )
+    return {"success": True}
+
+
+@router.get("/messages/log")
+async def get_message_log(
+    start: int = 0,
+    count: int = 50,
+    public_id: str = "",
+):
+    """Get message log / report."""
+    query = {}
+    if public_id:
+        query["public_id"] = public_id
+    total = await db.li_message_log.count_documents(query)
+    cursor = db.li_message_log.find(query).sort("sent_at", -1).skip(start).limit(count)
+    messages = []
+    async for msg in cursor:
+        msg["_id"] = str(msg["_id"])
+        if isinstance(msg.get("sent_at"), datetime):
+            msg["sent_at"] = msg["sent_at"].isoformat()
+        messages.append(msg)
+    return {"messages": messages, "total": total}
+
+
+@router.get("/connections/stats/overview")
+async def get_connections_stats():
+    """Get overview stats for the CRM."""
+    total = await db.li_connections.count_documents({})
+    contacted = await db.li_connections.count_documents({"messages_sent": {"$gt": 0}})
+    total_messages = await db.li_message_log.count_documents({})
+    # Top companies
+    pipeline = [
+        {"$match": {"company": {"$ne": "", "$exists": True}}},
+        {"$group": {"_id": "$company", "count": {"$sum": 1}}},
+        {"$sort": {"count": -1}},
+        {"$limit": 10}
+    ]
+    top_companies = []
+    async for doc in db.li_connections.aggregate(pipeline):
+        top_companies.append({"company": doc["_id"], "count": doc["count"]})
+
     return {
-        "connections": connections,
-        "total": total,
-        "start": start,
-        "count": count
+        "total_connections": total,
+        "contacted": contacted,
+        "not_contacted": total - contacted,
+        "total_messages": total_messages,
+        "top_companies": top_companies,
     }
 
 

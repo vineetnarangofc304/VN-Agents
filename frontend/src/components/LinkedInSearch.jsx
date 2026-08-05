@@ -597,357 +597,438 @@ const LinkedInSearch = () => {
         </>
       )}
 
-      {/* ==================== MESSAGING TAB ==================== */}
+      {/* ==================== MESSAGING / CRM TAB ==================== */}
       {activeTab === "messaging" && (
-        <>
-          {/* Messaging Stats */}
-          <div className="lisearch-stats-row">
-            <div className="lisearch-stat-card">
-              <span className="lisearch-stat-num">{connectionsTotal}</span>
-              <span className="lisearch-stat-label">Connections</span>
-            </div>
-            <div className="lisearch-stat-card" style={{ borderColor: "#8b5cf6" }}>
-              <span className="lisearch-stat-num" style={{ color: "#8b5cf6" }}>{selectedConns.length}</span>
-              <span className="lisearch-stat-label">Selected</span>
-            </div>
-            <div className="lisearch-stat-card" style={{ borderColor: "#22c55e" }}>
-              <span className="lisearch-stat-num" style={{ color: "#22c55e" }}>{messageLog.length}</span>
-              <span className="lisearch-stat-label">Messages Sent</span>
-            </div>
-          </div>
-
-          {/* Sync Script */}
-          <div className="lisearch-section" data-testid="sync-section">
-            <div className="lisearch-section-header">
-              <Download size={18} /><h3>Sync Connections from LinkedIn</h3>
-            </div>
-            <p className="lisearch-hint" style={{ marginBottom: 12 }}>
-              To import your LinkedIn connections, run a small script in your browser console while on LinkedIn.
-            </p>
-            <div className="lisearch-input-row">
-              <button className="lisearch-btn lisearch-btn-primary" data-testid="show-sync-script-btn"
-                onClick={async () => {
-                  if (!syncScript) {
-                    try {
-                      const res = await axios.get(`${API}/li-search/browser-script`);
-                      setSyncScript(res.data);
-                    } catch(e) { alert("Failed to load script"); }
-                  }
-                  setShowSyncScript(!showSyncScript);
-                }}>
-                {showSyncScript ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
-                {showSyncScript ? "Hide Script" : "Show Sync Script"}
-              </button>
-            </div>
-            {showSyncScript && syncScript && (
-              <div style={{ marginTop: 12 }}>
-                <div className="lisearch-hint" style={{ marginBottom: 8 }}>
-                  {syncScript.instructions?.map((step, i) => (
-                    <div key={i} style={{ marginBottom: 4 }}>{step}</div>
-                  ))}
-                </div>
-                <div style={{ position: "relative" }}>
-                  <textarea className="lisearch-textarea" readOnly value={syncScript.script} rows={6}
-                    style={{ fontFamily: "monospace", fontSize: 11 }} data-testid="sync-script-textarea" />
-                  <button className="lisearch-btn lisearch-btn-outline lisearch-btn-sm"
-                    style={{ position: "absolute", top: 8, right: 8 }}
-                    onClick={() => { navigator.clipboard.writeText(syncScript.script); alert("Script copied!"); }}>
-                    <Copy size={12} /> Copy
-                  </button>
-                </div>
-              </div>
-            )}
-
-            {/* Paste & Import */}
-            <div style={{ marginTop: 16 }}>
-              <label className="lisearch-hint" style={{ display: "block", marginBottom: 6, fontWeight: 500 }}>
-                Paste copied connections data below:
-              </label>
-              <textarea className="lisearch-textarea" placeholder='After running the script on LinkedIn, paste the copied data here (Ctrl+V)...'
-                value={pasteData} onChange={e => setPasteData(e.target.value)} rows={3}
-                data-testid="paste-connections-textarea" />
-              <button className="lisearch-btn lisearch-btn-accent" style={{ marginTop: 8 }}
-                onClick={handleImportPaste} disabled={importing || !pasteData.trim()}
-                data-testid="import-connections-btn">
-                {importing ? <Loader2 size={14} className="spin" /> : <Download size={14} />}
-                Import Connections
-              </button>
-            </div>
-          </div>
-
-          {/* Connections List */}
-          <div className="lisearch-section" data-testid="connections-section">
-            <div className="lisearch-section-header">
-              <Users size={18} /><h3>Your Connections</h3>
-              <span className="lisearch-count">{connectionsTotal} synced</span>
-            </div>
-
-            <div className="lisearch-input-row" style={{ marginBottom: 12 }}>
-              <input className="lisearch-input" placeholder="Search connections by name..."
-                value={connSearch} onChange={e => setConnSearch(e.target.value)}
-                onKeyDown={e => e.key === "Enter" && handleConnSearch()}
-                data-testid="conn-search-input" />
-              <button className="lisearch-btn lisearch-btn-primary" onClick={handleConnSearch}>
-                <Search size={14} /> Search
-              </button>
-              <button className="lisearch-btn lisearch-btn-outline" onClick={() => fetchConnections(connPage, connSearch)}>
-                <RefreshCw size={14} />
-              </button>
-            </div>
-
-            {loadingConns ? (
-              <div className="lisearch-progress"><Loader2 size={18} className="spin" /> Loading connections...</div>
-            ) : connections.length === 0 ? (
-              <div className="lisearch-empty" style={{ padding: "30px 20px" }}>
-                <Users size={28} style={{ opacity: 0.3 }} />
-                <p>No connections synced yet. Use the sync script above to import your LinkedIn connections.</p>
-              </div>
-            ) : (
-              <>
-                <div className="lisearch-conn-toolbar">
-                  <button className="lisearch-btn lisearch-btn-outline lisearch-btn-sm" onClick={handleSelectAll}
-                    data-testid="select-all-btn">
-                    <UserCheck size={14} /> {selectedConns.length === connections.length && connections.length > 0 ? "Deselect All" : "Select All"}
-                  </button>
-                  <span className="lisearch-count">{selectedConns.length} selected</span>
-                </div>
-
-                <div className="lisearch-conn-grid" data-testid="connections-grid">
-                  {connections.map(conn => {
-                    const isSelected = selectedConns.find(c => c.public_id === conn.public_id);
-                    return (
-                      <div key={conn.public_id}
-                        className={`lisearch-conn-card ${isSelected ? "lisearch-conn-selected" : ""}`}
-                        onClick={() => toggleConnSelection(conn)}
-                        data-testid={`conn-${conn.public_id}`}>
-                        <div className="lisearch-conn-avatar">
-                          {conn.avatar_url ? (
-                            <img src={conn.avatar_url} alt="" />
-                          ) : (
-                            <div className="lisearch-conn-avatar-placeholder">
-                              {(conn.first_name?.[0] || "?")}{(conn.last_name?.[0] || "")}
-                            </div>
-                          )}
-                          {isSelected && <div className="lisearch-conn-check"><CheckCircle size={14} /></div>}
-                        </div>
-                        <div className="lisearch-conn-info">
-                          <strong>{conn.first_name} {conn.last_name}</strong>
-                          <span>{conn.occupation || ""}</span>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-
-                {connections.length > 0 && (
-                  <div className="lisearch-pagination">
-                    <button className="lisearch-btn lisearch-btn-outline lisearch-btn-sm"
-                      onClick={() => handleConnPageChange(-1)} disabled={connPage === 0}>
-                      <ChevronLeft size={14} /> Prev
-                    </button>
-                    <span className="lisearch-count">Page {connPage + 1}</span>
-                    <button className="lisearch-btn lisearch-btn-outline lisearch-btn-sm"
-                      onClick={() => handleConnPageChange(1)} disabled={connections.length < 40}>
-                      Next <ChevronRight size={14} />
-                    </button>
-                  </div>
-                )}
-              </>
-            )}
-          </div>
-
-          {/* Compose Message */}
-          <div className="lisearch-section" data-testid="compose-section">
-            <div className="lisearch-section-header">
-              <MessageSquare size={18} /><h3>Compose Message</h3>
-            </div>
-
-            {selectedConns.length > 0 && (
-              <div className="lisearch-selected-preview">
-                <span>Sending to: </span>
-                {selectedConns.slice(0, 5).map(c => (
-                  <span key={c.public_id} className="lisearch-keyword-tag">
-                    {c.first_name} {c.last_name}
-                    <button onClick={() => toggleConnSelection(c)} className="lisearch-keyword-remove">&times;</button>
-                  </span>
-                ))}
-                {selectedConns.length > 5 && <span className="lisearch-count">+{selectedConns.length - 5} more</span>}
-              </div>
-            )}
-
-            <div className="lisearch-compose-controls">
-              <div className="lisearch-filter-group">
-                <label>Purpose</label>
-                <select className="lisearch-select" value={msgPurpose}
-                  onChange={e => setMsgPurpose(e.target.value)} data-testid="msg-purpose-select">
-                  <option value="introduce services">Introduce Services</option>
-                  <option value="schedule a call">Schedule a Call</option>
-                  <option value="partnership opportunity">Partnership Opportunity</option>
-                  <option value="follow up on previous conversation">Follow Up</option>
-                  <option value="share industry insights">Share Insights</option>
-                </select>
-              </div>
-              <div className="lisearch-filter-group">
-                <label>As Company</label>
-                <select className="lisearch-select" value={msgCompany}
-                  onChange={e => setMsgCompany(e.target.value)} data-testid="msg-company-select">
-                  <option value="fundle">Fundle.ai</option>
-                  <option value="tagandpay">TagandPay</option>
-                  <option value="exceed">Exceed</option>
-                </select>
-              </div>
-              <div className="lisearch-filter-group" style={{ display: "flex", alignItems: "flex-end" }}>
-                <button className="lisearch-btn lisearch-btn-primary" onClick={handleGenerateMessage}
-                  disabled={generatingMsg || selectedConns.length === 0} data-testid="generate-msg-btn">
-                  {generatingMsg ? <Loader2 size={14} className="spin" /> : <Sparkles size={14} />}
-                  AI Generate
-                </button>
-              </div>
-            </div>
-
-            <textarea className="lisearch-textarea" placeholder="Type your message here or click 'AI Generate'..."
-              value={messageText} onChange={e => setMessageText(e.target.value)} rows={5}
-              data-testid="message-textarea" />
-
-            <div className="lisearch-input-row" style={{ marginTop: 12, gap: 8, flexWrap: "wrap" }}>
-              <button className="lisearch-btn lisearch-btn-accent" onClick={handleSendMessages}
-                disabled={sendingMsg || !messageText.trim() || selectedConns.length === 0}
-                data-testid="send-messages-btn">
-                {sendingMsg ? <Loader2 size={16} className="spin" /> : <Send size={16} />}
-                API Script ({selectedConns.length})
-              </button>
-              <button className="lisearch-btn lisearch-btn-primary" data-testid="compose-btn"
-                disabled={sendingMsg || !messageText.trim() || selectedConns.length === 0}
-                onClick={async () => {
-                  setSendingMsg(true);
-                  setSendResult(null);
-                  try {
-                    const recipients = selectedConns.map(c => ({
-                      name: c.full_name || `${c.first_name} ${c.last_name}`,
-                      public_id: c.public_id,
-                      entity_urn: c.entity_urn || c.urn || "",
-                      occupation: c.occupation || ""
-                    }));
-                    const res = await axios.post(`${API}/li-search/message/compose-script`, {
-                      recipients, message: messageText
-                    });
-                    try { await navigator.clipboard.writeText(res.data.script); } catch(e) {}
-                    setSendResult({ script: true, scriptText: res.data.script, compose: true });
-                  } catch(err) {
-                    setSendResult({ error: err.response?.data?.detail || "Failed" });
-                  } finally { setSendingMsg(false); }
-                }}>
-                <ExternalLink size={16} />
-                Compose Script ({selectedConns.length})
-              </button>
-              <button className="lisearch-btn" data-testid="ext-queue-btn"
-                style={{ background: "#7c3aed", color: "#fff", border: "none" }}
-                disabled={sendingMsg || !messageText.trim() || selectedConns.length === 0}
-                onClick={async () => {
-                  setSendingMsg(true);
-                  setSendResult(null);
-                  try {
-                    const recipients = selectedConns.map(c => ({
-                      name: c.full_name || `${c.first_name} ${c.last_name}`,
-                      public_id: c.public_id,
-                      entity_urn: c.entity_urn || c.urn || "",
-                      occupation: c.occupation || ""
-                    }));
-                    await axios.post(`${API}/li-search/message/queue`, {
-                      recipients, message: messageText
-                    });
-                    setSendResult({ queued: true, count: recipients.length });
-                  } catch(err) {
-                    setSendResult({ error: err.response?.data?.detail || "Failed" });
-                  } finally { setSendingMsg(false); }
-                }}>
-                <Plug size={16} />
-                Extension Queue ({selectedConns.length})
-              </button>
-            </div>
-            <div style={{ marginTop: 6 }}>
-              <button className="lisearch-btn lisearch-btn-outline lisearch-btn-sm" data-testid="intercept-btn"
-                onClick={async () => {
-                  try {
-                    const res = await axios.get(`${API}/li-search/message/intercept-script`);
-                    try { await navigator.clipboard.writeText(res.data.script); } catch(e) {}
-                    setSendResult({ script: true, scriptText: res.data.script, intercept: true });
-                  } catch(e) { alert("Failed to load script"); }
-                }}>
-                <Search size={12} /> Capture LinkedIn's Message Format (Debug)
-              </button>
-              <a href="/linkedin-lead-agent-extension.zip" download
-                className="lisearch-btn lisearch-btn-outline lisearch-btn-sm"
-                style={{ textDecoration: "none", display: "inline-flex", alignItems: "center", gap: 4 }}
-                data-testid="download-ext">
-                <Download size={12} /> Download Chrome Extension
-              </a>
-            </div>
-
-            {sendResult?.queued && (
-              <div className="lisearch-msg lisearch-msg-success" style={{ marginTop: 12 }} data-testid="queue-result">
-                <CheckCircle size={14} />
-                Queued {sendResult.count} messages! Open LinkedIn with the extension installed — click the ⚡ button → "Check Message Queue"
-              </div>
-            )}
-
-            {sendResult?.script && (
-              <div style={{ marginTop: 12 }}>
-                <div className="lisearch-msg lisearch-msg-success" data-testid="send-result">
-                  <CheckCircle size={14} />
-                  {sendResult.compose
-                    ? "Auto-Compose script copied! Paste in LinkedIn console — it opens a compose window for each recipient with your message on the clipboard."
-                    : sendResult.intercept
-                    ? "Interceptor script copied! Paste in LinkedIn console, then send a message normally. The exact request format will be captured."
-                    : "API script copied! Paste in LinkedIn console (F12 → Console → allow pasting → Ctrl+V → Enter)"
-                  }
-                </div>
-                <details style={{ marginTop: 8 }} open={sendResult.intercept}>
-                  <summary className="lisearch-hint" style={{ cursor: "pointer", fontWeight: 500 }}>
-                    View/Copy Script
-                  </summary>
-                  <div style={{ position: "relative", marginTop: 8 }}>
-                    <textarea className="lisearch-textarea" readOnly value={sendResult.scriptText} rows={6}
-                      style={{ fontFamily: "monospace", fontSize: 11 }} />
-                    <button className="lisearch-btn lisearch-btn-outline lisearch-btn-sm"
-                      style={{ position: "absolute", top: 8, right: 8 }}
-                      onClick={() => { navigator.clipboard.writeText(sendResult.scriptText); }}>
-                      <Copy size={12} /> Copy
-                    </button>
-                  </div>
-                </details>
-              </div>
-            )}
-
-            {sendResult?.error && (
-              <div className="lisearch-msg lisearch-msg-error" style={{ marginTop: 12 }}>
-                <XCircle size={14} /> {sendResult.error}
-              </div>
-            )}
-          </div>
-
-          {/* Message Log */}
-          {messageLog.length > 0 && (
-            <div className="lisearch-section" data-testid="message-log-section">
-              <div className="lisearch-section-header">
-                <Clock size={18} /><h3>Message Log</h3>
-                <span className="lisearch-count">{messageLog.length} sent</span>
-              </div>
-              <div className="lisearch-log-list">
-                {messageLog.slice(0, 20).map(msg => (
-                  <div key={msg._id} className="lisearch-log-item">
-                    <span className="lisearch-log-time">
-                      {msg.sent_at ? new Date(msg.sent_at).toLocaleString() : ""}
-                    </span>
-                    <span className="lisearch-log-text">{msg.message_text?.substring(0, 100)}...</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-        </>
+        <CRMTab />
       )}
     </div>
+  );
+};
+
+/* ==================== CRM TAB COMPONENT ==================== */
+const CRMTab = () => {
+  const [view, setView] = useState("contacts"); // contacts | compose | log | detail
+  const [contacts, setContacts] = useState([]);
+  const [total, setTotal] = useState(0);
+  const [page, setPage] = useState(0);
+  const [search, setSearch] = useState("");
+  const [sortBy, setSortBy] = useState("full_name");
+  const [sortDir, setSortDir] = useState(1);
+  const [filterContacted, setFilterContacted] = useState("");
+  const [filterCompany, setFilterCompany] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [selected, setSelected] = useState([]);
+  const [stats, setStats] = useState(null);
+  const [detailContact, setDetailContact] = useState(null);
+  const [messageText, setMessageText] = useState("");
+  const [sendResult, setSendResult] = useState(null);
+  const [sendingMsg, setSendingMsg] = useState(false);
+  const [msgLog, setMsgLog] = useState([]);
+  const [msgLogTotal, setMsgLogTotal] = useState(0);
+  const [syncScript, setSyncScript] = useState(null);
+  const [showSync, setShowSync] = useState(false);
+  const [pasteData, setPasteData] = useState("");
+  const [importing, setImporting] = useState(false);
+  const PAGE_SIZE = 50;
+
+  const fetchContacts = useCallback(async (p = 0) => {
+    setLoading(true);
+    try {
+      const params = { start: p * PAGE_SIZE, count: PAGE_SIZE, sort_by: sortBy, sort_dir: sortDir };
+      if (search) params.keyword = search;
+      if (filterContacted) params.filter_contacted = filterContacted;
+      if (filterCompany) params.filter_company = filterCompany;
+      const res = await axios.get(`${API}/li-search/connections`, { params });
+      setContacts(res.data.connections || []);
+      setTotal(res.data.total || 0);
+    } catch (e) { console.error(e); }
+    finally { setLoading(false); }
+  }, [search, sortBy, sortDir, filterContacted, filterCompany]);
+
+  const fetchStats = async () => {
+    try {
+      const res = await axios.get(`${API}/li-search/connections/stats/overview`);
+      setStats(res.data);
+    } catch (e) {}
+  };
+
+  const fetchMsgLog = async (p = 0) => {
+    try {
+      const res = await axios.get(`${API}/li-search/messages/log`, { params: { start: p * 50, count: 50 } });
+      setMsgLog(res.data.messages || []);
+      setMsgLogTotal(res.data.total || 0);
+    } catch (e) {}
+  };
+
+  useEffect(() => { fetchContacts(page); }, [page, fetchContacts]);
+  useEffect(() => { fetchStats(); }, []);
+
+  const toggleSelect = (c) => {
+    setSelected(prev => prev.find(s => s.public_id === c.public_id)
+      ? prev.filter(s => s.public_id !== c.public_id)
+      : [...prev, c]);
+  };
+  const selectAll = () => {
+    if (selected.length === contacts.length) setSelected([]);
+    else setSelected([...contacts]);
+  };
+
+  const openDetail = async (publicId) => {
+    try {
+      const res = await axios.get(`${API}/li-search/connections/${publicId}`);
+      setDetailContact(res.data);
+      setView("detail");
+    } catch (e) { console.error(e); }
+  };
+
+  const handleImport = async () => {
+    if (!pasteData.trim()) return;
+    setImporting(true);
+    try {
+      const parsed = JSON.parse(pasteData.trim());
+      const arr = Array.isArray(parsed) ? parsed : [parsed];
+      const res = await axios.post(`${API}/li-search/connections/push`, { connections: arr });
+      alert(`Imported! New: ${res.data.new}, Duplicates skipped: ${res.data.duplicates}, Total: ${res.data.total}`);
+      setPasteData("");
+      fetchContacts(0); fetchStats();
+    } catch (e) { alert("Invalid data format"); }
+    finally { setImporting(false); }
+  };
+
+  const handleCompose = async () => {
+    if (!selected.length || !messageText.trim()) return;
+    setSendingMsg(true); setSendResult(null);
+    try {
+      const recipients = selected.map(c => ({
+        name: c.full_name || `${c.first_name} ${c.last_name}`,
+        public_id: c.public_id, entity_urn: c.entity_urn || "",
+        occupation: c.occupation || ""
+      }));
+      const res = await axios.post(`${API}/li-search/message/compose-script`, { recipients, message: messageText });
+      try { await navigator.clipboard.writeText(res.data.script); } catch(e) {}
+      setSendResult({ script: res.data.script, count: recipients.length });
+      // Log messages
+      for (const r of recipients) {
+        await axios.post(`${API}/li-search/messages/log`, {
+          public_id: r.public_id, recipient_name: r.name, message: messageText
+        }).catch(() => {});
+      }
+      fetchStats();
+    } catch (e) { setSendResult({ error: e.response?.data?.detail || "Failed" }); }
+    finally { setSendingMsg(false); }
+  };
+
+  const doSearch = () => { setPage(0); fetchContacts(0); };
+
+  return (
+    <>
+      {/* Stats Bar */}
+      <div className="crm-stats" data-testid="crm-stats">
+        <div className="crm-stat-card">
+          <span className="crm-stat-num">{stats?.total_connections || 0}</span>
+          <span className="crm-stat-label">Total Contacts</span>
+        </div>
+        <div className="crm-stat-card crm-stat-green">
+          <span className="crm-stat-num">{stats?.contacted || 0}</span>
+          <span className="crm-stat-label">Contacted</span>
+        </div>
+        <div className="crm-stat-card crm-stat-amber">
+          <span className="crm-stat-num">{stats?.not_contacted || 0}</span>
+          <span className="crm-stat-label">Not Contacted</span>
+        </div>
+        <div className="crm-stat-card crm-stat-purple">
+          <span className="crm-stat-num">{stats?.total_messages || 0}</span>
+          <span className="crm-stat-label">Messages Sent</span>
+        </div>
+        <div className="crm-stat-card">
+          <span className="crm-stat-num">{selected.length}</span>
+          <span className="crm-stat-label">Selected</span>
+        </div>
+      </div>
+
+      {/* Nav */}
+      <div className="crm-nav" data-testid="crm-nav">
+        {[["contacts", "Contacts"], ["compose", "Compose"], ["log", "Message Log"], ["sync", "Sync"]].map(([k, l]) => (
+          <button key={k} className={`crm-nav-btn ${(view === k || (k === "sync" && showSync)) ? "active" : ""}`}
+            onClick={() => { if (k === "sync") { setShowSync(!showSync); if (view !== "contacts") setView("contacts"); }
+              else { setView(k); setShowSync(false); if (k === "log") fetchMsgLog(); } }}
+            data-testid={`crm-nav-${k}`}>
+            {k === "contacts" && <Users size={14} />}
+            {k === "compose" && <MessageSquare size={14} />}
+            {k === "log" && <Clock size={14} />}
+            {k === "sync" && <Download size={14} />}
+            {l}
+          </button>
+        ))}
+        <a href="/linkedin-lead-agent-extension.zip" download className="crm-nav-btn" style={{ textDecoration: "none", marginLeft: "auto" }}>
+          <Download size={14} /> Extension
+        </a>
+      </div>
+
+      {/* Sync Panel (collapsible) */}
+      {showSync && (
+        <div className="crm-sync-panel" data-testid="sync-panel">
+          <div style={{ display: "flex", gap: 8, marginBottom: 10 }}>
+            <button className="crm-btn crm-btn-primary" onClick={async () => {
+              if (!syncScript) {
+                try { const r = await axios.get(`${API}/li-search/browser-script`); setSyncScript(r.data); } catch(e) {}
+              }
+            }}>
+              {syncScript ? <Copy size={13} /> : <Download size={13} />}
+              {syncScript ? "Script Ready" : "Load Sync Script"}
+            </button>
+            {syncScript && (
+              <button className="crm-btn crm-btn-accent" onClick={() => { navigator.clipboard.writeText(syncScript.script); alert("Copied!"); }}>
+                <Copy size={13} /> Copy Script
+              </button>
+            )}
+          </div>
+          {syncScript && (
+            <div className="crm-sync-steps">
+              {syncScript.instructions?.map((s, i) => <div key={i} className="crm-sync-step">{s}</div>)}
+            </div>
+          )}
+          <div style={{ marginTop: 10 }}>
+            <textarea className="crm-textarea" placeholder="Paste copied connections JSON here..." rows={2}
+              value={pasteData} onChange={e => setPasteData(e.target.value)} data-testid="paste-input" />
+            <button className="crm-btn crm-btn-accent" style={{ marginTop: 6 }}
+              onClick={handleImport} disabled={importing || !pasteData.trim()} data-testid="import-btn">
+              {importing ? <Loader2 size={13} className="spin" /> : <Download size={13} />} Import
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* ===== CONTACTS VIEW ===== */}
+      {view === "contacts" && (
+        <div className="crm-contacts" data-testid="crm-contacts">
+          {/* Search & Filters */}
+          <div className="crm-toolbar">
+            <div className="crm-search-box">
+              <Search size={14} />
+              <input placeholder="Search name, title, company..." value={search}
+                onChange={e => setSearch(e.target.value)}
+                onKeyDown={e => e.key === "Enter" && doSearch()} data-testid="crm-search" />
+            </div>
+            <select className="crm-select" value={filterContacted} onChange={e => { setFilterContacted(e.target.value); setPage(0); }}
+              data-testid="filter-contacted">
+              <option value="">All</option>
+              <option value="yes">Contacted</option>
+              <option value="no">Not Contacted</option>
+            </select>
+            <select className="crm-select" value={sortBy} onChange={e => { setSortBy(e.target.value); setPage(0); }}
+              data-testid="sort-by">
+              <option value="full_name">Name A-Z</option>
+              <option value="occupation">Title</option>
+              <option value="company">Company</option>
+              <option value="last_contacted">Last Contacted</option>
+              <option value="messages_sent">Most Messaged</option>
+              <option value="synced_at">Recently Synced</option>
+            </select>
+            <button className="crm-btn crm-btn-sm" onClick={selectAll} data-testid="select-all">
+              <UserCheck size={13} /> {selected.length === contacts.length && contacts.length > 0 ? "Deselect" : "Select All"}
+            </button>
+          </div>
+
+          {/* Company filter */}
+          {stats?.top_companies?.length > 0 && (
+            <div className="crm-company-chips">
+              <button className={`crm-chip ${!filterCompany ? "active" : ""}`}
+                onClick={() => { setFilterCompany(""); setPage(0); }}>All</button>
+              {stats.top_companies.slice(0, 6).map(tc => (
+                <button key={tc.company} className={`crm-chip ${filterCompany === tc.company ? "active" : ""}`}
+                  onClick={() => { setFilterCompany(filterCompany === tc.company ? "" : tc.company); setPage(0); }}>
+                  {tc.company} ({tc.count})
+                </button>
+              ))}
+            </div>
+          )}
+
+          {/* Table */}
+          {loading ? (
+            <div className="crm-loading"><Loader2 size={20} className="spin" /> Loading...</div>
+          ) : contacts.length === 0 ? (
+            <div className="crm-empty"><Users size={28} /><p>No contacts found. Sync your LinkedIn connections first.</p></div>
+          ) : (
+            <div className="crm-table-wrap" data-testid="contacts-table">
+              <table className="crm-table">
+                <thead>
+                  <tr>
+                    <th style={{width:36}}></th>
+                    <th>Name</th>
+                    <th>Title / Company</th>
+                    <th>Msgs</th>
+                    <th>Last Contact</th>
+                    <th>Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {contacts.map(c => {
+                    const isSel = selected.find(s => s.public_id === c.public_id);
+                    return (
+                      <tr key={c.public_id} className={isSel ? "crm-row-selected" : ""} data-testid={`row-${c.public_id}`}>
+                        <td>
+                          <input type="checkbox" checked={!!isSel} onChange={() => toggleSelect(c)} />
+                        </td>
+                        <td className="crm-name-cell" onClick={() => openDetail(c.public_id)} style={{cursor:"pointer"}}>
+                          <div className="crm-avatar">{(c.first_name?.[0] || "?")}{(c.last_name?.[0] || "")}</div>
+                          <div>
+                            <strong>{c.full_name || `${c.first_name} ${c.last_name}`}</strong>
+                          </div>
+                        </td>
+                        <td className="crm-occ-cell">
+                          <div className="crm-occ-text">{c.occupation || "—"}</div>
+                          {c.company && <div className="crm-company-text">{c.company}</div>}
+                        </td>
+                        <td className="crm-msg-count">{c.messages_sent || 0}</td>
+                        <td className="crm-date-cell">
+                          {c.last_contacted ? new Date(c.last_contacted).toLocaleDateString() : <span className="crm-not-contacted">Never</span>}
+                        </td>
+                        <td>
+                          <div style={{display:"flex",gap:4}}>
+                            <button className="crm-btn crm-btn-xs" onClick={() => openDetail(c.public_id)} title="View"><Users size={12} /></button>
+                            <a href={c.profile_url} target="_blank" rel="noreferrer" className="crm-btn crm-btn-xs" title="LinkedIn"><ExternalLink size={12} /></a>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          {/* Pagination */}
+          <div className="crm-pagination">
+            <button className="crm-btn crm-btn-sm" disabled={page === 0} onClick={() => setPage(p => p - 1)}>
+              <ChevronLeft size={14} /> Prev
+            </button>
+            <span className="crm-page-info">
+              {page * PAGE_SIZE + 1}–{Math.min((page + 1) * PAGE_SIZE, total)} of {total}
+            </span>
+            <button className="crm-btn crm-btn-sm" disabled={(page + 1) * PAGE_SIZE >= total} onClick={() => setPage(p => p + 1)}>
+              Next <ChevronRight size={14} />
+            </button>
+          </div>
+
+          {/* Quick compose bar when contacts selected */}
+          {selected.length > 0 && view === "contacts" && (
+            <div className="crm-compose-bar" data-testid="quick-compose">
+              <span>{selected.length} selected</span>
+              <button className="crm-btn crm-btn-primary" onClick={() => setView("compose")}>
+                <MessageSquare size={14} /> Compose Message
+              </button>
+              <button className="crm-btn crm-btn-sm" onClick={() => setSelected([])}>Clear</button>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ===== COMPOSE VIEW ===== */}
+      {view === "compose" && (
+        <div className="crm-compose" data-testid="crm-compose">
+          <div className="crm-compose-recipients">
+            <h3><Send size={14} /> Sending to {selected.length} contact{selected.length !== 1 ? "s" : ""}</h3>
+            <div className="crm-tag-list">
+              {selected.slice(0, 10).map(c => (
+                <span key={c.public_id} className="crm-tag">
+                  {c.full_name || c.first_name} <button onClick={() => toggleSelect(c)}>&times;</button>
+                </span>
+              ))}
+              {selected.length > 10 && <span className="crm-tag">+{selected.length - 10} more</span>}
+            </div>
+          </div>
+          <textarea className="crm-textarea crm-compose-input" placeholder="Write your message..."
+            value={messageText} onChange={e => setMessageText(e.target.value)} rows={6} data-testid="compose-textarea" />
+          <div className="crm-compose-actions">
+            <button className="crm-btn crm-btn-primary" onClick={handleCompose}
+              disabled={sendingMsg || !messageText.trim() || !selected.length} data-testid="send-compose">
+              {sendingMsg ? <Loader2 size={14} className="spin" /> : <Send size={14} />}
+              Generate Compose Script
+            </button>
+            <button className="crm-btn crm-btn-sm" onClick={() => setView("contacts")}>Back to Contacts</button>
+          </div>
+
+          {sendResult?.script && (
+            <div className="crm-script-result" data-testid="compose-result">
+              <div className="crm-msg-success"><CheckCircle size={14} /> Script copied! Paste in LinkedIn console. {sendResult.count} messages logged.</div>
+              <details open>
+                <summary style={{cursor:"pointer",fontSize:12,color:"#94a3b8",marginTop:8}}>View Script</summary>
+                <div style={{position:"relative",marginTop:6}}>
+                  <textarea className="crm-textarea" readOnly value={sendResult.script} rows={5} style={{fontFamily:"monospace",fontSize:10}} />
+                  <button className="crm-btn crm-btn-xs" style={{position:"absolute",top:6,right:6}}
+                    onClick={() => navigator.clipboard.writeText(sendResult.script)}><Copy size={11} /> Copy</button>
+                </div>
+              </details>
+            </div>
+          )}
+          {sendResult?.error && <div className="crm-msg-error"><XCircle size={14} /> {sendResult.error}</div>}
+        </div>
+      )}
+
+      {/* ===== MESSAGE LOG ===== */}
+      {view === "log" && (
+        <div className="crm-log" data-testid="crm-log">
+          <h3 style={{marginBottom:12}}><Clock size={16} /> Message Log ({msgLogTotal} total)</h3>
+          {msgLog.length === 0 ? (
+            <div className="crm-empty"><Mail size={28} /><p>No messages sent yet.</p></div>
+          ) : (
+            <div className="crm-table-wrap">
+              <table className="crm-table">
+                <thead><tr><th>Date</th><th>Recipient</th><th>Message</th></tr></thead>
+                <tbody>
+                  {msgLog.map(m => (
+                    <tr key={m._id}>
+                      <td className="crm-date-cell">{m.sent_at ? new Date(m.sent_at).toLocaleString() : ""}</td>
+                      <td><strong>{m.recipient_name || m.public_id}</strong></td>
+                      <td className="crm-occ-cell">{m.message?.substring(0, 100)}{m.message?.length > 100 ? "..." : ""}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ===== CONTACT DETAIL ===== */}
+      {view === "detail" && detailContact && (
+        <div className="crm-detail" data-testid="crm-detail">
+          <button className="crm-btn crm-btn-sm" onClick={() => { setView("contacts"); setDetailContact(null); }} style={{marginBottom:12}}>
+            <ChevronLeft size={14} /> Back
+          </button>
+          <div className="crm-detail-header">
+            <div className="crm-detail-avatar">{(detailContact.first_name?.[0] || "?")}{(detailContact.last_name?.[0] || "")}</div>
+            <div>
+              <h2>{detailContact.full_name}</h2>
+              <p>{detailContact.occupation}</p>
+              {detailContact.company && <p className="crm-company-text">{detailContact.company}</p>}
+              <a href={detailContact.profile_url} target="_blank" rel="noreferrer" className="crm-detail-link">
+                <ExternalLink size={12} /> LinkedIn Profile
+              </a>
+            </div>
+          </div>
+          <div className="crm-detail-stats">
+            <div><strong>{detailContact.messages_sent || 0}</strong><span>Messages</span></div>
+            <div><strong>{detailContact.last_contacted ? new Date(detailContact.last_contacted).toLocaleDateString() : "Never"}</strong><span>Last Contact</span></div>
+            <div><strong>{detailContact.synced_at ? new Date(detailContact.synced_at).toLocaleDateString() : "—"}</strong><span>Synced</span></div>
+          </div>
+          <h3 style={{marginTop:16,marginBottom:8,fontSize:13}}><Clock size={14} /> Message History</h3>
+          {(detailContact.message_history || []).length === 0 ? (
+            <p style={{color:"#64748b",fontSize:12}}>No messages sent to this contact yet.</p>
+          ) : (
+            <div className="crm-history-list">
+              {detailContact.message_history.map(m => (
+                <div key={m._id} className="crm-history-item">
+                  <span className="crm-history-date">{m.sent_at ? new Date(m.sent_at).toLocaleString() : ""}</span>
+                  <p className="crm-history-msg">{m.message}</p>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+    </>
   );
 };
 
