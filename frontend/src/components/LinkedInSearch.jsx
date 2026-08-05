@@ -704,9 +704,8 @@ const CRMTab = () => {
         public_id: c.public_id, entity_urn: c.entity_urn || "",
         occupation: c.occupation || ""
       }));
-      const res = await axios.post(`${API}/li-search/message/compose-script`, { recipients, message: messageText });
-      try { await navigator.clipboard.writeText(res.data.script); } catch(e) {}
-      setSendResult({ script: res.data.script, count: recipients.length });
+      // Push to extension queue
+      await axios.post(`${API}/li-search/message/queue`, { recipients, message: messageText });
       // Log messages
       for (const r of recipients) {
         await axios.post(`${API}/li-search/messages/log`, {
@@ -714,6 +713,7 @@ const CRMTab = () => {
         }).catch(() => {});
       }
       fetchStats();
+      setSendResult({ queued: true, count: recipients.length });
     } catch (e) { setSendResult({ error: e.response?.data?.detail || "Failed" }); }
     finally { setSendingMsg(false); }
   };
@@ -942,24 +942,28 @@ const CRMTab = () => {
             value={messageText} onChange={e => setMessageText(e.target.value)} rows={6} data-testid="compose-textarea" />
           <div className="crm-compose-actions">
             <button className="crm-btn crm-btn-primary" onClick={handleCompose}
-              disabled={sendingMsg || !messageText.trim() || !selected.length} data-testid="send-compose">
-              {sendingMsg ? <Loader2 size={14} className="spin" /> : <Send size={14} />}
-              Generate Compose Script
+              disabled={sendingMsg || !messageText.trim() || !selected.length} data-testid="send-compose"
+              style={{padding: "12px 24px", fontSize: 14}}>
+              {sendingMsg ? <Loader2 size={16} className="spin" /> : <Send size={16} />}
+              Send to Extension ({selected.length})
             </button>
             <button className="crm-btn crm-btn-sm" onClick={() => setView("contacts")}>Back to Contacts</button>
           </div>
 
-          {sendResult?.script && (
+          {sendResult?.queued && (
             <div className="crm-script-result" data-testid="compose-result">
-              <div className="crm-msg-success"><CheckCircle size={14} /> Script copied! Paste in LinkedIn console. {sendResult.count} messages logged.</div>
-              <details open>
-                <summary style={{cursor:"pointer",fontSize:12,color:"#94a3b8",marginTop:8}}>View Script</summary>
-                <div style={{position:"relative",marginTop:6}}>
-                  <textarea className="crm-textarea" readOnly value={sendResult.script} rows={5} style={{fontFamily:"monospace",fontSize:10}} />
-                  <button className="crm-btn crm-btn-xs" style={{position:"absolute",top:6,right:6}}
-                    onClick={() => navigator.clipboard.writeText(sendResult.script)}><Copy size={11} /> Copy</button>
-                </div>
-              </details>
+              <div className="crm-msg-success">
+                <CheckCircle size={14} />
+                Queued {sendResult.count} messages to extension!
+              </div>
+              <div style={{background:"#0f172a",borderRadius:8,padding:14,marginTop:10,fontSize:12,color:"#cbd5e1",lineHeight:1.7}}>
+                <strong style={{color:"#f1f5f9"}}>Next steps:</strong><br/>
+                1. Go to LinkedIn (any page)<br/>
+                2. Click the <strong style={{color:"#60a5fa"}}>⚡ Lead Agent</strong> button (bottom-right)<br/>
+                3. Click <strong style={{color:"#c084fc"}}>"Check Message Queue"</strong><br/>
+                4. The compose panel will show each recipient — click "Compose + Copy" for each<br/>
+                5. Paste your message (Ctrl+V) in the compose window → Send
+              </div>
             </div>
           )}
           {sendResult?.error && <div className="crm-msg-error"><XCircle size={14} /> {sendResult.error}</div>}

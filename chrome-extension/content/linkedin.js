@@ -302,12 +302,32 @@
   document.getElementById('lla-msg-btn').addEventListener('click', async function () {
     clearLog();
     log('Checking message queue...', 'info');
-    chrome.runtime.sendMessage({ type: 'GET_MESSAGE_QUEUE' }, function (resp) {
-      if (!resp || !resp.recipients || resp.recipients.length === 0) {
-        log('No messages in queue.', 'info');
+    
+    var data = await chrome.storage.local.get(['backendUrl']);
+    var backendUrl = data.backendUrl;
+    if (!backendUrl) {
+      log('Set backend URL in extension popup first!', 'err');
+      return;
+    }
+
+    try {
+      var resp = await fetch(backendUrl + '/api/li-search/message/queue');
+      if (!resp.ok) { log('Server error: ' + resp.status, 'err'); return; }
+      var queueData = await resp.json();
+
+      if (!queueData.recipients || queueData.recipients.length === 0) {
+        log('No messages in queue. Go to Lead Finder → select contacts → compose → Send to Extension.', 'info');
         return;
       }
-      var R = resp.recipients, M = resp.message, idx = 0, sent = 0;
+
+      var R = queueData.recipients;
+      var M = queueData.message;
+      var idx = 0, sent = 0;
+      var composeWin = null;
+
+      log('Loaded ' + R.length + ' recipients', 'ok');
+      log('Message: ' + M.substring(0, 60) + (M.length > 60 ? '...' : ''), 'info');
+
       var compose = document.getElementById('lla-compose');
       compose.className = 'open';
 
@@ -317,23 +337,69 @@
 
       function showNext() {
         if (idx >= R.length) {
-          compose.innerHTML = '<div style="text-align:center;padding:12px;color:#86efac;font-weight:600">Done! Sent: ' + sent + '/' + R.length + '</div>';
+          compose.innerHTML = '<div style="text-align:center;padding:16px"><div style="color:#86efac;font-weight:700;font-size:15px;margin-bottom:4px">All done!</div><div style="color:#94a3b8;font-size:12px">Sent: ' + sent + ' / ' + R.length + '</div></div>';
           chrome.runtime.sendMessage({ type: 'UPDATE_STATS', data: { msgCount: String(sent) } });
           return;
         }
         var r = R[idx];
-        compose.innerHTML = '<div class="lla-compose-name">' + (r.name||'') + '</div><div class="lla-compose-occ">' + (idx+1) + '/' + R.length + '</div><div class="lla-compose-msg">' + M.substring(0,100) + '</div><div class="lla-btn-row"><button class="lla-btn-compose" id="lla-do-compose">Compose + Copy</button><button class="lla-btn-skip" id="lla-do-skip">Skip</button></div>';
-        document.getElementById('lla-do-compose').addEventListener('click', function() {
+        compose.innerHTML = '';
+
+        var prog = document.createElement('div');
+        prog.style.cssText = 'font-size:10px;color:#64748b;margin-bottom:6px';
+        prog.textContent = (idx+1) + ' of ' + R.length + ' (sent: ' + sent + ')';
+        compose.appendChild(prog);
+
+        var name = document.createElement('div');
+        name.className = 'lla-compose-name';
+        name.textContent = r.name || 'Unknown';
+        compose.appendChild(name);
+
+        var occ = document.createElement('div');
+        occ.className = 'lla-compose-occ';
+        occ.textContent = r.occupation || '';
+        compose.appendChild(occ);
+
+        var msgPrev = document.createElement('div');
+        msgPrev.className = 'lla-compose-msg';
+        msgPrev.textContent = M.length > 80 ? M.substring(0, 80) + '...' : M;
+        compose.appendChild(msgPrev);
+
+        var btnRow = document.createElement('div');
+        btnRow.className = 'lla-btn-row';
+        btnRow.style.cssText = 'display:flex;gap:6px;margin-top:8px';
+
+        var openBtn = document.createElement('button');
+        openBtn.className = 'lla-btn-compose';
+        openBtn.textContent = 'Compose + Copy Msg';
+        openBtn.style.cssText = 'flex:1;background:#0a66c2;color:#fff;border:none;padding:10px;border-radius:8px;cursor:pointer;font-size:12px;font-weight:600';
+        openBtn.addEventListener('click', function() {
           copyMsg();
-          window.open('https://www.linkedin.com/messaging/compose/?recipient=' + encodeURIComponent(r.public_id), 'lla_compose');
+          if (composeWin && !composeWin.closed) try { composeWin.close(); } catch(e) {}
+          composeWin = window.open('https://www.linkedin.com/messaging/compose/?recipient=' + encodeURIComponent(r.public_id), 'lla_compose');
           sent++; idx++; showNext();
         });
-        document.getElementById('lla-do-skip').addEventListener('click', function() { idx++; showNext(); });
+
+        var skipBtn = document.createElement('button');
+        skipBtn.className = 'lla-btn-skip';
+        skipBtn.textContent = 'Skip';
+        skipBtn.style.cssText = 'background:#334155;color:#fff;border:none;padding:10px 14px;border-radius:8px;cursor:pointer;font-size:12px';
+        skipBtn.addEventListener('click', function() { idx++; showNext(); });
+
+        btnRow.appendChild(openBtn);
+        btnRow.appendChild(skipBtn);
+        compose.appendChild(btnRow);
+
+        var hint = document.createElement('div');
+        hint.style.cssText = 'font-size:9px;color:#64748b;text-align:center;margin-top:6px';
+        hint.textContent = 'Opens compose tab. Paste (Ctrl+V) → Send → close tab → come back.';
+        compose.appendChild(hint);
+
         copyMsg();
       }
-      log('Loaded ' + R.length + ' recipients', 'ok');
       showNext();
-    });
+    } catch(e) {
+      log('Error: ' + e.message, 'err');
+    }
   });
 
 })();
