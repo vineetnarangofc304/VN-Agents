@@ -17,7 +17,7 @@
   panel.id = 'lla-panel';
   panel.innerHTML = [
     '<div class="lla-header">',
-    '  <h3>Lead Agent <span style="font-size:9px;color:#64748b;font-weight:400">v1.4.0</span></h3>',
+    '  <h3>Lead Agent <span style="font-size:9px;color:#64748b;font-weight:400">v1.4.1</span></h3>',
     '  <button class="lla-close" id="lla-close-btn">&times;</button>',
     '</div>',
     '<div class="lla-body">',
@@ -344,47 +344,51 @@
     for (var i = 0; i < limit; i++) {
       var c = toEnrich[i];
       try {
-        // Contact info is at a SEPARATE endpoint from profile
+        // Contact info endpoint
         var ciUrl = 'https://www.linkedin.com/voyager/api/identity/profiles/' + encodeURIComponent(c.public_id) + '/profileContactInfo';
         var pr = await fetch(ciUrl, {headers: H, credentials: 'include'});
-        if (pr.ok) {
+        // Log first response for debugging
+        if (i === 0) {
+          log('ContactInfo API: HTTP ' + pr.status, pr.ok ? 'ok' : 'err');
+          if (pr.ok) {
+            var raw = await pr.text();
+            log('Response: ' + raw.substring(0, 300), 'info');
+            var pd = JSON.parse(raw);
+          } else {
+            // Try dash version
+            var ciUrl2 = 'https://www.linkedin.com/voyager/api/identity/dash/profiles?q=memberIdentity&memberIdentity=' + encodeURIComponent(c.public_id) + '&decorationId=com.linkedin.voyager.dash.deco.identity.profile.ProfileContactInfo-13';
+            var pr2 = await fetch(ciUrl2, {headers: H, credentials: 'include'});
+            log('Dash ContactInfo: HTTP ' + pr2.status, pr2.ok ? 'ok' : 'err');
+            if (pr2.ok) {
+              var raw2 = await pr2.text();
+              log('Dash response: ' + raw2.substring(0, 300), 'info');
+            }
+            continue;
+          }
+        } else {
+          if (!pr.ok) continue;
           var pd = await pr.json();
-          var email = '', phone = '', city = '';
-          // Direct fields
-          if (pd.emailAddress) email = pd.emailAddress;
-          if (pd.phoneNumbers && pd.phoneNumbers.length > 0) phone = pd.phoneNumbers[0].number || '';
-          if (pd.address) city = pd.address;
-          // Check included array
-          var items = pd.included || [];
-          for (var j = 0; j < items.length; j++) {
-            var item = items[j];
-            if (item.emailAddress && !email) email = item.emailAddress;
-            if (item.phoneNumbers && item.phoneNumbers.length > 0 && !phone) phone = item.phoneNumbers[0].number || '';
-          }
-          // Also try websites/twitter
-          if (email || phone || city) {
-            enriched.push({public_id: c.public_id, email: email, phone: phone, city: city, company: ''});
-          }
         }
-        // Also fetch location from profile
-        if (!enriched.find(function(e){return e.public_id===c.public_id})) {
-          var locUrl = 'https://www.linkedin.com/voyager/api/identity/dash/profiles?q=memberIdentity&memberIdentity=' + encodeURIComponent(c.public_id);
-          var lr = await fetch(locUrl, {headers: H, credentials: 'include'});
-          if (lr.ok) {
-            var ld = await lr.json();
-            var lCity = '', lCompany = '';
-            var litems = ld.included || ld.elements || [];
-            for (var j = 0; j < litems.length; j++) {
-              if (litems[j].locationName && !lCity) lCity = litems[j].locationName;
-              if (litems[j].geoLocationName && !lCity) lCity = litems[j].geoLocationName;
-              if (litems[j].companyName && !lCompany) lCompany = litems[j].companyName;
-            }
-            if (lCity || lCompany) {
-              enriched.push({public_id: c.public_id, email: '', phone: '', city: lCity, company: lCompany});
-            }
-          }
+        var email = '', phone = '', city = '';
+        // Direct fields on response
+        if (pd.emailAddress) email = pd.emailAddress;
+        if (pd.phoneNumbers && pd.phoneNumbers.length > 0) phone = pd.phoneNumbers[0].number || '';
+        if (pd.address) city = pd.address;
+        if (pd.data) {
+          if (pd.data.emailAddress) email = pd.data.emailAddress;
+          if (pd.data.phoneNumbers && pd.data.phoneNumbers.length > 0) phone = pd.data.phoneNumbers[0].number || '';
         }
-      } catch(e) {}
+        // Check included/elements
+        var items = pd.included || pd.elements || [];
+        for (var j = 0; j < items.length; j++) {
+          var item = items[j];
+          if (item.emailAddress && !email) email = item.emailAddress;
+          if (item.phoneNumbers && item.phoneNumbers.length > 0 && !phone) phone = item.phoneNumbers[0].number || '';
+        }
+        if (email || phone || city) {
+          enriched.push({public_id: c.public_id, email: email, phone: phone, city: city, company: ''});
+        }
+      } catch(e) { if (i === 0) log('Error: ' + e.message, 'err'); }
       if (i % 10 === 9) {
         log('Progress: ' + (i+1) + '/' + limit + ' (' + enriched.length + ' enriched)', 'info');
         await delay(500);
