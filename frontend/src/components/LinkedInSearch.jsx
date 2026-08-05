@@ -704,15 +704,8 @@ const CRMTab = () => {
         public_id: c.public_id, entity_urn: c.entity_urn || "",
         occupation: c.occupation || ""
       }));
-      // Push to extension queue
+      // Push to extension queue only (logging happens when actually sent via extension)
       await axios.post(`${API}/li-search/message/queue`, { recipients, message: messageText });
-      // Log messages
-      for (const r of recipients) {
-        await axios.post(`${API}/li-search/messages/log`, {
-          public_id: r.public_id, recipient_name: r.name, message: messageText
-        }).catch(() => {});
-      }
-      fetchStats();
       setSendResult({ queued: true, count: recipients.length });
     } catch (e) { setSendResult({ error: e.response?.data?.detail || "Failed" }); }
     finally { setSendingMsg(false); }
@@ -809,6 +802,9 @@ const CRMTab = () => {
               <input placeholder="Search name, title, company..." value={search}
                 onChange={e => setSearch(e.target.value)}
                 onKeyDown={e => e.key === "Enter" && doSearch()} data-testid="crm-search" />
+              <button className="crm-btn crm-btn-xs crm-btn-primary" onClick={doSearch} style={{flexShrink:0}}>
+                Search
+              </button>
             </div>
             <select className="crm-select" value={filterContacted} onChange={e => { setFilterContacted(e.target.value); setPage(0); }}
               data-testid="filter-contacted">
@@ -857,6 +853,7 @@ const CRMTab = () => {
                     <th style={{width:36}}></th>
                     <th>Name</th>
                     <th>Title / Company</th>
+                    <th>Email / Phone</th>
                     <th>Msgs</th>
                     <th>Last Contact</th>
                     <th>Actions</th>
@@ -879,6 +876,11 @@ const CRMTab = () => {
                         <td className="crm-occ-cell">
                           <div className="crm-occ-text">{c.occupation || "—"}</div>
                           {c.company && <div className="crm-company-text">{c.company}</div>}
+                        </td>
+                        <td className="crm-contact-cell">
+                          {c.email && <div style={{fontSize:10,color:"#60a5fa"}}>{c.email}</div>}
+                          {c.phone && <div style={{fontSize:10,color:"#94a3b8"}}>{c.phone}</div>}
+                          {!c.email && !c.phone && <span style={{fontSize:10,color:"#334155"}}>—</span>}
                         </td>
                         <td className="crm-msg-count">{c.messages_sent || 0}</td>
                         <td className="crm-date-cell">

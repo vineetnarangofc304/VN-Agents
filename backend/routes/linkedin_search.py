@@ -1704,6 +1704,8 @@ async def push_connections(data: dict):
             "occupation": occupation,
             "company": company or (existing.get("company", "") if existing else ""),
             "city": city or (existing.get("city", "") if existing else ""),
+            "email": conn.get("email", "") or (existing.get("email", "") if existing else ""),
+            "phone": conn.get("phone", "") or (existing.get("phone", "") if existing else ""),
             "profile_url": conn.get("profile_url", f"https://www.linkedin.com/in/{public_id}"),
             "avatar_url": conn.get("avatar_url", ""),
             "public_id": public_id,
@@ -1881,6 +1883,33 @@ async def get_connections_stats():
         "total_messages": total_messages,
         "top_companies": top_companies,
     }
+
+
+@router.post("/connections/enrich")
+async def enrich_connections(data: dict):
+    """Update connections with email/phone/company from extension-fetched contact info."""
+    contacts = data.get("contacts", [])
+    if not contacts:
+        raise HTTPException(status_code=400, detail="No contacts data")
+    updated = 0
+    for c in contacts:
+        pid = c.get("public_id", "")
+        if not pid:
+            continue
+        update = {}
+        if c.get("email"):
+            update["email"] = c["email"]
+        if c.get("phone"):
+            update["phone"] = c["phone"]
+        if c.get("city"):
+            update["city"] = c["city"]
+        if c.get("company"):
+            update["company"] = c["company"]
+        if update:
+            await db.li_connections.update_one({"public_id": pid}, {"$set": update})
+            updated += 1
+    return {"success": True, "updated": updated}
+
 
 
 @router.get("/message/queue")

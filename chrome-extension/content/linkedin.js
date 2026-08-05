@@ -28,6 +28,7 @@
     '  <div style="margin-top:12px">',
     '    <button class="lla-btn lla-btn-sync" id="lla-sync-btn">Sync All Connections</button>',
     '    <button class="lla-btn lla-btn-msg" id="lla-msg-btn">Check Message Queue</button>',
+    '    <button class="lla-btn" id="lla-enrich-btn" style="background:#f59e0b;color:#fff;width:100%;padding:10px;border:none;border-radius:8px;cursor:pointer;font-size:13px;font-weight:600;margin-bottom:8px">Enrich: Fetch Email &amp; Phone</button>',
     '  </div>',
     '  <div id="lla-progress" class="lla-progress" style="display:none"></div>',
     '  <div id="lla-compose"></div>',
@@ -298,6 +299,109 @@
     btn.textContent = 'Sync All Connections';
   });
 
+  // ============ ENRICH CONTACTS ============
+  document.getElementById('lla-enrich-btn').addEventListener('click', async function () {
+    var btn = this;
+    btn.disabled = true;
+    btn.textContent = 'Enriching...';
+    clearLog();
+
+    var csrf = getCsrf();
+    if (!csrf) { log('Not logged in', 'err'); btn.disabled = false; btn.textContent = 'Enrich: Fetch Email & Phone'; return; }
+    var H = liHeaders();
+
+    var storageData = await chrome.storage.local.get(['backendUrl']);
+    var backendUrl = storageData.backendUrl;
+    if (!backendUrl) { log('Set backend URL first!', 'err'); btn.disabled = false; btn.textContent = 'Enrich: Fetch Email & Phone'; return; }
+
+    // Fetch connections that need enrichment (no email/phone)
+    log('Fetching contacts to enrich...', 'info');
+    var toEnrich = [];
+    try {
+      var resp = await fetch(backendUrl + '/api/li-search/connections?count=500&sort_by=synced_at&sort_dir=-1');
+      if (resp.ok) {
+        var data = await resp.json();
+        for (var i = 0; i < data.connections.length; i++) {
+          var c = data.connections[i];
+          if (!c.email && !c.phone && c.public_id) {
+            toEnrich.push(c);
+          }
+        }
+      }
+    } catch(e) { log('Error: ' + e.message, 'err'); }
+
+    if (toEnrich.length === 0) {
+      log('No contacts need enrichment (all have email/phone or none found)', 'info');
+      btn.disabled = false; btn.textContent = 'Enrich: Fetch Email & Phone';
+      return;
+    }
+
+    log('Enriching ' + toEnrich.length + ' contacts...', 'info');
+    var enriched = [];
+    var batchSize = 50; // Process in batches to avoid overwhelming
+    var limit = Math.min(toEnrich.length, 200); // Max 200 per session
+
+    for (var i = 0; i < limit; i++) {
+      var c = toEnrich[i];
+      try {
+        var pUrl = 'https://www.linkedin.com/voyager/api/identity/dash/profiles?q=memberIdentity&memberIdentity=' + encodeURIComponent(c.public_id) + '&decorationId=com.linkedin.voyager.dash.deco.identity.profile.TopCardSupplementary-167';
+        var pr = await fetch(pUrl, {headers: H, credentials: 'include'});
+        if (pr.ok) {
+          var pd = await pr.json();
+          var email = '', phone = '', city = '', company = '';
+          var items = pd.included || pd.elements || [];
+          for (var j = 0; j < items.length; j++) {
+            var item = items[j];
+            // Look for email
+            if (item.emailAddress) email = item.emailAddress;
+            if (item['emailAddress'] && !email) email = item['emailAddress'];
+            // Look for phone
+            if (item.phoneNumber) phone = item.phoneNumber;
+            if (item.phoneNumbers) {
+              for (var pn = 0; pn < item.phoneNumbers.length; pn++) {
+                if (item.phoneNumbers[pn].number) { phone = item.phoneNumbers[pn].number; break; }
+              }
+            }
+            // Look for location
+            if (item.locationName && !city) city = item.locationName;
+            if (item.geoLocationName && !city) city = item.geoLocationName;
+            // Look for company
+            if (item.companyName && !company) company = item.companyName;
+          }
+          if (email || phone || city || company) {
+            enriched.push({public_id: c.public_id, email: email, phone: phone, city: city, company: company});
+          }
+        }
+      } catch(e) {}
+      if (i % 10 === 9) {
+        log('Progress: ' + (i+1) + '/' + limit + ' (' + enriched.length + ' enriched)', 'info');
+        await delay(500);
+      }
+      await delay(300 + Math.random() * 200);
+    }
+
+    // Send enriched data to backend
+    if (enriched.length > 0) {
+      log('Sending ' + enriched.length + ' enriched contacts to backend...', 'info');
+      try {
+        var er = await fetch(backendUrl + '/api/li-search/connections/enrich', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({contacts: enriched})
+        });
+        if (er.ok) {
+          var erd = await er.json();
+          log('Enriched ' + erd.updated + ' contacts!', 'ok');
+        }
+      } catch(e) { log('Backend error: ' + e.message, 'err'); }
+    } else {
+      log('No email/phone found for checked profiles', 'info');
+    }
+
+    btn.disabled = false;
+    btn.textContent = 'Enrich: Fetch Email & Phone';
+  });
+
   // ============ MESSAGE QUEUE ============
   document.getElementById('lla-msg-btn').addEventListener('click', async function () {
     clearLog();
@@ -376,6 +480,12 @@
           copyMsg();
           if (composeWin && !composeWin.closed) try { composeWin.close(); } catch(e) {}
           composeWin = window.open('https://www.linkedin.com/messaging/compose/?recipient=' + encodeURIComponent(r.public_id), 'lla_compose');
+          // Log message to backend
+          fetch(backendUrl + '/api/li-search/messages/log', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({public_id: r.public_id, recipient_name: r.name || '', message: M})
+          }).catch(function(){});
           sent++; idx++; showNext();
         });
 
