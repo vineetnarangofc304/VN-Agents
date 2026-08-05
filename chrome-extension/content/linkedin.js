@@ -17,7 +17,7 @@
   panel.id = 'lla-panel';
   panel.innerHTML = [
     '<div class="lla-header">',
-    '  <h3>Lead Agent <span style="font-size:9px;color:#64748b;font-weight:400">v1.3.0</span></h3>',
+    '  <h3>Lead Agent <span style="font-size:9px;color:#64748b;font-weight:400">v1.4.0</span></h3>',
     '  <button class="lla-close" id="lla-close-btn">&times;</button>',
     '</div>',
     '<div class="lla-body">',
@@ -344,32 +344,44 @@
     for (var i = 0; i < limit; i++) {
       var c = toEnrich[i];
       try {
-        var pUrl = 'https://www.linkedin.com/voyager/api/identity/dash/profiles?q=memberIdentity&memberIdentity=' + encodeURIComponent(c.public_id) + '&decorationId=com.linkedin.voyager.dash.deco.identity.profile.TopCardSupplementary-167';
-        var pr = await fetch(pUrl, {headers: H, credentials: 'include'});
+        // Contact info is at a SEPARATE endpoint from profile
+        var ciUrl = 'https://www.linkedin.com/voyager/api/identity/profiles/' + encodeURIComponent(c.public_id) + '/profileContactInfo';
+        var pr = await fetch(ciUrl, {headers: H, credentials: 'include'});
         if (pr.ok) {
           var pd = await pr.json();
-          var email = '', phone = '', city = '', company = '';
-          var items = pd.included || pd.elements || [];
+          var email = '', phone = '', city = '';
+          // Direct fields
+          if (pd.emailAddress) email = pd.emailAddress;
+          if (pd.phoneNumbers && pd.phoneNumbers.length > 0) phone = pd.phoneNumbers[0].number || '';
+          if (pd.address) city = pd.address;
+          // Check included array
+          var items = pd.included || [];
           for (var j = 0; j < items.length; j++) {
             var item = items[j];
-            // Look for email
-            if (item.emailAddress) email = item.emailAddress;
-            if (item['emailAddress'] && !email) email = item['emailAddress'];
-            // Look for phone
-            if (item.phoneNumber) phone = item.phoneNumber;
-            if (item.phoneNumbers) {
-              for (var pn = 0; pn < item.phoneNumbers.length; pn++) {
-                if (item.phoneNumbers[pn].number) { phone = item.phoneNumbers[pn].number; break; }
-              }
-            }
-            // Look for location
-            if (item.locationName && !city) city = item.locationName;
-            if (item.geoLocationName && !city) city = item.geoLocationName;
-            // Look for company
-            if (item.companyName && !company) company = item.companyName;
+            if (item.emailAddress && !email) email = item.emailAddress;
+            if (item.phoneNumbers && item.phoneNumbers.length > 0 && !phone) phone = item.phoneNumbers[0].number || '';
           }
-          if (email || phone || city || company) {
-            enriched.push({public_id: c.public_id, email: email, phone: phone, city: city, company: company});
+          // Also try websites/twitter
+          if (email || phone || city) {
+            enriched.push({public_id: c.public_id, email: email, phone: phone, city: city, company: ''});
+          }
+        }
+        // Also fetch location from profile
+        if (!enriched.find(function(e){return e.public_id===c.public_id})) {
+          var locUrl = 'https://www.linkedin.com/voyager/api/identity/dash/profiles?q=memberIdentity&memberIdentity=' + encodeURIComponent(c.public_id);
+          var lr = await fetch(locUrl, {headers: H, credentials: 'include'});
+          if (lr.ok) {
+            var ld = await lr.json();
+            var lCity = '', lCompany = '';
+            var litems = ld.included || ld.elements || [];
+            for (var j = 0; j < litems.length; j++) {
+              if (litems[j].locationName && !lCity) lCity = litems[j].locationName;
+              if (litems[j].geoLocationName && !lCity) lCity = litems[j].geoLocationName;
+              if (litems[j].companyName && !lCompany) lCompany = litems[j].companyName;
+            }
+            if (lCity || lCompany) {
+              enriched.push({public_id: c.public_id, email: '', phone: '', city: lCity, company: lCompany});
+            }
           }
         }
       } catch(e) {}
