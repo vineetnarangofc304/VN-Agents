@@ -17,7 +17,7 @@
   panel.id = 'lla-panel';
   panel.innerHTML = [
     '<div class="lla-header">',
-    '  <h3>Lead Agent <span style="font-size:9px;color:#64748b;font-weight:400">v1.2.0</span></h3>',
+    '  <h3>Lead Agent <span style="font-size:9px;color:#64748b;font-weight:400">v1.3.0</span></h3>',
     '  <button class="lla-close" id="lla-close-btn">&times;</button>',
     '</div>',
     '<div class="lla-body">',
