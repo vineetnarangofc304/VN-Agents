@@ -17,7 +17,7 @@
   panel.id = 'lla-panel';
   panel.innerHTML = [
     '<div class="lla-header">',
-    '  <h3>Lead Agent <span style="font-size:9px;color:#64748b;font-weight:400">v1.6.0</span></h3>',
+    '  <h3>Lead Agent <span style="font-size:9px;color:#64748b;font-weight:400">v1.7.0</span></h3>',
     '  <button class="lla-close" id="lla-close-btn">&times;</button>',
     '</div>',
     '<div class="lla-body">',
@@ -341,12 +341,12 @@
       return;
     }
 
-    log('Enriching ' + toEnrich.length + ' contacts...', 'info');
+    log('Enriching ' + toEnrich.length + ' contacts (est. ' + Math.round(toEnrich.length * 0.5 / 60) + ' mins)...', 'info');
     var enriched = [];
     var batchSize = 50;
-    var limit = Math.min(toEnrich.length, 500); // 500 per session
+    var totalEnriched = 0;
 
-    for (var i = 0; i < limit; i++) {
+    for (var i = 0; i < toEnrich.length; i++) {
       var c = toEnrich[i];
       try {
         // Use dash endpoint (old profileContactInfo returns 410)
@@ -395,15 +395,27 @@
         }
       } catch(e) { if (i === 0) log('Error: ' + e.message, 'err'); }
       if (i % 10 === 9) {
-        log('Progress: ' + (i+1) + '/' + limit + ' (' + enriched.length + ' enriched)', 'info');
+        log('Progress: ' + (i+1) + '/' + toEnrich.length + ' (' + (totalEnriched + enriched.length) + ' enriched)', 'info');
         await delay(500);
       }
       await delay(300 + Math.random() * 200);
+
+      // Save in batches of 50 so progress isn't lost
+      if (enriched.length >= 50) {
+        try {
+          var er = await fetch(backendUrl + '/api/li-search/connections/enrich', {
+            method: 'POST', headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({contacts: enriched})
+          });
+          if (er.ok) { var erd = await er.json(); totalEnriched += erd.updated || 0; }
+        } catch(e) {}
+        enriched = [];
+      }
     }
 
-    // Send enriched data to backend
+    // Save remaining batch
     if (enriched.length > 0) {
-      log('Sending ' + enriched.length + ' enriched contacts to backend...', 'info');
+      log('Saving final batch...', 'info');
       try {
         var er = await fetch(backendUrl + '/api/li-search/connections/enrich', {
           method: 'POST',
@@ -412,12 +424,11 @@
         });
         if (er.ok) {
           var erd = await er.json();
-          log('Enriched ' + erd.updated + ' contacts!', 'ok');
+          totalEnriched += erd.updated || 0;
         }
-      } catch(e) { log('Backend error: ' + e.message, 'err'); }
-    } else {
-      log('No email/phone found for checked profiles', 'info');
+      } catch(e) { log('Save error: ' + e.message, 'err'); }
     }
+    log('Done! Enriched ' + totalEnriched + ' contacts total', 'ok');
 
     btn.disabled = false;
     btn.textContent = 'Enrich: Fetch Email & Phone';
