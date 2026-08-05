@@ -888,9 +888,9 @@ const CRMTab = () => {
                           {c.company && <div className="crm-company-text">{c.company}</div>}
                         </td>
                         <td className="crm-contact-cell">
-                          {c.email && <div style={{fontSize:10,color:"#60a5fa"}}>{c.email}</div>}
-                          {c.phone && <div style={{fontSize:10,color:"#94a3b8"}}>{c.phone}</div>}
-                          {!c.email && !c.phone && <span style={{fontSize:10,color:"#334155"}}>—</span>}
+                          {c.email && typeof c.email === "string" && <div style={{fontSize:10,color:"#60a5fa"}}>{c.email}</div>}
+                          {c.phone && typeof c.phone === "string" && <div style={{fontSize:10,color:"#94a3b8"}}>{c.phone}</div>}
+                          {(!c.email || typeof c.email !== "string") && (!c.phone || typeof c.phone !== "string") && <span style={{fontSize:10,color:"#334155"}}>—</span>}
                         </td>
                         <td className="crm-msg-count">{c.messages_sent || 0}</td>
                         <td className="crm-date-cell">

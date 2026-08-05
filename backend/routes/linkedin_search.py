@@ -1897,14 +1897,23 @@ async def enrich_connections(data: dict):
         if not pid:
             continue
         update = {}
-        if c.get("email"):
-            update["email"] = c["email"]
-        if c.get("phone"):
-            update["phone"] = c["phone"]
+        email = c.get("email", "")
+        phone = c.get("phone", "")
+        # Ensure values are plain strings, not objects
+        if isinstance(email, dict):
+            email = email.get("emailAddress", "") or email.get("email", "") or ""
+        if isinstance(phone, dict):
+            phone = phone.get("number", "") or phone.get("phoneNumber", "") or ""
+            if isinstance(phone, dict):
+                phone = phone.get("number", "")
+        if email:
+            update["email"] = str(email)
+        if phone:
+            update["phone"] = str(phone)
         if c.get("city"):
-            update["city"] = c["city"]
+            update["city"] = str(c["city"])
         if c.get("company"):
-            update["company"] = c["company"]
+            update["company"] = str(c["company"])
         if update:
             await db.li_connections.update_one({"public_id": pid}, {"$set": update})
             updated += 1
