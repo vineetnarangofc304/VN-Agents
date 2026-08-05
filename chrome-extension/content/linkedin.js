@@ -17,7 +17,7 @@
   panel.id = 'lla-panel';
   panel.innerHTML = [
     '<div class="lla-header">',
-    '  <h3>Lead Agent <span style="font-size:9px;color:#64748b;font-weight:400">v1.5.0</span></h3>',
+    '  <h3>Lead Agent <span style="font-size:9px;color:#64748b;font-weight:400">v1.6.0</span></h3>',
     '  <button class="lla-close" id="lla-close-btn">&times;</button>',
     '</div>',
     '<div class="lla-body">',
@@ -314,21 +314,26 @@
     var backendUrl = storageData.backendUrl;
     if (!backendUrl) { log('Set backend URL first!', 'err'); btn.disabled = false; btn.textContent = 'Enrich: Fetch Email & Phone'; return; }
 
-    // Fetch connections that need enrichment (no email/phone)
+    // Fetch connections that need enrichment (no email AND no phone)
     log('Fetching contacts to enrich...', 'info');
     var toEnrich = [];
-    try {
-      var resp = await fetch(backendUrl + '/api/li-search/connections?count=500&sort_by=synced_at&sort_dir=-1');
-      if (resp.ok) {
+    var page = 0;
+    while (toEnrich.length < 1000) {
+      try {
+        var resp = await fetch(backendUrl + '/api/li-search/connections?count=200&start=' + (page * 200) + '&sort_by=synced_at&sort_dir=-1');
+        if (!resp.ok) break;
         var data = await resp.json();
+        if (!data.connections || data.connections.length === 0) break;
         for (var i = 0; i < data.connections.length; i++) {
           var c = data.connections[i];
           if (!c.email && !c.phone && c.public_id) {
             toEnrich.push(c);
           }
         }
-      }
-    } catch(e) { log('Error: ' + e.message, 'err'); }
+        if (data.connections.length < 200) break;
+        page++;
+      } catch(e) { break; }
+    }
 
     if (toEnrich.length === 0) {
       log('No contacts need enrichment (all have email/phone or none found)', 'info');
@@ -338,8 +343,8 @@
 
     log('Enriching ' + toEnrich.length + ' contacts...', 'info');
     var enriched = [];
-    var batchSize = 50; // Process in batches to avoid overwhelming
-    var limit = Math.min(toEnrich.length, 200); // Max 200 per session
+    var batchSize = 50;
+    var limit = Math.min(toEnrich.length, 500); // 500 per session
 
     for (var i = 0; i < limit; i++) {
       var c = toEnrich[i];

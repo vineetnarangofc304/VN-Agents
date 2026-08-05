@@ -1773,7 +1773,7 @@ async def get_connections(
         query = {"$and": conditions} if len(conditions) > 1 else conditions[0]
 
     # Valid sort fields
-    valid_sorts = {"full_name": 1, "occupation": 1, "company": 1, "city": 1,
+    valid_sorts = {"full_name": 1, "occupation": 1, "company": 1, "city": 1, "email": 1,
                    "last_contacted": -1, "messages_sent": -1, "synced_at": -1, "created_at": -1}
     sort_field = sort_by if sort_by in valid_sorts else "full_name"
 

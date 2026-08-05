@@ -5038,6 +5038,8 @@ body {
 .crm-table-wrap { overflow-x: auto; border-radius: 10px; background: #0f172a; border: 1px solid #1e293b; }
 .crm-table { width: 100%; border-collapse: collapse; min-width: 700px; }
 .crm-table thead th { background: #1e293b; padding: 9px 12px; text-align: left; color: #94a3b8; font-size: 10px; text-transform: uppercase; letter-spacing: 0.5px; font-weight: 600; white-space: nowrap; position: sticky; top: 0; }
+.crm-sortable { cursor: pointer; user-select: none; transition: color 0.15s; }
+.crm-sortable:hover { color: #e2e8f0; }
 .crm-table tbody td { padding: 8px 12px; color: #cbd5e1; font-size: 12px; border-bottom: 1px solid #1e293b; vertical-align: middle; }
 .crm-table tbody tr:hover { background: #1e293b; }
 .crm-table tbody tr.crm-row-selected { background: #0a66c215; }

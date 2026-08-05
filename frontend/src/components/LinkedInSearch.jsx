@@ -851,11 +851,21 @@ const CRMTab = () => {
                 <thead>
                   <tr>
                     <th style={{width:36}}></th>
-                    <th>Name</th>
-                    <th>Title / Company</th>
-                    <th>Email / Phone</th>
-                    <th>Msgs</th>
-                    <th>Last Contact</th>
+                    <th className="crm-sortable" onClick={() => { setSortBy("full_name"); setSortDir(d => d * -1); setPage(0); }}>
+                      Name {sortBy === "full_name" ? (sortDir === 1 ? "↑" : "↓") : ""}
+                    </th>
+                    <th className="crm-sortable" onClick={() => { setSortBy("occupation"); setSortDir(d => d * -1); setPage(0); }}>
+                      Title / Company {sortBy === "occupation" ? (sortDir === 1 ? "↑" : "↓") : ""}
+                    </th>
+                    <th className="crm-sortable" onClick={() => { setSortBy("email"); setSortDir(d => d * -1); setPage(0); }}>
+                      Email / Phone {sortBy === "email" ? (sortDir === 1 ? "↑" : "↓") : ""}
+                    </th>
+                    <th className="crm-sortable" onClick={() => { setSortBy("messages_sent"); setSortDir(d => d * -1); setPage(0); }}>
+                      Msgs {sortBy === "messages_sent" ? (sortDir === 1 ? "↑" : "↓") : ""}
+                    </th>
+                    <th className="crm-sortable" onClick={() => { setSortBy("last_contacted"); setSortDir(d => d * -1); setPage(0); }}>
+                      Last Contact {sortBy === "last_contacted" ? (sortDir === 1 ? "↑" : "↓") : ""}
+                    </th>
                     <th>Actions</th>
                   </tr>
                 </thead>
