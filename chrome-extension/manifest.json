@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "LinkedIn Lead Agent",
-  "version": "1.7.0",
-  "description": "Sync connections, bulk message, and find leads on LinkedIn",
+  "version": "2.0.0",
+  "description": "Sync connections, bulk message, and find leads on LinkedIn — Multi-Account",
   "permissions": ["storage", "activeTab"],
   "host_permissions": ["https://www.linkedin.com/*"],
   "icons": {

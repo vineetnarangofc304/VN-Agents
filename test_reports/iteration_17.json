@@ -1,0 +1,62 @@
+{
+  "summary": "Multi-user LinkedIn CRM backend + frontend tested. 12/12 pytest backend tests PASS covering accounts CRUD (list/create/update/delete, cannot-delete-default, cascade delete of connections), and data isolation (connections push/get, stats overview, enrich, message queue scoped by account_id). Frontend UI verified: account selector dropdown shows all accounts with contact counts (Hardik Sachdeva 26431, Shivam Narang 0), Add Person modal creates account and refreshes dropdown, switching accounts reloads UI, Delete button appears only for non-default. ONE CRITICAL BUG FOUND: duplicate GET /api/li-search/messages/log route.",
+  "backend_issues": {
+    "critical": [
+      {
+        "endpoint": "GET /api/li-search/messages/log",
+        "issue": "Duplicate route registration. Older handler at linkedin_search.py:1315 (skip/limit params, queries wrong collection 'li_messages_log' plural, ignores account_id) shadows the newer handler at line 1948 (start/count/account_id, queries 'li_message_log' singular). FastAPI serves the first-registered route, so account_id filtering is completely broken and the endpoint returns empty results even after POST /messages/log inserts a document. Reproduced: POST /messages/log succeeds, subsequent GET /messages/log?account_id=X returns total=0 messages=[] for both the target account and default. Fix: remove the older duplicate at line 1315 (and/or rename the older collection reference).",
+        "priority": "CRITICAL"
+      }
+    ],
+    "minor": [
+      {
+        "endpoint": "GET /api/li-search/connections/{public_id}",
+        "issue": "Fallback lookup ignores account_id when connection not found in the active account — could leak a same-public_id record from another account into the response (line 1901)."
+      },
+      {
+        "endpoint": "GET /api/li-search/connections",
+        "issue": "No pagination cap. `count` accepted from client without upper bound — a caller can request very large pages."
+      },
+      {
+        "endpoint": "POST /api/li-search/accounts",
+        "issue": "No duplicate-name check. Two accounts with identical names can be created (only account_id differs) which is confusing in the UI dropdown."
+      }
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {
+        "screen": "Messaging tab account bar",
+        "issues": ["Benign React hydration warning 'In HTML, <span> cannot be a child of <option>' — originates from preview-tool DOM injection (x-file-name spans), not app code. Same finding as prior iteration."]
+      }
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_linkedin_multi_account.py",
+    "/app/test_reports/pytest/li_multi_account.xml"
+  ],
+  "action_items": [
+    "REMOVE the duplicate older GET /messages/log handler at /app/backend/routes/linkedin_search.py:1315 so the newer account-aware handler at line 1948 is served. Verify by inserting a message via POST /messages/log then reading it back via GET /messages/log?account_id=<acct>.",
+    "(Low) Scope GET /connections/{public_id} strictly to the provided account_id — remove backward-compat fallback that queries without account_id.",
+    "(Low) Add duplicate-name protection or an inline warning when creating a new account with an existing name."
+  ],
+  "critical_code_review_comments": [
+    "linkedin_search.py is 2330 lines — split into smaller routers (accounts, connections, messaging, scripts).",
+    "Duplicate route definitions in the same file (GET /messages/log twice) is a serious maintainability bug. Add a lint/CI check to detect duplicate FastAPI route paths.",
+    "Old /messages/log queries `li_messages_log` (plural s) while newer code and POST use `li_message_log`. Inconsistent collection naming — pick one and migrate.",
+    "_ensure_default_account() is called on every GET /accounts and POST /connections/push — the update_many migrations are fine when there is nothing to migrate but should not run on hot paths; move to app startup.",
+    "get_connections builds `conditions` then wraps with $and — since it always has at least the account filter, the fallback `query = conditions[0]` branch is dead code."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_linkedin_multi_account.py"
+  ],
+  "success_rate": {"backend": "92% (12/13 flows working; duplicate messages/log broken)", "frontend": "100% (all requested UI flows pass)"},
+  "test_credentials": "Agent password Agent@2024! (used in prev session; session already unlocked during this test so no gate reached). Admin creds in /app/memory/test_credentials.md not needed for LinkedIn Search endpoints (open).",
+  "seed_data_creation": "Created ephemeral TEST_ prefixed accounts during pytest runs — all cleaned up via DELETE /accounts/{id} in fixtures. No leftover data.",
+  "retest_needed": true,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Backend duplicate route fix is the primary open item. Re-run /app/backend/tests/test_linkedin_multi_account.py after fix and additionally verify: (a) POST /messages/log then GET /messages/log?account_id=X returns the just-logged message, (b) messages for another account are not returned. Frontend uses data-testid: account-selector, add-account-btn, delete-account-btn, add-account-modal, new-account-name, new-account-url, create-account-btn, tab-messaging.",
+  "rca of the issue": "In FastAPI, when two routes share the same method+path, only the first registered handler is used. During refactor to multi-user CRM, a new /messages/log GET was added at ~line 1948 with account_id support, but the pre-existing /messages/log GET at ~line 1315 was not removed. Additionally the older handler references collection 'li_messages_log' (with an extra 's') which differs from the POST handler's 'li_message_log' — so even if the older handler were active it would query an empty/wrong collection. Mitigation: delete the older handler (lines 1315-1326) and keep the newer one."
+}

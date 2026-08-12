@@ -5108,6 +5108,28 @@ body {
 /* Message log view */
 .crm-log h3 { font-size: 14px; display: flex; align-items: center; gap: 6px; }
 
+/* Account selector bar */
+.crm-account-bar { display: flex; align-items: center; justify-content: space-between; gap: 10px; background: #0f172a; border: 1px solid #1e293b; border-radius: 10px; padding: 10px 14px; margin-bottom: 14px; }
+.crm-account-selector { display: flex; align-items: center; gap: 8px; flex: 1; }
+.crm-account-dropdown { background: #1e293b; border: 1px solid #334155; border-radius: 8px; padding: 8px 12px; color: #f1f5f9; font-size: 13px; font-weight: 600; cursor: pointer; min-width: 200px; outline: none; }
+.crm-account-dropdown:focus { border-color: #0a66c2; }
+.crm-account-actions { display: flex; gap: 6px; align-items: center; }
+.crm-btn-danger { background: #450a0a; color: #fca5a5; border-color: #7f1d1d; }
+.crm-btn-danger:hover { background: #7f1d1d; }
+
+/* Add Account Modal */
+.crm-modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.6); backdrop-filter: blur(4px); display: flex; align-items: center; justify-content: center; z-index: 9999; }
+.crm-modal { background: #1e293b; border: 1px solid #334155; border-radius: 14px; padding: 0; width: 380px; max-width: 90vw; box-shadow: 0 20px 60px rgba(0,0,0,0.5); }
+.crm-modal-header { display: flex; align-items: center; justify-content: space-between; padding: 16px 20px 12px; border-bottom: 1px solid #334155; }
+.crm-modal-header h3 { font-size: 15px; color: #f1f5f9; display: flex; align-items: center; gap: 8px; margin: 0; }
+.crm-modal-close { background: none; border: none; color: #64748b; font-size: 20px; cursor: pointer; padding: 0 4px; line-height: 1; }
+.crm-modal-close:hover { color: #f1f5f9; }
+.crm-modal-body { padding: 16px 20px; }
+.crm-label { display: block; font-size: 11px; color: #94a3b8; margin-bottom: 4px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.3px; }
+.crm-modal-input { width: 100%; background: #0f172a; border: 1px solid #334155; border-radius: 8px; padding: 10px 12px; color: #e2e8f0; font-size: 13px; outline: none; }
+.crm-modal-input:focus { border-color: #0a66c2; }
+.crm-modal-footer { display: flex; justify-content: flex-end; gap: 8px; padding: 12px 20px 16px; }
+
 @media (max-width: 768px) {
   .crm-stats { grid-template-columns: repeat(3, 1fr); }
   .crm-toolbar { flex-direction: column; }
@@ -5115,5 +5137,7 @@ body {
   .crm-nav { flex-wrap: wrap; }
   .crm-detail-header { flex-direction: column; }
   .crm-detail-stats { flex-wrap: wrap; gap: 12px; }
+  .crm-account-bar { flex-direction: column; align-items: stretch; }
+  .crm-account-dropdown { min-width: 100%; }
 }
 

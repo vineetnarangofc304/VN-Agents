@@ -4,7 +4,8 @@ import {
   Loader2, Search, Send, RefreshCw, Trash2, Filter,
   ExternalLink, MessageSquare, Sparkles, Key, CheckCircle,
   XCircle, Clock, ChevronDown, ChevronUp, Copy, Building2, Tag,
-  Users, Mail, UserCheck, ChevronLeft, ChevronRight, Download, Plug
+  Users, Mail, UserCheck, ChevronLeft, ChevronRight, Download, Plug,
+  Plus, User
 } from "lucide-react";
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
@@ -631,10 +632,32 @@ const CRMTab = () => {
   const [importing, setImporting] = useState(false);
   const PAGE_SIZE = 50;
 
+  // Multi-account state
+  const [accounts, setAccounts] = useState([]);
+  const [activeAccountId, setActiveAccountId] = useState("");
+  const [showAddAccount, setShowAddAccount] = useState(false);
+  const [newAccName, setNewAccName] = useState("");
+  const [newAccUrl, setNewAccUrl] = useState("");
+  const [creatingAccount, setCreatingAccount] = useState(false);
+
+  const fetchAccounts = useCallback(async () => {
+    try {
+      const res = await axios.get(`${API}/li-search/accounts`);
+      const accs = res.data.accounts || [];
+      setAccounts(accs);
+      if (accs.length > 0) {
+        setActiveAccountId(prev => prev || accs[0].account_id);
+      }
+    } catch (e) { console.error(e); }
+  }, []);
+
+  useEffect(() => { fetchAccounts(); }, [fetchAccounts]);
+
   const fetchContacts = useCallback(async (p = 0) => {
+    if (!activeAccountId) return;
     setLoading(true);
     try {
-      const params = { start: p * PAGE_SIZE, count: PAGE_SIZE, sort_by: sortBy, sort_dir: sortDir };
+      const params = { start: p * PAGE_SIZE, count: PAGE_SIZE, sort_by: sortBy, sort_dir: sortDir, account_id: activeAccountId };
       if (search) params.keyword = search;
       if (filterContacted) params.filter_contacted = filterContacted;
       if (filterCompany) params.filter_company = filterCompany;
@@ -643,25 +666,56 @@ const CRMTab = () => {
       setTotal(res.data.total || 0);
     } catch (e) { console.error(e); }
     finally { setLoading(false); }
-  }, [search, sortBy, sortDir, filterContacted, filterCompany]);
+  }, [search, sortBy, sortDir, filterContacted, filterCompany, activeAccountId]);
 
-  const fetchStats = async () => {
+  const fetchStats = useCallback(async () => {
+    if (!activeAccountId) return;
     try {
-      const res = await axios.get(`${API}/li-search/connections/stats/overview`);
+      const res = await axios.get(`${API}/li-search/connections/stats/overview`, { params: { account_id: activeAccountId } });
       setStats(res.data);
     } catch (e) {}
-  };
+  }, [activeAccountId]);
 
   const fetchMsgLog = async (p = 0) => {
     try {
-      const res = await axios.get(`${API}/li-search/messages/log`, { params: { start: p * 50, count: 50 } });
+      const res = await axios.get(`${API}/li-search/messages/log`, { params: { start: p * 50, count: 50, account_id: activeAccountId } });
       setMsgLog(res.data.messages || []);
       setMsgLogTotal(res.data.total || 0);
     } catch (e) {}
   };
 
-  useEffect(() => { fetchContacts(page); }, [page, fetchContacts]);
-  useEffect(() => { fetchStats(); }, []);
+  useEffect(() => { if (activeAccountId) { fetchContacts(page); } }, [page, fetchContacts, activeAccountId]);
+  useEffect(() => { if (activeAccountId) { fetchStats(); } }, [activeAccountId, fetchStats]);
+
+  // Reset page and selection when switching accounts
+  const switchAccount = (id) => {
+    setActiveAccountId(id);
+    setPage(0);
+    setSelected([]);
+    setView("contacts");
+  };
+
+  const handleCreateAccount = async () => {
+    if (!newAccName.trim()) return;
+    setCreatingAccount(true);
+    try {
+      await axios.post(`${API}/li-search/accounts`, { name: newAccName.trim(), linkedin_url: newAccUrl.trim() });
+      setNewAccName(""); setNewAccUrl(""); setShowAddAccount(false);
+      await fetchAccounts();
+    } catch (e) { alert(e.response?.data?.detail || "Failed"); }
+    finally { setCreatingAccount(false); }
+  };
+
+  const handleDeleteAccount = async (accId) => {
+    if (!window.confirm("Delete this account and ALL its contacts?")) return;
+    try {
+      await axios.delete(`${API}/li-search/accounts/${accId}`);
+      await fetchAccounts();
+      if (activeAccountId === accId) {
+        setActiveAccountId(accounts.find(a => a.account_id !== accId)?.account_id || "");
+      }
+    } catch (e) { alert(e.response?.data?.detail || "Failed"); }
+  };
 
   const toggleSelect = (c) => {
     setSelected(prev => prev.find(s => s.public_id === c.public_id)
@@ -675,7 +729,7 @@ const CRMTab = () => {
 
   const openDetail = async (publicId) => {
     try {
-      const res = await axios.get(`${API}/li-search/connections/${publicId}`);
+      const res = await axios.get(`${API}/li-search/connections/${publicId}`, { params: { account_id: activeAccountId } });
       setDetailContact(res.data);
       setView("detail");
     } catch (e) { console.error(e); }
@@ -687,7 +741,7 @@ const CRMTab = () => {
     try {
       const parsed = JSON.parse(pasteData.trim());
       const arr = Array.isArray(parsed) ? parsed : [parsed];
-      const res = await axios.post(`${API}/li-search/connections/push`, { connections: arr });
+      const res = await axios.post(`${API}/li-search/connections/push`, { connections: arr, account_id: activeAccountId });
       alert(`Imported! New: ${res.data.new}, Duplicates skipped: ${res.data.duplicates}, Total: ${res.data.total}`);
       setPasteData("");
       fetchContacts(0); fetchStats();
@@ -704,8 +758,7 @@ const CRMTab = () => {
         public_id: c.public_id, entity_urn: c.entity_urn || "",
         occupation: c.occupation || ""
       }));
-      // Push to extension queue only (logging happens when actually sent via extension)
-      await axios.post(`${API}/li-search/message/queue`, { recipients, message: messageText });
+      await axios.post(`${API}/li-search/message/queue`, { recipients, message: messageText, account_id: activeAccountId });
       setSendResult({ queued: true, count: recipients.length });
     } catch (e) { setSendResult({ error: e.response?.data?.detail || "Failed" }); }
     finally { setSendingMsg(false); }
@@ -715,6 +768,63 @@ const CRMTab = () => {
 
   return (
     <>
+      {/* Account Selector Bar */}
+      <div className="crm-account-bar" data-testid="crm-account-bar">
+        <div className="crm-account-selector">
+          <User size={14} />
+          <select
+            className="crm-account-dropdown"
+            value={activeAccountId}
+            onChange={e => switchAccount(e.target.value)}
+            data-testid="account-selector"
+          >
+            {accounts.map(acc => (
+              <option key={acc.account_id} value={acc.account_id}>
+                {acc.name} ({acc.connection_count} contacts)
+              </option>
+            ))}
+          </select>
+        </div>
+        <div className="crm-account-actions">
+          <button className="crm-btn crm-btn-accent crm-btn-sm" onClick={() => setShowAddAccount(true)} data-testid="add-account-btn">
+            <Plus size={13} /> Add Person
+          </button>
+          {activeAccountId && !accounts.find(a => a.account_id === activeAccountId)?.is_default && (
+            <button className="crm-btn crm-btn-sm crm-btn-danger" onClick={() => handleDeleteAccount(activeAccountId)} data-testid="delete-account-btn">
+              <Trash2 size={13} />
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* Add Account Modal */}
+      {showAddAccount && (
+        <div className="crm-modal-overlay" data-testid="add-account-modal">
+          <div className="crm-modal">
+            <div className="crm-modal-header">
+              <h3><Plus size={16} /> Add New Person</h3>
+              <button className="crm-modal-close" onClick={() => setShowAddAccount(false)}>&times;</button>
+            </div>
+            <div className="crm-modal-body">
+              <label className="crm-label">Name *</label>
+              <input className="crm-modal-input" placeholder="e.g. Shivam Narang" value={newAccName}
+                onChange={e => setNewAccName(e.target.value)} data-testid="new-account-name" />
+              <label className="crm-label" style={{marginTop:10}}>LinkedIn Profile URL (optional)</label>
+              <input className="crm-modal-input" placeholder="https://www.linkedin.com/in/..." value={newAccUrl}
+                onChange={e => setNewAccUrl(e.target.value)} data-testid="new-account-url" />
+            </div>
+            <div className="crm-modal-footer">
+              <button className="crm-btn crm-btn-sm" onClick={() => setShowAddAccount(false)}>Cancel</button>
+              <button className="crm-btn crm-btn-primary" onClick={handleCreateAccount}
+                disabled={creatingAccount || !newAccName.trim()} data-testid="create-account-btn">
+                {creatingAccount ? <Loader2 size={14} className="spin" /> : <Plus size={14} />}
+                Create
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Stats Bar */}
       <div className="crm-stats" data-testid="crm-stats">
         <div className="crm-stat-card">

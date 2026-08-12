@@ -23,6 +23,8 @@ db = client[os.environ.get('DB_NAME', 'agent_hub')]
 
 EMERGENT_KEY = os.environ.get('EMERGENT_LLM_KEY', '')
 
+DEFAULT_ACCOUNT_ID = "default"
+
 VOYAGER_HEADERS = {
     "accept": "application/vnd.linkedin.normalized+json+2.1",
     "x-restli-protocol-version": "2.0.0",
@@ -1310,20 +1312,6 @@ Guidelines:
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.get("/messages/log")
-async def get_message_log(skip: int = 0, limit: int = 50):
-    """Get sent messages log."""
-    total = await db.li_messages_log.count_documents({})
-    cursor = db.li_messages_log.find().sort("sent_at", -1).skip(skip).limit(limit)
-    messages = []
-    async for doc in cursor:
-        doc["_id"] = str(doc["_id"])
-        if isinstance(doc.get("sent_at"), datetime):
-            doc["sent_at"] = doc["sent_at"].isoformat()
-        messages.append(doc)
-    return {"messages": messages, "total": total}
-
-
 @router.post("/message/script")
 async def generate_message_script(data: dict):
     """Generate a browser script that looks up URNs via search and sends messages in bulk."""
@@ -1670,12 +1658,110 @@ async def generate_compose_script(data: dict):
 
     return {"script": script.strip(), "recipients_count": len(recipients)}
 
+# ==================== ACCOUNTS MANAGEMENT ====================
+
+async def _ensure_default_account():
+    """Ensure a default account exists and migrate orphan connections."""
+    existing = await db.li_accounts.find_one({"account_id": DEFAULT_ACCOUNT_ID})
+    if not existing:
+        await db.li_accounts.insert_one({
+            "account_id": DEFAULT_ACCOUNT_ID,
+            "name": "Default Account",
+            "linkedin_url": "",
+            "created_at": datetime.now(timezone.utc),
+            "is_default": True,
+        })
+    # Migrate orphan connections (no account_id) to default
+    await db.li_connections.update_many(
+        {"account_id": {"$exists": False}},
+        {"$set": {"account_id": DEFAULT_ACCOUNT_ID}}
+    )
+    await db.li_message_log.update_many(
+        {"account_id": {"$exists": False}},
+        {"$set": {"account_id": DEFAULT_ACCOUNT_ID}}
+    )
+    await db.li_message_queue.update_many(
+        {"account_id": {"$exists": False}},
+        {"$set": {"account_id": DEFAULT_ACCOUNT_ID}}
+    )
+
+
+@router.get("/accounts")
+async def get_accounts():
+    """List all LinkedIn accounts."""
+    await _ensure_default_account()
+    accounts = []
+    async for doc in db.li_accounts.find().sort("created_at", 1):
+        doc["_id"] = str(doc["_id"])
+        if isinstance(doc.get("created_at"), datetime):
+            doc["created_at"] = doc["created_at"].isoformat()
+        # Get connection count per account
+        count = await db.li_connections.count_documents({"account_id": doc["account_id"]})
+        doc["connection_count"] = count
+        accounts.append(doc)
+    return {"accounts": accounts}
+
+
+@router.post("/accounts")
+async def create_account(data: dict):
+    """Create a new LinkedIn account."""
+    name = data.get("name", "").strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="Name is required")
+    linkedin_url = data.get("linkedin_url", "").strip()
+    account_id = str(uuid.uuid4())[:8]
+    await db.li_accounts.insert_one({
+        "account_id": account_id,
+        "name": name,
+        "linkedin_url": linkedin_url,
+        "created_at": datetime.now(timezone.utc),
+        "is_default": False,
+    })
+    return {"success": True, "account_id": account_id, "name": name}
+
+
+@router.put("/accounts/{account_id}")
+async def update_account(account_id: str, data: dict):
+    """Update account name or LinkedIn URL."""
+    update = {}
+    if "name" in data:
+        update["name"] = data["name"].strip()
+    if "linkedin_url" in data:
+        update["linkedin_url"] = data["linkedin_url"].strip()
+    if not update:
+        raise HTTPException(status_code=400, detail="Nothing to update")
+    result = await db.li_accounts.update_one({"account_id": account_id}, {"$set": update})
+    if result.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Account not found")
+    return {"success": True}
+
+
+@router.delete("/accounts/{account_id}")
+async def delete_account(account_id: str):
+    """Delete an account and all its connections."""
+    if account_id == DEFAULT_ACCOUNT_ID:
+        raise HTTPException(status_code=400, detail="Cannot delete default account")
+    result = await db.li_accounts.delete_one({"account_id": account_id})
+    if result.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Account not found")
+    # Delete related data
+    await db.li_connections.delete_many({"account_id": account_id})
+    await db.li_message_log.delete_many({"account_id": account_id})
+    await db.li_message_queue.delete_many({"account_id": account_id})
+    return {"success": True}
+
+
+# ==================== CONNECTIONS ENDPOINTS ====================
+
 @router.post("/connections/push")
 async def push_connections(data: dict):
-    """Receive connections — upsert by public_id (no duplicates)."""
+    """Receive connections — upsert by public_id+account_id (no duplicates)."""
     connections = data.get("connections", [])
     if not connections:
         raise HTTPException(status_code=400, detail="No connections data")
+
+    account_id = data.get("account_id", DEFAULT_ACCOUNT_ID)
+    await _ensure_default_account()
 
     stored = 0
     new_count = 0
@@ -1684,7 +1770,6 @@ async def push_connections(data: dict):
         if not public_id:
             continue
         occupation = conn.get("occupation", "")
-        # Extract company and city from occupation if possible
         company = ""
         city = ""
         if " at " in occupation:
@@ -1693,8 +1778,8 @@ async def push_connections(data: dict):
         elif " @ " in occupation:
             parts = occupation.split(" @ ", 1)
             company = parts[1].strip() if len(parts) > 1 else ""
-        # Check if record exists
-        existing = await db.li_connections.find_one({"public_id": public_id})
+        # Unique by public_id + account_id
+        existing = await db.li_connections.find_one({"public_id": public_id, "account_id": account_id})
         is_new = existing is None
 
         update_doc = {
@@ -1710,16 +1795,16 @@ async def push_connections(data: dict):
             "avatar_url": conn.get("avatar_url", ""),
             "public_id": public_id,
             "entity_urn": conn.get("entity_urn", "") or (existing.get("entity_urn", "") if existing else ""),
+            "account_id": account_id,
             "synced_at": datetime.now(timezone.utc),
         }
-        # Don't overwrite message stats on re-sync
         if is_new:
             update_doc["messages_sent"] = 0
             update_doc["last_contacted"] = None
             update_doc["created_at"] = datetime.now(timezone.utc)
 
         await db.li_connections.update_one(
-            {"public_id": public_id},
+            {"public_id": public_id, "account_id": account_id},
             {"$set": update_doc},
             upsert=True
         )
@@ -1727,7 +1812,7 @@ async def push_connections(data: dict):
         if is_new:
             new_count += 1
 
-    total = await db.li_connections.count_documents({})
+    total = await db.li_connections.count_documents({"account_id": account_id})
     return {"success": True, "stored": stored, "new": new_count, "duplicates": stored - new_count, "total": total}
 
 
@@ -1741,10 +1826,12 @@ async def get_connections(
     filter_contacted: str = "",
     filter_company: str = "",
     filter_city: str = "",
+    account_id: str = "",
 ):
     """Fetch connections with rich search, filters, sorting."""
+    active_account = account_id or DEFAULT_ACCOUNT_ID
     query = {}
-    conditions = []
+    conditions = [{"account_id": active_account}]
 
     if keyword:
         conditions.append({"$or": [
@@ -1791,9 +1878,10 @@ async def get_connections(
 
 
 @router.get("/connections/{public_id}")
-async def get_connection_detail(public_id: str):
+async def get_connection_detail(public_id: str, account_id: str = ""):
     """Get single connection with message history."""
-    conn = await db.li_connections.find_one({"public_id": public_id})
+    active_account = account_id or DEFAULT_ACCOUNT_ID
+    conn = await db.li_connections.find_one({"public_id": public_id, "account_id": active_account})
     if not conn:
         raise HTTPException(status_code=404, detail="Connection not found")
     conn["_id"] = str(conn["_id"])
@@ -1820,6 +1908,7 @@ async def log_message(data: dict):
     public_id = data.get("public_id", "")
     message = data.get("message", "")
     recipient_name = data.get("recipient_name", "")
+    account_id = data.get("account_id", DEFAULT_ACCOUNT_ID)
     if not public_id or not message:
         raise HTTPException(status_code=400, detail="public_id and message required")
 
@@ -1828,11 +1917,12 @@ async def log_message(data: dict):
         "public_id": public_id,
         "recipient_name": recipient_name,
         "message": message,
+        "account_id": account_id,
         "sent_at": now,
     })
     # Update contact stats
     await db.li_connections.update_one(
-        {"public_id": public_id},
+        {"public_id": public_id, "account_id": account_id},
         {"$set": {"last_contacted": now}, "$inc": {"messages_sent": 1}}
     )
     return {"success": True}
@@ -1843,9 +1933,11 @@ async def get_message_log(
     start: int = 0,
     count: int = 50,
     public_id: str = "",
+    account_id: str = "",
 ):
     """Get message log / report."""
-    query = {}
+    active_account = account_id or DEFAULT_ACCOUNT_ID
+    query = {"account_id": active_account}
     if public_id:
         query["public_id"] = public_id
     total = await db.li_message_log.count_documents(query)
@@ -1860,14 +1952,16 @@ async def get_message_log(
 
 
 @router.get("/connections/stats/overview")
-async def get_connections_stats():
+async def get_connections_stats(account_id: str = ""):
     """Get overview stats for the CRM."""
-    total = await db.li_connections.count_documents({})
-    contacted = await db.li_connections.count_documents({"messages_sent": {"$gt": 0}})
-    total_messages = await db.li_message_log.count_documents({})
+    active_account = account_id or DEFAULT_ACCOUNT_ID
+    acct_filter = {"account_id": active_account}
+    total = await db.li_connections.count_documents(acct_filter)
+    contacted = await db.li_connections.count_documents({**acct_filter, "messages_sent": {"$gt": 0}})
+    total_messages = await db.li_message_log.count_documents({"account_id": active_account})
     # Top companies
     pipeline = [
-        {"$match": {"company": {"$ne": "", "$exists": True}}},
+        {"$match": {"account_id": active_account, "company": {"$ne": "", "$exists": True}}},
         {"$group": {"_id": "$company", "count": {"$sum": 1}}},
         {"$sort": {"count": -1}},
         {"$limit": 10}
@@ -1889,6 +1983,7 @@ async def get_connections_stats():
 async def enrich_connections(data: dict):
     """Update connections with email/phone/company from extension-fetched contact info."""
     contacts = data.get("contacts", [])
+    account_id = data.get("account_id", DEFAULT_ACCOUNT_ID)
     if not contacts:
         raise HTTPException(status_code=400, detail="No contacts data")
     updated = 0
@@ -1915,16 +2010,20 @@ async def enrich_connections(data: dict):
         if c.get("company"):
             update["company"] = str(c["company"])
         if update:
-            await db.li_connections.update_one({"public_id": pid}, {"$set": update})
+            await db.li_connections.update_one({"public_id": pid, "account_id": account_id}, {"$set": update})
             updated += 1
     return {"success": True, "updated": updated}
 
 
 
 @router.get("/message/queue")
-async def get_message_queue():
+async def get_message_queue(account_id: str = ""):
     """Get pending message queue for the Chrome extension."""
-    queue = await db.li_message_queue.find_one({"status": "pending"}, sort=[("created_at", -1)])
+    active_account = account_id or DEFAULT_ACCOUNT_ID
+    queue = await db.li_message_queue.find_one(
+        {"status": "pending", "account_id": active_account},
+        sort=[("created_at", -1)]
+    )
     if not queue:
         return {"recipients": [], "message": ""}
     queue["_id"] = str(queue["_id"])
@@ -1940,11 +2039,13 @@ async def create_message_queue(data: dict):
     """Create a message queue for the Chrome extension to pick up."""
     recipients = data.get("recipients", [])
     message = data.get("message", "")
+    account_id = data.get("account_id", DEFAULT_ACCOUNT_ID)
     if not recipients or not message:
         raise HTTPException(status_code=400, detail="Recipients and message required")
     doc = {
         "recipients": recipients,
         "message": message,
+        "account_id": account_id,
         "status": "pending",
         "created_at": datetime.now(timezone.utc),
     }

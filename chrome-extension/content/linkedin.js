@@ -1,5 +1,5 @@
-// LinkedIn Lead Agent — Content Script v1.2.0
-// Injected into all linkedin.com pages
+// LinkedIn Lead Agent — Content Script v2.0.0
+// Injected into all linkedin.com pages — Multi-Account Support
 
 (function () {
   'use strict';
@@ -17,7 +17,7 @@
   panel.id = 'lla-panel';
   panel.innerHTML = [
     '<div class="lla-header">',
-    '  <h3>Lead Agent <span style="font-size:9px;color:#64748b;font-weight:400">v1.7.0</span></h3>',
+    '  <h3>Lead Agent <span style="font-size:9px;color:#64748b;font-weight:400">v2.0.0</span></h3>',
     '  <button class="lla-close" id="lla-close-btn">&times;</button>',
     '</div>',
     '<div class="lla-body">',
@@ -284,7 +284,9 @@
 
     if (results.length > 0) {
       log('Sending to backend...', 'info');
-      chrome.runtime.sendMessage({ type: 'SYNC_CONNECTIONS', connections: results }, function (resp) {
+      var storData = await chrome.storage.local.get(['activeAccountId']);
+      var acctId = storData.activeAccountId || 'default';
+      chrome.runtime.sendMessage({ type: 'SYNC_CONNECTIONS', connections: results, account_id: acctId }, function (resp) {
         if (resp && resp.success) {
           log('Synced ' + resp.stored + ' (new: ' + (resp.new || 0) + ', dupes: ' + (resp.duplicates || 0) + ')', 'ok');
         } else {
@@ -310,8 +312,9 @@
     if (!csrf) { log('Not logged in', 'err'); btn.disabled = false; btn.textContent = 'Enrich: Fetch Email & Phone'; return; }
     var H = liHeaders();
 
-    var storageData = await chrome.storage.local.get(['backendUrl']);
+    var storageData = await chrome.storage.local.get(['backendUrl', 'activeAccountId']);
     var backendUrl = storageData.backendUrl;
+    var enrichAccountId = storageData.activeAccountId || 'default';
     if (!backendUrl) { log('Set backend URL first!', 'err'); btn.disabled = false; btn.textContent = 'Enrich: Fetch Email & Phone'; return; }
 
     // Fetch connections that need enrichment (no email AND no phone)
@@ -320,7 +323,7 @@
     var page = 0;
     while (toEnrich.length < 1000) {
       try {
-        var resp = await fetch(backendUrl + '/api/li-search/connections?count=200&start=' + (page * 200) + '&sort_by=synced_at&sort_dir=-1');
+        var resp = await fetch(backendUrl + '/api/li-search/connections?count=200&start=' + (page * 200) + '&sort_by=synced_at&sort_dir=-1&account_id=' + encodeURIComponent(enrichAccountId));
         if (!resp.ok) break;
         var data = await resp.json();
         if (!data.connections || data.connections.length === 0) break;
@@ -405,7 +408,7 @@
         try {
           var er = await fetch(backendUrl + '/api/li-search/connections/enrich', {
             method: 'POST', headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({contacts: enriched})
+            body: JSON.stringify({contacts: enriched, account_id: enrichAccountId})
           });
           if (er.ok) { var erd = await er.json(); totalEnriched += erd.updated || 0; }
         } catch(e) {}
@@ -420,7 +423,7 @@
         var er = await fetch(backendUrl + '/api/li-search/connections/enrich', {
           method: 'POST',
           headers: {'Content-Type': 'application/json'},
-          body: JSON.stringify({contacts: enriched})
+          body: JSON.stringify({contacts: enriched, account_id: enrichAccountId})
         });
         if (er.ok) {
           var erd = await er.json();
@@ -439,15 +442,16 @@
     clearLog();
     log('Checking message queue...', 'info');
     
-    var data = await chrome.storage.local.get(['backendUrl']);
+    var data = await chrome.storage.local.get(['backendUrl', 'activeAccountId']);
     var backendUrl = data.backendUrl;
+    var msgAccountId = data.activeAccountId || 'default';
     if (!backendUrl) {
       log('Set backend URL in extension popup first!', 'err');
       return;
     }
 
     try {
-      var resp = await fetch(backendUrl + '/api/li-search/message/queue');
+      var resp = await fetch(backendUrl + '/api/li-search/message/queue?account_id=' + encodeURIComponent(msgAccountId));
       if (!resp.ok) { log('Server error: ' + resp.status, 'err'); return; }
       var queueData = await resp.json();
 
@@ -516,7 +520,7 @@
           fetch(backendUrl + '/api/li-search/messages/log', {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({public_id: r.public_id, recipient_name: r.name || '', message: M})
+            body: JSON.stringify({public_id: r.public_id, recipient_name: r.name || '', message: M, account_id: msgAccountId})
           }).catch(function(){});
           sent++; idx++; showNext();
         });

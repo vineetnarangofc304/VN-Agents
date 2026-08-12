@@ -1,14 +1,15 @@
 # PRD — Multi-Agent Platform (Vineet Narang)
 
 ## Original Problem Statement
-Build a multi-agent platform serving 9 completely independent agents, each accessible via isolated URLs from a unified landing page hub.
+Build a multi-agent platform serving 10 completely independent agents, each accessible via isolated URLs from a unified landing page hub.
 
 ## Architecture
 - **Frontend**: React (React Router v7), dark theme (default) + light theme (Content Studio)
 - **Backend**: FastAPI (Python), MongoDB
 - **Routing**: Each agent on its own URL
-- **Auth**: Shared password-based agent login wrapper
+- **Auth**: Shared password-based agent login wrapper (Password: Agent@2024!)
 - **LLM**: Emergent LLM Key via `emergentintegrations` (GPT-4o for text, Nano Banana for images)
+- **Chrome Extension**: LinkedIn Lead Agent v2.0.0 (Multi-Account)
 
 ## What's Been Implemented
 
@@ -20,39 +21,35 @@ Build a multi-agent platform serving 9 completely independent agents, each acces
 ### Agent 6: Account Checker (`/checker`) — DDC email scanner, credits capture, chip farming
 ### Agent 7: Catchment Mining (`/catchment`) — Web crawler for Delhi NCR contact databases
 
-### Agent 8: LinkedIn Lead Finder (`/linkedin-search`) — NEW (Jul 2026)
+### Agent 8: LinkedIn Lead Finder (`/linkedin-search`) — UPDATED Aug 2026
 - Post Search via LinkedIn Voyager API (cookie-based auth)
 - 10 search keywords, AI classification (GPT-4o), company matching
 - AI comment generation & posting
+- **Multi-User CRM** (NEW): Account dropdown to switch between LinkedIn profiles
+  - Add/remove people (e.g., Hardik Sachdeva, Shivam Narang)
+  - Each account has isolated contacts, messages, stats
+  - Backend: `li_accounts` collection, all endpoints filter by `account_id`
 - Messaging tab: fetch connections, AI message generation, single/bulk send
+- Contact Enrichment: Fetch email & phone via LinkedIn Dash API (extension)
 
-### Agent 9: Content Studio (`/content-studio`) — NEW (Jul 2026)
-- **Dashboard**: Stats (total, published, drafts, scheduled), 18 content pillars, recent content
-- **AI Content Generation**: 3-step pipeline (Research → Draft → Review/Polish) with quality scoring
-- **Content Calendar**: AI-generated publishing schedule (7-90 days)
-- **Infographic Generation**: Nano Banana (McKinsey/Stripe quality specs)
+### Agent 9: Content Studio (`/content-studio`)
+- **Dashboard**: Stats, content pillars, recent content
+- **AI Content Generation**: 3-step pipeline with quality scoring
+- **Content Calendar**: AI-generated publishing schedule
+- **Infographic Generation**: Nano Banana
 - **LinkedIn Publishing**: Separate OAuth for Vineet Narang
-- **Content Library**: All generated content with pillar/status/score filters
-- **Light Theme UI**: Apple/Stripe quality, Manrope + Inter typography
+- **Light Theme UI**: Apple/Stripe quality
 
-### Agent 10: Banking Agent (`/banking`) — NEW (Jul 2026)
-- **PDF Upload**: Password-protected bank statement parsing (pdfplumber)
-- **Auto-Categorization**: 20+ merchant/category mappings (Gaming, Food, Transport, Bills, etc.)
-- **Dashboard**: Summary cards (Opening/Closing Balance, Debits, Credits, Net Flow)
-- **Overview Tab**: Monthly debits vs credits bar chart, category pie chart, transaction type breakdown
-- **Categories Tab**: Horizontal bar chart + clickable table
-- **Merchants Tab**: Top 15 merchant chart + full merchant table
-- **Trends Tab**: Daily balance area chart, monthly net cash flow
-- **Transactions View**: Searchable, sortable, filterable table (2877 txns), pagination (100/page)
-- **Filters**: Category, txn type, date range, debit/credit only, text search
+### Agent 10: Banking Agent (`/banking`)
+- PDF Upload, Auto-Categorization, Dashboard, Charts, Transactions
 
-### Chrome Extension: LinkedIn Lead Agent (NEW - Aug 2026)
+### Chrome Extension: LinkedIn Lead Agent v2.0.0 (Aug 2026)
+- **Multi-Account Support**: Account selector in popup + content script
 - **Manifest V3** Chrome extension for LinkedIn automation
 - **Floating Panel**: ⚡ button on LinkedIn pages with Sync + Message Queue
-- **Auto-Sync**: Syncs connections directly to backend (no clipboard needed)
-- **Message Queue**: Pick up message queues from the web app
-- **Compose Flow**: One-tab-at-a-time compose with clipboard copy
-- **Popup**: Backend URL config, stats, quick links
+- **Auto-Sync**: Syncs connections directly to backend with `account_id`
+- **Enrichment**: Fetch email/phone scoped to active account
+- **Message Queue**: Pick up message queues per account
 - Download: `/linkedin-lead-agent-extension.zip`
 
 ## Background Schedulers
@@ -61,28 +58,29 @@ Build a multi-agent platform serving 9 completely independent agents, each acces
 - LinkedIn Auto-poster: Every 6 hours
 - Scheduled Posts: Every 5 minutes check
 
+## Key DB Collections
+- `li_accounts`: `{account_id, name, linkedin_url, created_at, is_default}`
+- `li_connections`: `{public_id, full_name, occupation, company, email, phone, account_id, ...}`
+- `li_message_log`: `{public_id, recipient_name, message, account_id, sent_at}`
+- `li_message_queue`: `{recipients, message, account_id, status, created_at}`
+
 ## Prioritized Backlog
 
-### P0 (Needs User Action)
-- **Verify Bulk Messaging Script** — Updated sync script (v8) and messaging script (v3) to use stable profile lookup APIs instead of broken typeahead/blended search. User needs to re-sync connections and test bulk send from LinkedIn browser console. (Jul 2026)
-- Connect Vineet's LinkedIn via Content Studio OAuth
-- Verify production deployment
+### P0 (Next)
+- **Qikberry WhatsApp Integration**: Credentials provided (API Key: auAF-SnAv-R6VI). Add WhatsApp send button per contact in CRM.
+- **Email SMTP Integration**: Blocked — waiting on user for SMTP credentials.
 
-### P1 (Content Studio Phase 2)
+### P1
+- LinkedIn Post Search Scheduler (automated daily runs)
 - Research Agent: Daily monitoring of OpenAI, Anthropic, arXiv, HN
-- Idea Inbox: AI-curated content ideas from trending topics
-- Analytics & Learning: Track engagement, learn what works
-- Brand voice memory & style learning
+- Content Studio Phase 2 (Idea Inbox, Analytics)
 
 ### P2
-- Multiple content types: carousels, whitepapers, architecture diagrams, video scripts
-- Asset Library & Version History
+- Catchment Mining proxy-based scraping
+- Multiple content types: carousels, whitepapers
 - DDC farming gain verification
-- Catchment Mining search improvements
 
 ### Future
 - SMS/WhatsApp alerts for Stock Investor
 - Catchment Mining for more cities
-- DDC advanced farming
 - 365-day full calendar generation
-- Conference talk & keynote generators
