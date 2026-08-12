@@ -932,8 +932,9 @@ if frontend_url:
     cors_origins.append(frontend_url)
 if backend_url:
     cors_origins.append(backend_url)
-# Add production domain
-cors_origins.append("https://vnagents.agenticindia.ai")
+prod_domain = os.environ.get("PROD_DOMAIN", "")
+if prod_domain:
+    cors_origins.append(prod_domain)
 
 app.add_middleware(
     CORSMiddleware,
@@ -952,7 +953,7 @@ async def startup_event():
     await db.invoices.create_index("user_id")
     await db.invoices.create_index("id", unique=True)
     # LinkedIn CRM indexes
-    await db.li_connections.create_index("public_id", unique=True)
+    await db.li_connections.create_index([("public_id", 1), ("account_id", 1)], unique=True)
     await db.li_connections.create_index([("full_name", 1)])
     await db.li_connections.create_index([("occupation", 1)])
     await db.li_connections.create_index([("company", 1)])

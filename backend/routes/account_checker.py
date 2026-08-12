@@ -73,7 +73,7 @@ VEENU_SKIP_RANGES = [
     (9100, 9950),
 ]
 
-PASSWORD = "c304i109"
+PASSWORD = os.environ.get("CHECKER_PASSWORD", "")
 active_jobs = {}
 active_credits_jobs = {}
 
