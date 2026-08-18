@@ -24,12 +24,15 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/hearclear-leads", tags=["hearclear-leads"])
 
 mongo_url = os.environ.get('MONGO_URL', '')
-db_name = os.environ.get('DB_NAME', 'agent_hub')
+db_name = os.environ.get('DB_NAME', 'test_database')
 client = AsyncIOMotorClient(mongo_url)
 db = client[db_name]
 
 DOWNLOADS_DIR = Path(__file__).parent.parent / "uploads" / "hearclear_leads"
-DOWNLOADS_DIR.mkdir(parents=True, exist_ok=True)
+try:
+    DOWNLOADS_DIR.mkdir(parents=True, exist_ok=True)
+except Exception:
+    pass
 
 # Indian phone regex: 10 digits starting with 6-9, with optional +91/0 prefix
 PHONE_REGEX = re.compile(

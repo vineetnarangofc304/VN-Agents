@@ -46,7 +46,7 @@ Build a multi-agent platform serving 10 completely independent agents, each acce
 ### Chrome Extension: LinkedIn Lead Agent v2.0.0 (Aug 2026)
 - **Multi-Account Support**: Account selector in popup + content script
 - **Manifest V3** Chrome extension for LinkedIn automation
-- **Floating Panel**: ⚡ button on LinkedIn pages with Sync + Message Queue
+- **Floating Panel**: button on LinkedIn pages with Sync + Message Queue
 - **Auto-Sync**: Syncs connections directly to backend with `account_id`
 - **Enrichment**: Fetch email/phone scoped to active account
 - **Message Queue**: Pick up message queues per account
@@ -64,6 +64,13 @@ Build a multi-agent platform serving 10 completely independent agents, each acce
 - `li_message_log`: `{public_id, recipient_name, message, account_id, sent_at}`
 - `li_message_queue`: `{recipients, message, account_id, status, created_at}`
 
+## Bug Fixes (Aug 18, 2026)
+- **Production Backend Crash (HTTP 520)**: Fixed unprotected MongoDB operations in startup_event. Wrapped admin seeding in try/except so server boots even when Atlas is slow/unreachable.
+- **Module-level asyncio crash**: Replaced `asyncio.get_event_loop().create_task()` in banking_agent.py with lazy `_maybe_ensure_indices()` pattern.
+- **Filesystem safety**: Wrapped all module-level `mkdir()` calls in try/except across server.py, hearclear_leads.py, linkedin.py.
+- **Security**: Removed hardcoded admin credentials from InvoicingAgent.jsx frontend bundle.
+- **CORS**: Properly reads CORS_ORIGINS from .env, removed hardcoded DB fallbacks from all route files.
+
 ## Prioritized Backlog
 
 ### P0 (Next)
@@ -71,14 +78,14 @@ Build a multi-agent platform serving 10 completely independent agents, each acce
 - **Email SMTP Integration**: Blocked — waiting on user for SMTP credentials.
 
 ### P1
+- Project Manager Agent (WhatsApp + Google Docs + Dashboard)
 - LinkedIn Post Search Scheduler (automated daily runs)
-- Research Agent: Daily monitoring of OpenAI, Anthropic, arXiv, HN
-- Content Studio Phase 2 (Idea Inbox, Analytics)
+- Chrome Extension Monetization (Freemium + Stripe)
 
 ### P2
+- Content Studio Phase 2 (Idea Inbox, Analytics)
+- Research Agent: Daily monitoring of OpenAI, Anthropic, arXiv, HN
 - Catchment Mining proxy-based scraping
-- Multiple content types: carousels, whitepapers
-- DDC farming gain verification
 
 ### Future
 - SMS/WhatsApp alerts for Stock Investor

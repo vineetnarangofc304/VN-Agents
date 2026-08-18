@@ -19,7 +19,7 @@ router = APIRouter(prefix="/api/li-search", tags=["linkedin-search"])
 
 mongo_url = os.environ.get('MONGO_URL', '')
 client = AsyncIOMotorClient(mongo_url)
-db = client[os.environ.get('DB_NAME', 'agent_hub')]
+db = client[os.environ.get('DB_NAME', 'test_database')]
 
 EMERGENT_KEY = os.environ.get('EMERGENT_LLM_KEY', '')
 

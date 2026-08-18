@@ -41,7 +41,7 @@ from routes.banking_agent import router as banking_router
 # MongoDB connection
 mongo_url = os.environ.get('MONGO_URL', '')
 client = AsyncIOMotorClient(mongo_url)
-db = client[os.environ.get('DB_NAME', 'agent_hub')]
+db = client[os.environ.get('DB_NAME', 'test_database')]
 
 # JWT Configuration
 JWT_ALGORITHM = "HS256"
@@ -66,8 +66,11 @@ logger = logging.getLogger(__name__)
 UPLOAD_DIR = ROOT_DIR / "uploads"
 ORIGINAL_DIR = UPLOAD_DIR / "original"
 EDITED_DIR = UPLOAD_DIR / "edited"
-ORIGINAL_DIR.mkdir(parents=True, exist_ok=True)
-EDITED_DIR.mkdir(parents=True, exist_ok=True)
+try:
+    ORIGINAL_DIR.mkdir(parents=True, exist_ok=True)
+    EDITED_DIR.mkdir(parents=True, exist_ok=True)
+except Exception:
+    pass
 
 # ============== Password Hashing ==============
 def hash_password(password: str) -> str:
@@ -922,19 +925,28 @@ app.include_router(content_studio_router)
 app.include_router(banking_router)
 
 # CORS Configuration
-frontend_url = os.environ.get('FRONTEND_URL', '')
-backend_url = os.environ.get('REACT_APP_BACKEND_URL', '')
-cors_origins = [
-    "http://localhost:3000",
-    "https://www.linkedin.com",
-]
-if frontend_url:
-    cors_origins.append(frontend_url)
-if backend_url:
-    cors_origins.append(backend_url)
-prod_domain = os.environ.get("PROD_DOMAIN", "")
-if prod_domain:
-    cors_origins.append(prod_domain)
+cors_env = os.environ.get("CORS_ORIGINS", "")
+if cors_env == "*":
+    cors_origins = ["*"]
+else:
+    cors_origins = [
+        "http://localhost:3000",
+        "https://www.linkedin.com",
+    ]
+    frontend_url = os.environ.get('FRONTEND_URL', '')
+    backend_url = os.environ.get('REACT_APP_BACKEND_URL', '')
+    if frontend_url:
+        cors_origins.append(frontend_url)
+    if backend_url:
+        cors_origins.append(backend_url)
+    prod_domain = os.environ.get("PROD_DOMAIN", "")
+    if prod_domain:
+        cors_origins.append(prod_domain)
+    if cors_env:
+        for origin in cors_env.split(","):
+            origin = origin.strip()
+            if origin and origin not in cors_origins:
+                cors_origins.append(origin)
 
 app.add_middleware(
     CORSMiddleware,
@@ -948,54 +960,68 @@ app.add_middleware(
 @app.on_event("startup")
 async def startup_event():
     """Seed admin user and create indexes"""
-    # Create indexes
-    await db.users.create_index("email", unique=True)
-    await db.invoices.create_index("user_id")
-    await db.invoices.create_index("id", unique=True)
-    # LinkedIn CRM indexes
-    await db.li_connections.create_index([("public_id", 1), ("account_id", 1)], unique=True)
-    await db.li_connections.create_index([("full_name", 1)])
-    await db.li_connections.create_index([("occupation", 1)])
-    await db.li_connections.create_index([("company", 1)])
-    await db.li_connections.create_index([("messages_sent", -1)])
-    await db.li_connections.create_index([("last_contacted", -1)])
-    await db.li_message_log.create_index([("public_id", 1), ("sent_at", -1)])
-    await db.li_message_log.create_index([("sent_at", -1)])
+    # Create indexes (with error handling to avoid crash on conflicting indexes)
+    try:
+        await db.users.create_index("email", unique=True)
+        await db.invoices.create_index("user_id")
+        await db.invoices.create_index("id", unique=True)
+        # LinkedIn CRM indexes - drop old conflicting index if exists
+        existing_indexes = await db.li_connections.index_information()
+        for idx_name, idx_info in existing_indexes.items():
+            if idx_info.get("unique") and idx_info["key"] == [("public_id", 1)] and idx_name != "_id_":
+                logger.info(f"Dropping conflicting index: {idx_name}")
+                await db.li_connections.drop_index(idx_name)
+        await db.li_connections.create_index([("public_id", 1), ("account_id", 1)], unique=True)
+        await db.li_connections.create_index([("full_name", 1)])
+        await db.li_connections.create_index([("occupation", 1)])
+        await db.li_connections.create_index([("company", 1)])
+        await db.li_connections.create_index([("messages_sent", -1)])
+        await db.li_connections.create_index([("last_contacted", -1)])
+        await db.li_message_log.create_index([("public_id", 1), ("sent_at", -1)])
+        await db.li_message_log.create_index([("sent_at", -1)])
+    except Exception as e:
+        logger.error(f"Index creation error (non-fatal): {e}")
     
-    # Seed admin user
-    admin_email = os.environ.get("ADMIN_EMAIL", "vineetnarangofc@gmail.com")
-    admin_password = os.environ.get("ADMIN_PASSWORD", "InvoiceAgent@2024!")
+    # Seed admin user (non-fatal — server must start even if DB is slow/unreachable)
+    try:
+        admin_email = os.environ.get("ADMIN_EMAIL", "vineetnarangofc@gmail.com")
+        admin_password = os.environ.get("ADMIN_PASSWORD", "InvoiceAgent@2024!")
+        
+        existing = await db.users.find_one({"email": admin_email})
+        if existing is None:
+            hashed = hash_password(admin_password)
+            await db.users.insert_one({
+                "email": admin_email,
+                "password_hash": hashed,
+                "name": "Vineet",
+                "role": "admin",
+                "created_at": datetime.now(timezone.utc).isoformat()
+            })
+            logger.info(f"Admin user created: {admin_email}")
+        elif not verify_password(admin_password, existing["password_hash"]):
+            await db.users.update_one(
+                {"email": admin_email},
+                {"$set": {"password_hash": hash_password(admin_password)}}
+            )
+            logger.info(f"Admin password updated: {admin_email}")
+    except Exception as e:
+        logger.error(f"Admin seeding error (non-fatal): {e}")
     
-    existing = await db.users.find_one({"email": admin_email})
-    if existing is None:
-        hashed = hash_password(admin_password)
-        await db.users.insert_one({
-            "email": admin_email,
-            "password_hash": hashed,
-            "name": "Vineet",
-            "role": "admin",
-            "created_at": datetime.now(timezone.utc).isoformat()
-        })
-        logger.info(f"Admin user created: {admin_email}")
-    elif not verify_password(admin_password, existing["password_hash"]):
-        await db.users.update_one(
-            {"email": admin_email},
-            {"$set": {"password_hash": hash_password(admin_password)}}
-        )
-        logger.info(f"Admin password updated: {admin_email}")
-    
-    # Write credentials to test file
-    os.makedirs("/app/memory", exist_ok=True)
-    with open("/app/memory/test_credentials.md", "w") as f:
-        f.write("# Test Credentials\n\n")
-        f.write(f"## Admin User\n")
-        f.write(f"- Email: {admin_email}\n")
-        f.write(f"- Password: {admin_password}\n")
-        f.write(f"- Role: admin\n\n")
-        f.write("## Auth Endpoints\n")
-        f.write("- POST /api/auth/login\n")
-        f.write("- POST /api/auth/logout\n")
-        f.write("- GET /api/auth/me\n")
+    # Write credentials to test file (non-critical)
+    try:
+        os.makedirs("/app/memory", exist_ok=True)
+        with open("/app/memory/test_credentials.md", "w") as f:
+            f.write("# Test Credentials\n\n")
+            f.write(f"## Admin User\n")
+            f.write(f"- Email: {admin_email}\n")
+            f.write(f"- Password: {admin_password}\n")
+            f.write(f"- Role: admin\n\n")
+            f.write("## Auth Endpoints\n")
+            f.write("- POST /api/auth/login\n")
+            f.write("- POST /api/auth/logout\n")
+            f.write("- GET /api/auth/me\n")
+    except Exception as e:
+        logger.warning(f"Could not write test credentials: {e}")
 
 @app.on_event("shutdown")
 async def shutdown_db_client():
@@ -1389,14 +1415,20 @@ async def start_scheduler():
     except Exception as e:
         logger.warning(f"Playwright browser install check: {e}")
 
-    # Ensure upload directories exist
-    for d in ["uploads", "uploads/infographics"]:
-        os.makedirs(ROOT_DIR / d, exist_ok=True)
+    # Ensure upload directories exist (non-fatal)
+    try:
+        for d in ["uploads", "uploads/infographics"]:
+            os.makedirs(ROOT_DIR / d, exist_ok=True)
+    except Exception as e:
+        logger.warning(f"Upload directory creation error: {e}")
 
-    _asyncio.create_task(_scheduled_posts_worker())
-    _asyncio.create_task(_auto_post_generator())
-    _asyncio.create_task(_daily_farm_scheduler())
-    _asyncio.create_task(_auto_credits_scanner())
+    try:
+        _asyncio.create_task(_scheduled_posts_worker())
+        _asyncio.create_task(_auto_post_generator())
+        _asyncio.create_task(_daily_farm_scheduler())
+        _asyncio.create_task(_auto_credits_scanner())
+    except Exception as e:
+        logger.warning(f"Background task creation error: {e}")
 
 
 async def _daily_farm_scheduler():

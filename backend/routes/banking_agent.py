@@ -14,7 +14,7 @@ router = APIRouter(prefix="/api/banking", tags=["banking-agent"])
 
 mongo_url = os.environ.get("MONGO_URL", "")
 client = AsyncIOMotorClient(mongo_url)
-db = client[os.environ.get("DB_NAME", "agent_hub")]
+db = client[os.environ.get('DB_NAME', 'test_database')]
 
 # Create indices for fast queries
 async def _ensure_indices():
@@ -24,11 +24,18 @@ async def _ensure_indices():
     await db.banking_transactions.create_index([("stmt_id", 1), ("txn_type", 1)])
     await db.banking_statements.create_index("stmt_id", unique=True)
 
-import asyncio
-try:
-    asyncio.get_event_loop().create_task(_ensure_indices())
-except RuntimeError:
-    pass
+
+# Index creation deferred to first request
+_indices_created = False
+
+async def _maybe_ensure_indices():
+    global _indices_created
+    if not _indices_created:
+        try:
+            await _ensure_indices()
+            _indices_created = True
+        except Exception as e:
+            logging.getLogger(__name__).warning(f"Banking index creation deferred: {e}")
 
 
 # Merchant → Category mapping
@@ -321,6 +328,7 @@ async def _parse_statement(file_bytes: bytes, password: str = "") -> dict:
 
 @router.post("/upload")
 async def upload_statement(file: UploadFile = File(...), password: str = Form("")):
+    await _maybe_ensure_indices()
     if not file.filename.lower().endswith(".pdf"):
         raise HTTPException(status_code=400, detail="Only PDF files are supported")
 

@@ -6,7 +6,7 @@
       {"endpoint": "POST /api/li-search/message/script", "issue": "recipient.name is stripped to [a-zA-Z\\s] before typeahead — names with hyphens, accents or non-Latin chars (e.g. 'Zoë', 'Jean-Paul', Chinese/Arabic names) will be mangled and may fail to match."},
       {"endpoint": "POST /api/li-search/message/script", "issue": "FACETED_SEARCH fallback matches on first-name-only when public_id doesn't match (line 1399: rn.includes(fn) && fn.length > 1). Common first names will mis-target the wrong profile."},
       {"endpoint": "POST /api/li-search/message/script", "issue": "No server-side cap on recipients array length or message length — potential DoS surface."},
-      {"endpoint": "GET /api/li-search/browser-script", "issue": "Hardcoded fallback base URL 'https://automation-platform-10.preview.emergentagent.com' at line 1522 — should raise instead of using a stale preview URL."},
+      {"endpoint": "GET /api/li-search/browser-script", "issue": "Hardcoded fallback base URL 'https://qikberry-whatsapp.preview.emergentagent.com' at line 1522 — should raise instead of using a stale preview URL."},
       {"endpoint": "GET /api/li-search/browser-script", "issue": "v7 sync does typeahead lookup sequentially with only a 500ms pause every 5 requests — for hundreds of connections this will be slow and could trip LinkedIn rate limits. Consider batched search or configurable throttle."},
       {"endpoint": "POST /api/li-search/connections/push", "issue": "Silently skips connections missing public_id (no error surfaced) — response only returns 'stored' count, no skipped/failed breakdown."}
     ]

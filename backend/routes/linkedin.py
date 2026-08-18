@@ -22,7 +22,7 @@ router = APIRouter(prefix="/api/linkedin", tags=["linkedin"])
 # MongoDB connection
 mongo_url = os.environ.get('MONGO_URL', '')
 client = AsyncIOMotorClient(mongo_url)
-db = client[os.environ.get('DB_NAME', 'agent_hub')]
+db = client[os.environ.get('DB_NAME', 'test_database')]
 
 # LinkedIn OAuth config
 LINKEDIN_CLIENT_ID = os.environ.get("LINKEDIN_CLIENT_ID")
@@ -689,7 +689,10 @@ async def get_schedule_status():
 
 # ============== HearClear Infographic Generation ==============
 INFOGRAPHIC_DIR = Path(__file__).parent.parent / "uploads" / "infographics"
-INFOGRAPHIC_DIR.mkdir(parents=True, exist_ok=True)
+try:
+    INFOGRAPHIC_DIR.mkdir(parents=True, exist_ok=True)
+except Exception:
+    pass
 
 HEARCLEAR_UNIFIED_POST = """We're standing at the intersection of healthcare's biggest blind spot and India's largest untapped opportunity.
 

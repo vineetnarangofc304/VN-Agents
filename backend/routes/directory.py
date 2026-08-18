@@ -23,7 +23,7 @@ router = APIRouter(prefix="/api/directory", tags=["directory"])
 # MongoDB
 mongo_url = os.environ.get('MONGO_URL', '')
 client = AsyncIOMotorClient(mongo_url)
-db = client[os.environ.get('DB_NAME', 'agent_hub')]
+db = client[os.environ.get('DB_NAME', 'test_database')]
 
 
 def clean_pdf_text(text):
@@ -125,7 +125,7 @@ def run_extraction_sync(job_id, pdf_bytes):
         # Use sync pymongo for thread
         from pymongo import MongoClient
         sync_client = MongoClient(os.environ.get('MONGO_URL', ''))
-        sync_db = sync_client[os.environ.get('DB_NAME', 'agent_hub')]
+        sync_db = sync_client[os.environ.get('DB_NAME', 'test_database')]
 
         batch_id = str(uuid.uuid4())
         now = datetime.now(timezone.utc).isoformat()

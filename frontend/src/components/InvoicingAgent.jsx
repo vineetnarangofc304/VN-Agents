@@ -16,25 +16,15 @@ const InvoicingAgent = () => {
   useEffect(() => {
     const ensureAuth = async () => {
       try {
-        // Check if already authenticated
         const meRes = await axios.get(`${API}/auth/me`, { withCredentials: true });
         if (meRes.data?.id) {
           setAuthReady(true);
           return;
         }
       } catch {
-        // Not authenticated, login
+        // Not authenticated — will proceed without JWT
       }
-      try {
-        await axios.post(`${API}/auth/login`, {
-          email: "vineetnarangofc@gmail.com",
-          password: "InvoiceAgent@2024!"
-        }, { withCredentials: true });
-        setAuthReady(true);
-      } catch (err) {
-        console.error("JWT login failed:", err);
-        setAuthReady(true); // Continue anyway, will show errors on API calls
-      }
+      setAuthReady(true);
     };
     ensureAuth();
   }, []);
