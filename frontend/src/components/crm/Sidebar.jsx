@@ -1,6 +1,6 @@
 import {
   LayoutDashboard, Search, GitBranch, Users, MessageSquare,
-  Settings, ChevronLeft, ChevronRight, Zap, Circle
+  Settings, ChevronLeft, ChevronRight, Zap, Circle, Building2
 } from "lucide-react";
 
 const NAV_ITEMS = [
@@ -9,6 +9,7 @@ const NAV_ITEMS = [
   { id: "search", label: "Search", icon: Search },
   { id: "contacts", label: "Contacts", icon: Users },
   { id: "messages", label: "Messages", icon: MessageSquare },
+  { id: "company_pages", label: "Company Pages", icon: Building2 },
   { id: "settings", label: "Settings", icon: Settings },
 ];
 

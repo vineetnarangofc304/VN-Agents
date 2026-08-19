@@ -144,7 +144,7 @@ async def linkedin_auth():
         "used": False
     })
 
-    scopes = "openid profile w_member_social"
+    scopes = "openid profile w_member_social w_organization_social"
     from urllib.parse import quote
     params = (
         f"response_type=code"
