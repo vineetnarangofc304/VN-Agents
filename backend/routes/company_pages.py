@@ -414,6 +414,14 @@ async def run_company_auto_poster():
                 logger.info(f"Auto-posting for {page['name']} (org:{org_id}), pillar: {pillar}")
 
                 try:
+                    # Pre-check LinkedIn token BEFORE burning LLM credits
+                    token_doc = await db.linkedin_accounts.find_one({"schedule_enabled": True})
+                    if not token_doc:
+                        token_doc = await db.linkedin_accounts.find_one({})
+                    if not token_doc or not token_doc.get("access_token"):
+                        logger.warning(f"Company auto-poster skipped: no LinkedIn token available")
+                        break  # No point checking other pages
+
                     # Generate content
                     gen_req = ContentGenerateRequest(pillar=pillar, generate_image=True)
                     result = await generate_content(org_id, gen_req)

@@ -1162,6 +1162,18 @@ async def _auto_post_generator():
                     if not ctx:
                         continue
 
+                    # Pre-check LinkedIn token BEFORE burning LLM credits
+                    try:
+                        access_token, person_urn = await get_valid_token(account["account_id"])
+                    except Exception as token_err:
+                        logger.warning(f"Auto-poster skipped for {account['name']}: {token_err}")
+                        # Don't retry for 6 hours if token is expired
+                        await db.linkedin_accounts.update_one(
+                            {"account_id": account["account_id"]},
+                            {"$set": {"last_auto_post_at": now.isoformat()}}
+                        )
+                        continue
+
                     llm_key = os.environ.get("EMERGENT_LLM_KEY")
                     if not llm_key:
                         continue

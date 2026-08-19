@@ -1,0 +1,43 @@
+{
+  "summary": "Iteration 23: verified production-login fix (auto-poster token pre-check) + core endpoints and CRM frontend. 8/8 backend pytest cases passed (health, root, agent-login success/401/422/latency, company-pages list, page posts). Backend log confirms 'Auto-poster skipped for Abhinav Khanna: 401: LinkedIn token expired. Please reconnect.' at 19:08:34 with ZERO LiteLLM/Gemini calls after the fix (last LLM burn was 19:02 pre-fix). Frontend: agent login with Agent@2024! works, CRM loads with all 7 sidebar nav items, Dashboard shows 4 KPI cards, Company Pages shows all 5 configured pages, all 7 views navigate without errors, Add Page form opens.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "routes/company_pages.py::_company_auto_poster", "issue": "Company auto-poster pre-check only verifies that an access_token FIELD exists; it does not validate expiry (token_expires_at) nor call get_valid_token(). With the currently expired token still stored in linkedin_accounts, enabling any page schedule would resume burning GPT-4o + Gemini image credits every 5 min. Recommend using get_valid_token()/expiry check like server.py does."},
+      {"endpoint": "server.py::_auto_post_generator", "issue": "logger.info('Auto-generating LinkedIn post ...') is emitted BEFORE the token pre-check, so logs claim generation started even when it is skipped. Cosmetic but confusing during RCA."},
+      {"endpoint": "server.py::_auto_post_generator", "issue": "On skip, last_auto_post_at is set to now, which makes the UI/data believe a post was made (used for 'last post' display and interval math). Consider a separate field e.g. last_auto_skip_at."},
+      {"endpoint": "GET /api/company-pages/{org_id}/posts", "issue": "Returns a stored post with status 'failed' and raw LinkedIn JSON error string; the card UI still shows '0 total posts' (counts likely only successful). Minor data/UI inconsistency."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "CRM Dashboard", "issues": ["KPI inconsistency: TOTAL CONTACTS = 0 while CONTACTED = 9 and Recent Leads list is populated - contacts count query appears to use a different collection/filter", "Large empty area below the two panels on 1920x1080; content does not fill viewport"]},
+      {"screen": "Company Pages", "issues": ["Persistent 'LinkedIn OAuth Required (w_organization_social)' banner is accurate but non-dismissible"]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_production_login_fix.py",
+    "/app/test_reports/pytest/iteration23.xml"
+  ],
+  "action_items": [
+    "Harden company_pages.py auto-poster pre-check to validate token expiry via get_valid_token() instead of mere field presence",
+    "Move the 'Auto-generating LinkedIn post' log after the token pre-check",
+    "Avoid overwriting last_auto_post_at when a run is skipped",
+    "Fix Dashboard TOTAL CONTACTS KPI (shows 0 while CONTACTED=9 and leads exist)"
+  ],
+  "critical_code_review_comments": [
+    "server.py is very large (>1100 lines with inlined topic-pillar prompt arrays inside the scheduler loop); extract prompt content and the auto-poster into dedicated modules",
+    "FUNDLE_TOPIC_PILLARS list is re-declared inside the while-loop on every scheduler tick - move to module scope",
+    "AGENT_PASSWORD falls back to a hardcoded default ('Agent@2024!') when the env var is absent; on production this silently accepts the default password - fail fast instead"
+  ],
+  "updated_files": ["/app/backend/tests/test_production_login_fix.py"],
+  "success_rate": {"backend": "100%", "frontend": "100%"},
+  "seed_data_creation": "None; used existing 5 company pages and existing linkedin account (token expired).",
+  "should_call_test_agent_after_fix": false,
+  "should_main_agent_self_test": true,
+  "test_credentials": "Agent password Agent@2024! (works). /app/memory/test_credentials.md lists an admin email/password for /api/auth/login which is not used by this agent-password flow.",
+  "context_for_next_testing_agent": "Personal auto-poster token pre-check verified working (log line + no LLM calls). Company auto-poster could not be observed skipping because all 5 company pages have schedule_enabled=false; its pre-check is weaker (presence-only). Backend regression file: /app/backend/tests/test_production_login_fix.py. LinkedIn token in DB is expired (token_expires_at ~2026-06-08) so any real post/generate flow will 401 by design.",
+  "rca_of_the_issue": "Pre-fix, _auto_post_generator ran GPT-4o text + Gemini image generation before checking the LinkedIn token, so every scheduler tick burned LLM credits and CPU on an account whose token expired in June 2026, starving the production server and making login appear broken. The fix calls get_valid_token() first and skips (setting last_auto_post_at) on failure. Verified in backend.err.log: 19:02 (pre-fix) LiteLLM gemini image calls; 19:08 (post-fix) 'Auto-poster skipped ... 401: LinkedIn token expired' with no LLM activity."
+}
