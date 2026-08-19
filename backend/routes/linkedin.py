@@ -41,26 +41,30 @@ oauth_states = {}
 COMPANY_CONTEXTS = {
     "fundle": {
         "name": "Fundle.ai",
-        "tagline": "First-Party Retail Data Intelligence",
-        "description": "Fundle is a Retail Intelligence Platform powering malls, brands, and consumers through unified data, AI insights, and monetisation rails.",
+        "tagline": "The AI Operating System for Modern Retail and Mall Enterprises",
+        "description": "Fundle.ai is the Enterprise AI platform for retail and malls. We build AI Agents — Loyalty Agent, Lead Agent, Campaign Agent, Commerce Agent, Analytics Agent, and more — that connect customer intelligence, marketing, commerce, stores, tenants, properties and operations through one intelligent enterprise platform called Fundle Brain.",
         "products": [
-            "ADSR/BI Suite - Automated Daily Sales Reporting with real-time dashboards",
-            "Loyalty (Mall + Brand) - Unified loyalty infrastructure with AI/GPT-powered personalization",
-            "FundleXperiences (D2C) - Games, rewards, bill-based consumer engagement",
-            "Fundle Reach (Media Engine) - Mall media inventory, physical + digital monetisation",
-            "Fundle One (Mall Card) - Payment-linked identity and spend tracking",
-            "Fundle E-Commerce - Mall-wide digital commerce with loyalty-integrated checkout"
+            "Fundle Brain - The intelligence layer: enterprise data, domain AI models, specialised agents, workflow execution",
+            "AI Loyalty Agent - Manages tiers, rewards logic, redemption journeys and personalisation",
+            "AI Lead Agent - Qualifies inbound leads, routes to stores, drives WhatsApp follow-ups",
+            "AI Campaign Agent - Plans, builds and executes retention and acquisition campaigns end-to-end",
+            "AI Commerce Agent - E-commerce merchandising, personalised recos and cart recovery",
+            "AI Analytics Agent - Answers business questions in natural language over enterprise data",
+            "AI Social Agent - Plans content, drafts copy, publishes across channels, responds to comments",
+            "ADSR/Sales Intelligence - Automated Daily Sales Reporting for malls",
+            "Mall AI - Tenant sales, visitor engagement, property ops, advertising, loyalty in one OS"
         ],
         "value_props": [
-            "First-party data ownership (no walled garden dependency)",
-            "Cross-ecosystem intelligence across malls, brands, consumers",
-            "AI-driven GPT-powered personalization",
-            "Scalable pan-India retail infrastructure",
-            "Multiple monetisation: SaaS, Media, Performance Marketing, Financial Products, D2C"
+            "Enterprise AI Agents that execute real retail workflows — not chatbots, not copilots",
+            "One intelligence layer (Fundle Brain) connecting POS, ERP, CRM, e-commerce, WhatsApp, payments",
+            "AI-powered Loyalty: predict churn, launch reactivation, measure incremental repeat revenue",
+            "AI Lead Gen: every lead scored, routed, followed up, closed on WhatsApp and in-store",
+            "AI Marketing & CRM: AI selects cohort, channel and creative — measures true incrementality",
+            "Retail AI Flywheel: Acquire → Convert → Understand → Engage → Sell → Operate → Create → Optimise"
         ],
-        "target_audience": "Mall operators, retail brands, shopping centre management, retail CXOs",
-        "website": "https://www.fundle.ai",
-        "hashtags": "#RetailIntelligence #RetailTech #MallTech #FirstPartyData #FundleAI #RetailData #ShoppingMalls #RetailAnalytics #D2C #LoyaltyPrograms"
+        "target_audience": "Retail CXOs, mall operators, retail brands, D2C founders, franchise networks, multi-brand retail, shopping centre management",
+        "website": "https://fundle.ai",
+        "hashtags": "#EnterpriseAI #RetailAI #AIAgents #LoyaltyAI #RetailTech #MallTech #FundleAI #AIOperatingSystem #RetailIntelligence #LeadGen #MarketingAI #CRM"
     },
     "hearclear": {
         "name": "HearClear India",

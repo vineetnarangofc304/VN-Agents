@@ -1169,16 +1169,16 @@ async def _auto_post_generator():
                     # Pick a topic from the rotation to ensure diversity
                     import random as _rnd
                     FUNDLE_TOPIC_PILLARS = [
-                        "Deep drill-down analytics: how real-time sales reporting and BI dashboards are transforming how mall operators make decisions. Talk about ADSR (Automated Daily Sales Reporting), footfall-to-conversion ratios, tenant performance benchmarking.",
-                        "Customer segmentation and cohorting: how first-party data enables malls and brands to build micro-cohorts based on spend patterns, visit frequency, category affinity. Share real segmentation strategies that drive 3-5x better campaign ROI.",
-                        "Campaign management across SMS, WhatsApp, Meta, RCS with intelligent fallback mechanisms. Explain omnichannel orchestration — how the right message reaches the right customer on the right channel, and what happens when one channel fails.",
-                        "Loyalty point distribution, earning rules, and conversion mechanics. Break down how modern loyalty goes beyond earn-and-burn — dynamic multipliers, tier-based rewards, brand-funded coalition points, instant redemption at POS.",
-                        "AI-powered personalization in retail loyalty — how machine learning models predict what a shopper wants before they know it. How Fundle.ai uses GPT-driven personalization to deliver hyper-relevant offers. Don't name competitors, focus on the AI differentiation.",
-                        "Mall media monetisation and retail media networks: how physical retail spaces are becoming media channels. Digital screens, geo-targeted notifications, brand-sponsored experiences — the new revenue layer for malls.",
-                        "First-party data ownership vs walled gardens: why malls and retailers must own their customer data instead of depending on Google/Meta. The strategic advantage of cross-ecosystem intelligence across malls, brands, and consumers.",
-                        "The D2C-meets-offline revolution: how FundleXperiences brings digital engagement (games, rewards, bill-based activations) into physical retail. Consumer engagement that doesn't require an app download.",
-                        "Mall-wide e-commerce with loyalty-integrated checkout: bridging online and offline retail. How a unified commerce platform changes the economics of mall retail.",
-                        "Unit economics of retail loyalty: CAC vs LTV, repeat purchase rates, basket size uplift from loyalty members vs non-members. Data-backed insights on why loyalty infrastructure pays for itself.",
+                        "AI Loyalty Agent: How AI agents are replacing rule-based loyalty engines. Talk about how Fundle's Loyalty Agent manages tiers, rewards logic, redemption journeys and hyper-personalisation — predicting churn, launching reactivation, measuring incremental repeat revenue. Include stats on how AI-driven loyalty increases LTV by 30-40%.",
+                        "AI Lead Agent for Retail: How AI qualifies, scores, routes and follows up on every lead automatically — on WhatsApp, in-store, and across channels. Talk about lead-to-conversion rates improving 3-5x when AI handles the first response within minutes. Fundle's Lead Agent connects the full funnel.",
+                        "AI Campaign Agent: How AI plans, builds and executes retention and acquisition campaigns end-to-end. Talk about how AI selects the right cohort, channel, creative — and measures true incrementality. No more spray-and-pray marketing. Every campaign is data-driven.",
+                        "Enterprise AI Agents vs Chatbots: Why real enterprise AI agents are NOT chatbots or copilots. Fundle agents are governed digital teammates with permissions, memory, approval chains and audit trails — built to execute inside real retail workflows. Explain the fundamental difference.",
+                        "The AI Operating System for Retail: How Fundle Brain connects POS, ERP, CRM, e-commerce, marketplaces, WhatsApp, payments into one continuously learning intelligence layer. From fragmented systems to coordinated intelligence. Every interaction generates intelligence, every insight triggers action.",
+                        "AI-Powered CRM for Retail: How AI transforms CRM from a data dump into an action engine. Talk about customer segmentation, cohort-based campaigns, next-best-action recommendations, automated WhatsApp follow-ups. How Fundle's intelligence layer predicts what customers want before they know it.",
+                        "Retail AI Flywheel: Eight coordinated stages — Acquire, Convert, Understand, Engage, Sell Everywhere, Operate, Create, Optimise. Every interaction strengthens every other stage. How this flywheel creates compounding growth for retail brands.",
+                        "AI for Mall Management: How ADSR (Automated Daily Sales Reporting), mall loyalty, AI concierge, and tenant intelligence transform how mall operators run their business. One connected mall OS instead of 20 disconnected systems.",
+                        "AI Commerce Agent: How AI runs e-commerce merchandising, personalised recommendations, cart recovery, and marketplace reconciliation. Talk about how marketplace deductions cost brands 3-8% of revenue and how AI catches every anomaly.",
+                        "The ROI of Enterprise AI Agents in Retail: Unit economics — what happens when AI handles lead follow-up (response time: seconds vs hours), campaign execution (hours vs weeks), loyalty personalisation (individual vs segment). Hard numbers on cost reduction and revenue uplift.",
                     ]
 
                     # Track used topics to avoid repetition
@@ -1198,15 +1198,20 @@ async def _auto_post_generator():
                     chat = LlmChat(
                         api_key=llm_key,
                         session_id=f"auto-linkedin-{company}-{uuid.uuid4()}",
-                        system_message=f"""You are Abhinav Khanna, Chief Business Officer at Fundle.ai — a Retail Intelligence Platform powering malls, brands, and consumers through unified data, AI insights, and monetisation rails.
+                        system_message=f"""You are Abhinav Khanna, Chief Business Officer at Fundle.ai — the AI Operating System for modern retail and mall enterprises.
 
-You write LinkedIn posts as a seasoned retail-tech leader with deep domain expertise. You've worked at Paytm and understand India's retail ecosystem intimately.
+Fundle.ai builds Enterprise AI Agents for Retail — Loyalty Agent, Lead Agent, Campaign Agent, Commerce Agent, Analytics Agent, and more. These are NOT chatbots or copilots. They are governed digital teammates with permissions, memory, approval chains and audit trails — built to execute inside real retail workflows.
+
+The intelligence layer is called Fundle Brain: it connects POS, ERP, CRM, e-commerce, marketplaces, WhatsApp, payments into one continuously learning system that detects, analyses, predicts, recommends, executes and learns.
+
+You've worked at Paytm and understand India's retail ecosystem intimately. You write as a seasoned enterprise AI + retail-tech leader.
 
 Company: {ctx['name']}
-Tagline: {ctx['tagline']}  
+Tagline: {ctx['tagline']}
 Products: {', '.join(ctx['products'])}
 Value Props: {', '.join(ctx['value_props'])}
 Target Audience: {ctx['target_audience']}
+Website: fundle.ai
 
 WRITING STYLE:
 - First person, founder voice — confident, insightful, never salesy
@@ -1214,9 +1219,10 @@ WRITING STYLE:
 - Short paragraphs (1-3 lines max) for mobile readability
 - Weave in real data points and industry benchmarks
 - Show deep domain knowledge — you've seen this from the inside
+- Reference specific AI agents by name (Loyalty Agent, Lead Agent, Campaign Agent)
 - End with a thought-provoking question that invites comments
 - 2-3 emojis max (subtle, not decorative)
-- 3-5 SEO-friendly hashtags at the end
+- 4-6 SEO-friendly hashtags at the end. ALWAYS include #FundleAI #EnterpriseAI #RetailAI
 - 150-300 words — punchy, not verbose
 - NEVER sound like AI. Sound like a real person sharing hard-won insights.
 - NEVER use phrases like "In today's rapidly evolving" or "Did you know"
@@ -1246,19 +1252,20 @@ Write ONLY the post content. No meta commentary."""
 
 BRAND IDENTITY — FUNDLE.AI:
 - Logo: The word "fundle" in rounded sans-serif. Letters "f","d","l","e" are light gray. The "u" contains a colorful curved path (red section with white fork icon, yellow section with dashed road lines, teal section). The "n" has a purple shopping bag icon. Colors: red/pink, yellow, purple, teal on gray.
-- Tagline: "First-Party Retail Data Intelligence"
+- Tagline: "The AI Operating System for Modern Retail & Mall Enterprises"
 - Brand Colors: Deep navy blue (#1a2744), white, accent teal (#2dd4bf), warm amber/gold (#f59e0b), and the logo's signature red-yellow-purple-teal palette.
+- Key message: Fundle.ai builds Enterprise AI Agents for Retail — Loyalty Agent, Lead Agent, Campaign Agent, Commerce Agent, Analytics Agent, and more.
 
 INFOGRAPHIC RULES (MANDATORY):
-1. The Fundle.ai logo text "fundle" must appear prominently at the TOP of every infographic — large, clear, unmissable. Reproduce it as the word "fundle" in the brand style with the colorful "u" and "n" elements.
-2. The tagline "First-Party Retail Data Intelligence" must appear directly below the logo.
+1. The Fundle.ai logo text "fundle" must appear prominently at the TOP of every infographic — large, clear, unmissable.
+2. The tagline "Enterprise AI for Retail & Malls" must appear directly below the logo.
 3. Vertical format: 768x1376 pixels (LinkedIn-optimized).
 4. Use the brand color palette consistently — navy background sections, white text, teal/amber accents.
 5. Professional, data-driven, modern design. Think McKinsey meets Stripe — authoritative yet visually engaging.
 6. Include real data points, percentages, stats. No placeholder or fake data.
-7. Clean typography hierarchy: bold headlines, clear section breaks, scannable layout.
+7. Reference specific AI Agents by name where relevant (Loyalty Agent, Lead Agent, etc.).
 8. Include subtle icons or data visualizations (not clip art).
-9. Bottom footer: "www.fundle.ai" and the logo again, smaller."""
+9. Bottom footer: "fundle.ai" and the logo again, smaller."""
                         )
                         infographic_chat.with_model("gemini", "gemini-3.1-flash-image-preview").with_params(modalities=["image", "text"])
 
@@ -1274,7 +1281,7 @@ INFOGRAPHIC RULES (MANDATORY):
 
 CRITICAL: Place the Fundle.ai logo prominently at the TOP. The logo is the word "fundle" with colorful graphic elements in the "u" (red fork, yellow path, teal curve) and "n" (purple shopping bag). I've attached the actual logo — reproduce it faithfully at the top of the infographic.
 
-Below the logo, add tagline: "First-Party Retail Data Intelligence"
+Below the logo, add tagline: "Enterprise AI for Retail & Malls"
 
 TOPIC — based on this LinkedIn post:
 {content[:600]}
@@ -1285,9 +1292,10 @@ DESIGN SPECIFICATIONS:
 - White text for headings, light gray for body
 - Teal (#2dd4bf) and amber (#f59e0b) for accents, highlights, data callouts
 - 3-5 key statistics or data points with large bold numbers
+- Reference AI Agents by name (Loyalty Agent, Lead Agent, etc.) where relevant
 - Clean section layout with visual hierarchy
 - Icons or mini-charts for each data point
-- Footer: "www.fundle.ai" with smaller logo"""
+- Footer: "fundle.ai" with smaller logo"""
 
                         msg = UserMessage(text=infographic_prompt)
                         if logo_images:
