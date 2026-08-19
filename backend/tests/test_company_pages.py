@@ -147,6 +147,62 @@ def test_generate_never_returns_5xx_gateway_error(sess):
         assert body.get("detail")
 
 
+# ============== POSTING (520 regression) ==============
+POST_OK_STATUSES = (200, 400, 401, 403, 502)
+
+
+def test_post_to_company_page_graceful_failure(sess):
+    """Regression for the 520 Cloudflare bug on Post Now: the endpoint must
+    always return a proper JSON HTTP response, never crash the worker."""
+    org_id = "69021406"
+    r = sess.post(f"{API}/{org_id}/post", json={
+        "content": "TEST_ regression post - please ignore.",
+    }, timeout=90)
+    assert r.status_code in POST_OK_STATUSES, f"Unexpected status {r.status_code}: {r.text[:400]}"
+    assert "application/json" in r.headers.get("content-type", ""), r.text[:300]
+    body = r.json()
+    if r.status_code == 200:
+        assert body.get("success") is True
+        assert "post_id" in body
+    else:
+        assert body.get("detail"), r.text[:300]
+        assert "<html" not in r.text.lower()
+
+
+def test_post_to_nonexistent_page_returns_404(sess):
+    r = sess.post(f"{API}/NONEXISTENT_XYZ/post", json={"content": "TEST_ should 404"}, timeout=20)
+    assert r.status_code == 404, r.text[:300]
+    assert "application/json" in r.headers.get("content-type", "")
+    assert r.json().get("detail") == "Company page not found"
+
+
+def test_post_missing_content_returns_422(sess):
+    r = sess.post(f"{API}/69021406/post", json={}, timeout=20)
+    assert r.status_code == 422, r.text[:300]
+
+
+def test_failed_post_is_recorded_in_history(sess):
+    """A failed LinkedIn post must be logged with status=failed (not lost)."""
+    org_id = "69021406"
+    marker = f"TEST_history_marker_{int(time.time())}"
+    r = sess.post(f"{API}/{org_id}/post", json={"content": marker}, timeout=90)
+    assert r.status_code in POST_OK_STATUSES, r.text[:300]
+
+    h = sess.get(f"{API}/{org_id}/posts?limit=20", timeout=20)
+    assert h.status_code == 200
+    posts = h.json()["posts"]
+    match = next((p for p in posts if p.get("content") == marker), None)
+    if r.status_code == 200:
+        assert match is not None and match.get("status") == "published"
+    else:
+        # 400/401/403/502 paths all persist a failed attempt
+        if r.status_code in (400, 401, 403, 502) and "No LinkedIn account connected" not in r.json().get("detail", "") \
+                and "LinkedIn token expired. Go to" not in r.json().get("detail", ""):
+            assert match is not None, "Failed post attempt was not recorded in history"
+            assert match.get("status") == "failed"
+            assert match.get("error")
+
+
 # ============== org_id SANITIZATION ==============
 def test_create_page_strips_trailing_slash(sess):
     dirty = f"  {TEMP_ORG_ID}/  "

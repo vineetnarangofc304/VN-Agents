@@ -53,10 +53,11 @@ async def list_company_pages():
     """List all configured company pages."""
     pages = []
     async for page in db.company_pages.find({}, {"_id": 0}):
-        # Get post count
-        post_count = await db.company_posts.count_documents({"org_id": page["org_id"]})
+        # Get post count (only published)
+        post_count = await db.company_posts.count_documents({"org_id": page["org_id"], "status": "published"})
         today_count = await db.company_posts.count_documents({
             "org_id": page["org_id"],
+            "status": "published",
             "posted_at": {"$gte": datetime.now(timezone.utc).replace(hour=0, minute=0, second=0).isoformat()}
         })
         page["total_posts"] = post_count
@@ -243,15 +244,20 @@ async def post_to_company_page(org_id: str, req: ManualPostRequest):
         raise HTTPException(status_code=404, detail="Company page not found")
 
     # Get a valid token — use the first linkedin_account that has org posting permission
-    token_doc = await db.linkedin_accounts.find_one({"schedule_enabled": True})
+    try:
+        token_doc = await db.linkedin_accounts.find_one({"schedule_enabled": True})
+        if not token_doc:
+            token_doc = await db.linkedin_accounts.find_one({})
+    except Exception as e:
+        logger.error(f"DB error fetching LinkedIn account: {e}")
+        raise HTTPException(status_code=500, detail="Database error fetching LinkedIn account.")
+
     if not token_doc:
-        token_doc = await db.linkedin_accounts.find_one({})
-    if not token_doc:
-        raise HTTPException(status_code=400, detail="No LinkedIn account connected. Please connect via Settings > LinkedIn OAuth.")
+        raise HTTPException(status_code=400, detail="No LinkedIn account connected. Go to the LinkedIn Agent (/linkedin) and connect your account via OAuth first.")
 
     access_token = token_doc.get("access_token")
     if not access_token:
-        raise HTTPException(status_code=400, detail="LinkedIn token expired. Please reconnect.")
+        raise HTTPException(status_code=400, detail="LinkedIn token expired. Go to the LinkedIn Agent (/linkedin) and reconnect your account.")
 
     org_urn = f"urn:li:organization:{org_id}"
 
@@ -269,7 +275,7 @@ async def post_to_company_page(org_id: str, req: ManualPostRequest):
         if image_file.exists():
             try:
                 init_payload = {"initializeUploadRequest": {"owner": org_urn}}
-                async with httpx.AsyncClient() as http_client:
+                async with httpx.AsyncClient(timeout=60.0) as http_client:
                     init_resp = await http_client.post(
                         "https://api.linkedin.com/rest/images?action=initializeUpload",
                         json=init_payload, headers=headers
@@ -280,12 +286,12 @@ async def post_to_company_page(org_id: str, req: ManualPostRequest):
                     image_urn = init_data["value"]["image"]
                     with open(image_file, "rb") as f:
                         image_bytes = f.read()
-                    async with httpx.AsyncClient() as http_client:
+                    async with httpx.AsyncClient(timeout=60.0) as http_client:
                         await http_client.put(upload_url, content=image_bytes, headers={
                             "Authorization": f"Bearer {access_token}",
                             "Content-Type": "application/octet-stream",
                             "LinkedIn-Version": LINKEDIN_API_VERSION,
-                        }, timeout=60.0)
+                        })
                 else:
                     logger.error(f"Image upload init failed: {init_resp.text}")
             except Exception as e:
@@ -303,22 +309,26 @@ async def post_to_company_page(org_id: str, req: ManualPostRequest):
     if image_urn:
         payload["content"] = {"media": {"id": image_urn}}
 
-    async with httpx.AsyncClient() as http_client:
-        response = await http_client.post(LINKEDIN_POSTS_URL, json=payload, headers=headers)
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as http_client:
+            response = await http_client.post(LINKEDIN_POSTS_URL, json=payload, headers=headers)
+    except Exception as e:
+        error_msg = str(e)
+        logger.error(f"LinkedIn API request error ({org_id}): {error_msg}")
+        # Save failed attempt
+        await db.company_posts.insert_one({
+            "org_id": org_id, "content": req.content, "image_path": req.image_path,
+            "posted_at": datetime.now(timezone.utc).isoformat(), "status": "failed", "error": error_msg[:500],
+        })
+        raise HTTPException(status_code=502, detail=f"LinkedIn API connection error: {error_msg[:200]}")
 
     if response.status_code in [200, 201]:
         post_id = response.headers.get("x-restli-id", "")
-        # Save to DB
         await db.company_posts.insert_one({
-            "post_id": post_id,
-            "org_id": org_id,
-            "content": req.content,
-            "image_path": req.image_path,
-            "has_image": image_urn is not None,
-            "posted_at": datetime.now(timezone.utc).isoformat(),
-            "status": "published",
+            "post_id": post_id, "org_id": org_id, "content": req.content,
+            "image_path": req.image_path, "has_image": image_urn is not None,
+            "posted_at": datetime.now(timezone.utc).isoformat(), "status": "published",
         })
-        # Update last posted
         await db.company_pages.update_one(
             {"org_id": org_id},
             {"$set": {"last_posted_at": datetime.now(timezone.utc).isoformat()}}
@@ -327,17 +337,18 @@ async def post_to_company_page(org_id: str, req: ManualPostRequest):
     else:
         error_text = response.text[:500]
         logger.error(f"Company post failed ({org_id}): {response.status_code} {error_text}")
-
-        # Save failed post
         await db.company_posts.insert_one({
-            "org_id": org_id,
-            "content": req.content,
-            "image_path": req.image_path,
-            "posted_at": datetime.now(timezone.utc).isoformat(),
-            "status": "failed",
-            "error": error_text,
+            "org_id": org_id, "content": req.content, "image_path": req.image_path,
+            "posted_at": datetime.now(timezone.utc).isoformat(), "status": "failed", "error": error_text,
         })
-        raise HTTPException(status_code=400, detail=f"LinkedIn API error: {error_text}")
+
+        # Provide specific error messages for common issues
+        if response.status_code == 401:
+            raise HTTPException(status_code=401, detail="LinkedIn token expired or missing w_organization_social permission. Go to LinkedIn Agent (/linkedin) and reconnect.")
+        elif response.status_code == 403:
+            raise HTTPException(status_code=403, detail="No permission to post to this company page. Ensure you are an admin and your OAuth has w_organization_social scope.")
+        else:
+            raise HTTPException(status_code=400, detail=f"LinkedIn API error ({response.status_code}): {error_text[:300]}")
 
 
 # ============== Post History ==============

@@ -1,0 +1,44 @@
+{
+  "summary": "Verified the Company Pages 'Post Now' 520-Cloudflare fix (backend + frontend). Backend pytest 15/15 PASS (/app/backend/tests/test_company_pages.py) - added 4 new tests for the post endpoint: graceful-failure regression (status must be one of 200/400/401/403/502 with application/json, never a gateway/HTML page), 404 for non-existent org_id, 422 for missing content, and failed-post-recorded-in-history. Live curl: POST /api/company-pages/69021406/post -> HTTP 401 in 0.35s with JSON {'detail':'LinkedIn token expired or missing w_organization_social permission...'} - exactly the expected graceful failure (backend log shows LinkedIn EXPIRED_ACCESS_TOKEN 65602 handled). POST with a non-existent image_path also returns 401 (no crash on missing file). POST /api/company-pages/69021406/generate still returns 200 with real GPT-4o content. Frontend: agent gate (Agent@2024!) -> Company Pages nav renders all 5 cards (Fundle.ai 69021406, TagandPay 143338927, HearClear India 142891970, FundleXperiences 105361431, Exceed Digital 125583973) plus the 'LinkedIn OAuth Required' banner. Clicking 'Post Now' (with /generate stubbed for speed so the REAL post endpoint is exercised) produced a 401 JSON response, a native alert containing the exact backend detail, the Post Now button re-enabled, the generated-content preview preserved, and the app still rendered (no Cloudflare page). No unexpected console errors beyond the expected 401 AxiosError.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "GET /api/company-pages", "issue": "total_posts and posts_today count ALL company_posts documents including status='failed' attempts, while the auto-poster's cap check counts only status='published'. UI therefore showed Fundle.ai as '5 total posts, 5/4 today' purely from failed attempts - misleading stats. Add {'status':'published'} to both count_documents filters."},
+      {"endpoint": "POST /api/company-pages/{org_id}/post", "issue": "Image upload block swallows all errors (logger only) and proceeds to post without the image; the client gets success with no indication the infographic was dropped."},
+      {"endpoint": "POST /api/company-pages/{org_id}/post", "issue": "org_id is not sanitized (strip/rstrip('/')) here or on PUT/DELETE/generate - only on POST create. Carried over from iteration_21."},
+      {"endpoint": "PUT /api/company-pages/{org_id}", "issue": "Still accepts raw `data: dict` with no Pydantic model. Carried over from iteration_20/21."},
+      {"endpoint": "generate/post (scheduler)", "issue": "run_company_auto_poster runs every 5 min and burns a full GPT-4o + Gemini image generation before hitting the guaranteed LinkedIn 401 - visible in backend logs ('Auto-infographic generated ... Auto-post generation error'). Wasted LLM spend until OAuth is fixed; consider a token pre-check before generating."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [
+      {"flow": "Post Now error handling", "issue": "Works correctly (alert shows the backend detail, button re-enabled, preview kept) but uses window.alert() instead of the app's toast pattern - inconsistent/blocking. Cosmetic, carried over.", "affected_selectors": ["[data-testid='post-69021406']"]}
+    ],
+    "design_issues": [
+      {"screen": "Company Pages", "issues": ["Stats line shows '5/4 today' (over the configured daily cap) because failed posts are counted - backend counting bug above.", "Expand/Collapse, Delete (trash) and Discard buttons still have no data-testid.", "Generated infographic is still not previewed before posting (image_path remains an absolute FS path, no /uploads static route)."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_company_pages.py",
+    "/app/test_reports/pytest/iter22_company_pages.xml"
+  ],
+  "action_items": [
+    "Filter company_posts counts by status='published' in list_company_pages so failed attempts don't inflate total_posts/posts_today.",
+    "Optional: pre-check LinkedIn token validity in run_company_auto_poster before running the LLM/image generation to avoid wasted AI spend on guaranteed 401s.",
+    "Carried over: centralize org_id sanitization; add Pydantic model for PUT; serve /uploads and return a URL for image_path; replace window.alert with toast."
+  ],
+  "critical_code_review_comments": [
+    "The 520 fix is correct and verified: the httpx call at routes/company_pages.py L311-322 is wrapped in try/except returning 502 on connection errors, and non-2xx LinkedIn responses map to 401/403/400 with JSON details (L336-350). Every failure path also persists a 'failed' company_posts record.",
+    "Missing-content requests correctly 422 via Pydantic (ManualPostRequest.content is required).",
+    "`import httpx` inside the handler body - move to module level for clarity/perf."
+  ],
+  "updated_files": ["/app/backend/tests/test_company_pages.py"],
+  "success_rate": {"backend": "100% (15/15)", "frontend": "100% (login, 5 cards, generate preview, Post Now graceful 401 + alert + re-enable)"},
+  "seed_data_creation": "Temp page TEST_99999999 created/deleted inside CRUD tests. TEST_-prefixed company_posts records created by post tests were deleted afterwards (5 removed); the 5 seeded pages are unchanged.",
+  "should_call_test_agent_after_fix": false,
+  "should_main_agent_self_test": true,
+  "test_credentials": "Agent password Agent@2024! at /linkedin-search - verified working. Admin creds in /app/memory/test_credentials.md not needed for this flow.",
+  "context_for_next_testing_agent": "Post Now 520 bug is FIXED and verified end-to-end: backend returns 401 JSON in <0.5s (LinkedIn EXPIRED_ACCESS_TOKEN), 404 for unknown org, 422 for missing content; frontend surfaces the detail via alert and stays usable. LinkedIn posting cannot be tested for SUCCESS until an OAuth token with w_organization_social is connected. Only open backend defect found this round: posts_today/total_posts count failed posts (UI shows 5/4 today for Fundle.ai). Regression suite: /app/backend/tests/test_company_pages.py (15 tests).",
+  "rca_of_the_issue": "Original 520: the httpx.AsyncClient POST to LinkedIn was un-guarded, so a connection/transport exception escaped the FastAPI handler and killed the worker connection, which Cloudflare surfaced as 520. Fix wraps the request in try/except (502 + failed-post record) and translates LinkedIn non-2xx codes to 401/403/400 with JSON detail. Verified by curl (401 JSON in 0.35s), pytest regression asserting only JSON statuses are ever returned, and a Playwright run of the real Post Now button showing the alert instead of a gateway page."
+}
