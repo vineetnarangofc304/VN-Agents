@@ -1,125 +1,126 @@
 {
-  "theme": "light",
-  "archetype": "SWISS & HIGH-CONTRAST (Authority, Clarity, Truth)",
-  "typography": {
-    "headings": {
-      "font_family": "Manrope",
-      "styles": "Tight letter spacing (tracking-tight), varying weights (font-light to font-black)",
-      "forbidden": ["Inter", "Roboto", "Open Sans", "Lato"]
-    },
-    "body": {
-      "font_family": "Inter",
-      "styles": "Clear, readable, leading-relaxed"
-    },
-    "hierarchy": {
-      "H1": "text-4xl sm:text-5xl lg:text-6xl tracking-tighter font-semibold",
-      "H2": "text-2xl sm:text-3xl lg:text-4xl tracking-tight font-medium",
-      "H3": "text-xl sm:text-2xl font-medium",
-      "H4": "text-lg sm:text-xl font-medium",
-      "body": "text-base text-zinc-600",
-      "labels": "text-xs font-bold uppercase tracking-[0.2em] text-zinc-500"
-    }
+  "theme_strategy": {
+    "mode": "dark",
+    "archetype": "THE PERFORMANCE PRO / HIGH-CONTRAST DASHBOARD",
+    "rationale": "A LinkedIn CRM demands command-center focus, data clarity, and legibility over long periods. We use a Deep Obsidian base anchored with vivid functional blue to reflect professional networking, while maintaining an ultra-sleek, dense tactical look suitable for a power user."
   },
   "colors": {
-    "background": "#FFFFFF",
-    "surface": "#FAFAFA",
-    "border": "#E4E4E7",
-    "primary": "#0066FF",
-    "primary_hover": "#0052CC",
-    "text": {
-      "main": "#09090B",
-      "muted": "#52525B"
+    "background": "#09090b",
+    "surface": "#18181b",
+    "surface_hover": "#27272a",
+    "border": "#27272a",
+    "primary": "#2563eb",
+    "primary_hover": "#3b82f6",
+    "text_main": "#ffffff",
+    "text_muted": "#a1a1aa",
+    "success": "#10b981",
+    "warning": "#f59e0b",
+    "danger": "#ef4444",
+    "rules": [
+      "Use tinted greys (Zinc/Slate) rather than pure black.",
+      "Ensure all interactive elements have explicit hover colors that are lighter hues of the active state.",
+      "Never use complete transparent backgrounds for overlays, sidebars, or headers."
+    ]
+  },
+  "typography": {
+    "headings": {
+      "family": "Manrope",
+      "weights": ["font-semibold", "font-bold"],
+      "tracking": "tracking-tight",
+      "sizes": {
+        "h1": "text-2xl sm:text-3xl lg:text-4xl",
+        "h2": "text-xl sm:text-2xl",
+        "h3": "text-lg sm:text-xl"
+      }
     },
-    "status": {
-      "success": "#10B981",
-      "warning": "#F59E0B",
-      "error": "#EF4444"
+    "body": {
+      "family": "IBM Plex Sans",
+      "weights": ["font-normal", "font-medium"],
+      "sizes": {
+        "default": "text-sm",
+        "large": "text-base",
+        "small": "text-xs"
+      }
     },
     "rules": [
-      "Use #0066FF strictly for primary actions, active states, and highlights.",
-      "Never use pure black or pure gray. Use Zinc/Slate palette (e.g. text-zinc-950, border-zinc-200).",
-      "Maintain high contrast. Minimum 4.5:1 for normal text.",
-      "Prohibited: teal green or teal blue (#1B93A4) for dashboards."
+      "Avoid Inter for headings.",
+      "Use uppercase tracking-[0.2em] for overlines and tiny labels.",
+      "Keep body line-height loose (leading-relaxed) and headers tight (leading-none)."
+    ]
+  },
+  "layouts": {
+    "global_structure": "Sidebar Navigation (left) + Top Header (Account Switcher & Search) + Main Content Area (right).",
+    "dashboard_grid": "High Density Grid (MODE B) with grid-cols-1 md:grid-cols-3 lg:grid-cols-4 and tight gap-4 or gap-6.",
+    "kanban_board": "Horizontal scrolling flex container with vertical lists (flex-col) for lead stages. Strict max-heights to allow internal scrolling of columns.",
+    "spacing": "Generous Spacing Philosophy for macro layouts (p-6, p-8). Tight padding (p-3, p-4) for dense data components.",
+    "rules": [
+      "Grid items MUST be direct children.",
+      "Always apply mobile-first responsive classes.",
+      "Use optical alignment for icons with text."
     ]
   },
   "visual_enhancers": {
-    "surfaces": {
-      "headers": "Crystal Glass: backdrop-blur-xl bg-white/70, 1px subtle inner border border-zinc-200. No fully transparent headers.",
-      "cards": "Neumorphism / Technical: Flat white background, 1px solid border (border-zinc-200), no deep shadows. Hover: subtle shadow-lg and -translate-y-1."
-    },
-    "borders": "Use border-collapse or 1px border-zinc-200 to create a structured, technical grid layout."
+    "surfaces": "Neumorphism (Tactile) for dashboard widgets: flat background matching parent, 1px subtle border, sharp corners or max 8px border-radius.",
+    "glassmorphism": "Use backdrop-blur-xl bg-zinc-950/80 for sticky headers and modal overlays with a 1px border-white/10 inner stroke.",
+    "empty_states": "Use subtle ASCII art or faint monochromatic illustrations to make empty states feel purposeful rather than broken."
   },
-  "layouts": {
-    "spacing": "Generous. Use p-6 or p-8 inside cards to avoid text collision.",
-    "dashboard_grid": "High Density Grid (For Dashboards / Analytics). Base Grid: grid-cols-1 md:grid-cols-3 lg:grid-cols-4. Tight gaps (gap-4 or gap-6). Use h-full on children for uniform height.",
-    "alignment": "Left-align paragraphs, inputs, dense content. Mobile-first responsive grids."
+  "component_strategy": {
+    "base": "Heavily utilize Shadcn UI components for Tables, Select, Dropdown, Tabs, Dialogs, Cards.",
+    "customization": "Override default Shadcn styles to strip out generic look. Make borders sharper, reduce corner radiuses (rounded-md max).",
+    "charting": "Use Recharts or Shadcn Chart components for KPIs. Keep charts monochromatic or use brand blue + neutral accents.",
+    "break_monolith": "Break LinkedInSearch.jsx into modular files: SidebarNav, KanbanBoard, ContactCard, ActivityTimeline, BulkMessageComposer, CampaignManager.",
+    "toast": "Use Sonner for all notifications, configured for dark mode."
   },
   "motion": {
-    "interactive": "Hover states must have transitions. transition: transform 0.2s ease, opacity 0.2s ease, border-color 0.2s ease. Hover state color must be a lighter/darker hue of ACTIVE state color.",
-    "rules": ["NO transition-all.", "Respect prefers-reduced-motion."]
-  },
-  "components": {
-    "cards": "Flat, rectangular, dense styles. Avoid heavy shadows. Max 8px border-radius (rounded-md or rounded-lg).",
-    "forms": "Use Shadcn Form, Input, Select, Calendar. Highly customized to match Stripe/Linear aesthetic.",
-    "charts": "Recharts or Shadcn charts. Use simple Line/Bar charts. Avoid 3D or complex charts unless required.",
-    "buttons": "Pill-shaped or slightly rounded (rounded-md). Clear hover/focus states with higher contrast."
-  },
-  "icons_and_assets": {
-    "library": "lucide-react",
-    "style": "Enterprise icons, consistent stroke width (1.5px or 2px), sharp edges."
-  },
-  "image_urls": {
-    "avatars": [
-      {
-        "url": "https://images.unsplash.com/photo-1500648767791-00dcc994a43e?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NTY2NzR8MHwxfHNlYXJjaHwxfHxwcm9mZXNzaW9uYWwlMjBtYWxlJTIwaGVhZHNob3QlMjBzdHVkaW98ZW58MHx8fHwxNzg0NTgzMzUwfDA&ixlib=rb-4.1.0&q=85",
-        "category": "user_avatar",
-        "description": "Vineet Narang Profile Picture"
-      },
-      {
-        "url": "https://images.unsplash.com/photo-1652471943570-f3590a4e52ed?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NTY2NzR8MHwxfHNlYXJjaHw0fHxwcm9mZXNzaW9uYWwlMjBtYWxlJTIwaGVhZHNob3QlMjBzdHVkaW98ZW58MHx8fHwxNzg0NTgzMzUwfDA&ixlib=rb-4.1.0&q=85",
-        "category": "team_avatar",
-        "description": "Team Member Profile Picture"
-      }
-    ],
-    "content_assets": [
-      {
-        "url": "https://images.unsplash.com/photo-1551288049-bebda4e38f71?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NTY2Njl8MHwxfHNlYXJjaHwyfHxhYnN0cmFjdCUyMG1pbmltYWxpc3QlMjBkYXRhJTIwdmlzdWFsaXphdGlvbnxlbnwwfHx8fDE3ODQ1ODMzNTB8MA&ixlib=rb-4.1.0&q=85",
-        "category": "infographic_placeholder",
-        "description": "Minimalist Data Visualization for Content Pillars"
-      },
-      {
-        "url": "https://images.unsplash.com/photo-1644088379091-d574269d422f?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NTY2Njl8MHwxfHNlYXJjaHwzfHxhYnN0cmFjdCUyMG1pbmltYWxpc3QlMjBkYXRhJTIwdmlzdWFsaXphdGlvbnxlbnwwfHx8fDE3ODQ1ODMzNTB8MA&ixlib=rb-4.1.0&q=85",
-        "category": "research_dashboard_bg",
-        "description": "Abstract analytical background for research sections"
-      }
-    ]
+    "micro_interactions": "Hover states with slight lift (-translate-y-0.5), focus states (ring-2 ring-primary ring-offset-2 ring-offset-background).",
+    "transitions": "Specific transitions ONLY (e.g., transition-colors, transition-transform). BANNED: transition-all.",
+    "entrance": "Staggered fade-in for lists and grid items."
   },
   "accessibility": {
-    "contrast": "Ensure minimum 4.5:1 for normal text.",
-    "testing": "All interactive and key informational elements MUST include a data-testid attribute in kebab-case."
+    "contrast": "Minimum 4.5:1 for standard text, 3:1 for large text.",
+    "testing": "All interactive elements MUST include a data-testid attribute using kebab-case role-based naming (e.g., data-testid='send-bulk-message-button').",
+    "motion": "Respect prefers-reduced-motion."
   },
-  "instructions_to_main_agent": [
-    "Implement a Light Theme explicitly as requested ('White background. Blue highlights.').",
-    "Use Manrope for headings and Inter for body text. Do not use generic fonts for headings.",
-    "Apply 'Crystal Glass' to the sticky header: backdrop-blur-xl bg-white/70, with a 1px border-b border-zinc-200.",
-    "Avoid heavy shadows. Rely on 1px borders (border-zinc-200) to separate components.",
-    "Ensure grids have 'gap-4' or 'gap-6' and child cards stretch fully.",
-    "Build the multi-step AI Post Generator as an interactive bento layout, preventing scrolling if possible, or keeping it extremely tight.",
-    "Add data-testid attributes to all interactive elements."
+  "media": {
+    "icons": "Use Phosphor Icons (@phosphor-icons/react) or Lucide React for crisp, dense dashboard icons.",
+    "images": "Use realistic user avatars for leads and connections."
+  },
+  "image_urls": [
+    {
+      "category": "user_avatar_1",
+      "url": "https://images.unsplash.com/photo-1560250097-0b93528c311a?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjAzMzJ8MHwxfHNlYXJjaHwxfHxwcm9mZXNzaW9uYWwlMjBoZWFkc2hvdHxlbnwwfHx8fDE3ODcxMjIwODR8MA&ixlib=rb-4.1.0&q=85",
+      "description": "Male professional headshot for contact detail cards"
+    },
+    {
+      "category": "user_avatar_2",
+      "url": "https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjAzMzJ8MHwxfHNlYXJjaHwzfHxwcm9mZXNzaW9uYWwlMjBoZWFkc2hvdHxlbnwwfHx8fDE3ODcxMjIwODR8MA&ixlib=rb-4.1.0&q=85",
+      "description": "Female professional headshot for connection lists"
+    },
+    {
+      "category": "user_avatar_3",
+      "url": "https://images.unsplash.com/photo-1627161683077-e34782c24d81?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjAzMzJ8MHwxfHNlYXJjaHwyfHxwcm9mZXNzaW9uYWwlMjBoZWFkc2hvdHxlbnwwfHx8fDE3ODcxMjIwODR8MA&ixlib=rb-4.1.0&q=85",
+      "description": "Female professional in red cardigan for alternate avatar"
+    }
   ],
-  "UNIVERSAL_GUIDELINES_FOR_MAIN_AGENT": [
-    "You tend to converge toward generic, 'on distribution' outputs. Make creative, distinctive frontends that surprise and delight.",
-    "Dark colors look good when used independently without gradients. DO NOT use dark colors as gradients.",
-    "Don't make generic centered layouts, simplistic gradients, and uniform styling.",
-    "Create depth through layered design elements with z-index hierarchy.",
-    "Use glass-morphism effects with backdrop filters (12-24px blur).",
-    "You MUST NOT apply universal transition. Eg: transition: all.",
-    "You MUST NOT center align the app container, ie do not add .App { text-align: center; }.",
-    "Always use modern button styles like pill-shaped, or sharp button with interaction animations & color relevant to the app style.",
-    "NEVER use AI assistant Emoji characters like 🤖🧠💭💡🔮🎯 etc for icons.",
-    "Every interaction needs micro-animations - hover states, transitions, parallax effects.",
-    "Use 2-3x more spacing than feels comfortable.",
-    "Prioritize using pre-existing components from src/components/ui when applicable.",
-    "Use sonner for toasts, located in /app/frontend/src/components/ui/sonner.js"
+  "instructions_to_main_agent": [
+    "You are tasked with overhauling a 1162 line monolith (LinkedInSearch.jsx) into a multi-view CRM.",
+    "Set up a layout with a fixed sidebar (SidebarNav) and a main content area containing a TopHeader (for multi-account switching) and dynamic views.",
+    "Implement routing or state-based view switching for: Dashboard, Search, Kanban Board, Campaigns, and Settings.",
+    "For the Kanban Board, create draggable or visually segmented columns (New Lead, Connected, Messaged, Replied, Follow-up, Converted).",
+    "Integrate bulk actions (checkboxes on lists -> bulk message/connect action bar).",
+    "All new files should be placed in /app/frontend/src/components/crm/ using .js or .jsx extensions.",
+    "Use Phosphor icons or Lucide. Install them if missing.",
+    "Ensure all buttons, tabs, and interactive elements have robust data-testid attributes."
+  ],
+  "UNIVERSAL GUIDELINES FOR MAIN AGENT": [
+    "Do not converge toward generic 'AI slop'. Make the CRM look high-end, dense, and hyper-functional.",
+    "Use specific layered shadows and crisp 1px borders.",
+    "NEVER use `transition: all`. Use specific property transitions.",
+    "NEVER center-align the app container. Text and dense data must be left-aligned for scanning.",
+    "Always use modern pill-shaped or sharp button styles with interactive states.",
+    "NEVER use emojis as icons. Use the specified icon library.",
+    "Implement micro-animations on all hover states.",
+    "Use Sonner for toasts.",
+    "Never use placeholder image services like via.placeholder.com. Use the provided image_urls for avatars."
   ]
 }

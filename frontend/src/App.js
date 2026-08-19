@@ -11,6 +11,7 @@ import DirectoryAgent from "./components/DirectoryAgent";
 import AccountChecker from "./components/AccountChecker";
 import CatchmentMining from "./components/CatchmentMining";
 import LinkedInSearch from "./components/LinkedInSearch";
+import CRMLayout from "./components/crm/CRMLayout";
 import ContentStudio from "./components/ContentStudio";
 import BankingAgent from "./components/BankingAgent";
 
@@ -65,8 +66,8 @@ const App = () => {
         } />
 
         <Route path="/linkedin-search" element={
-          <AgentLogin agentName="LinkedIn Lead Finder" agentIcon={SearchCheck} agentColor="#0ea5e9">
-            <LinkedInSearch />
+          <AgentLogin agentName="LinkedIn Lead CRM" agentIcon={SearchCheck} agentColor="#2563eb">
+            <CRMLayout />
           </AgentLogin>
         } />
 

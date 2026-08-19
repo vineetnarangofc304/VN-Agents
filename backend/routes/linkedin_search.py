@@ -1902,6 +1902,21 @@ async def get_connection_detail(public_id: str, account_id: str = ""):
     return conn
 
 
+@router.put("/connections/{public_id}/stage")
+async def update_connection_stage(public_id: str, data: dict):
+    """Update the pipeline stage of a connection."""
+    stage = data.get("stage", "new_lead")
+    account_id = data.get("account_id", DEFAULT_ACCOUNT_ID)
+    result = await db.li_connections.update_one(
+        {"public_id": public_id, "account_id": account_id},
+        {"$set": {"lead_stage": stage, "stage_updated_at": datetime.now(timezone.utc).isoformat()}}
+    )
+    if result.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Connection not found")
+    return {"success": True, "stage": stage}
+
+
+
 @router.post("/messages/log")
 async def log_message(data: dict):
     """Log a sent message for tracking."""

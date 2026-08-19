@@ -1,0 +1,40 @@
+{
+  "summary": "Tested new LinkedIn Lead CRM revamp (6 views + new stage endpoint). Backend: 6/6 pytest tests PASS covering /accounts, /cookie, /stats/overview, /connections (list), and the new PUT /connections/{public_id}/stage endpoint (both 404-on-missing and real update+persistence via GET verification). Frontend: All 6 views (Dashboard, Pipeline, Search, Contacts, Messages, Settings) render, sidebar navigation works via data-testid nav-{view}, Dashboard KPI cards + Recent Messages/Leads present, Pipeline shows Kanban with all 6 stages (New Lead 190 / Messaged 10 / others 0 out of 200 pipeline contacts), Search shows keyword 'looking for loyalty agency' + AI Comment buttons, Messages compose panel + history sidebar render, Settings shows LinkedIn Session cookie manager with 'Connected: Vineet Narang' status, TopHeader shows 'Vineet Narang' account switcher, LandingPage title 'LinkedIn Lead CRM' verified in AgentLogin header. Sidebar collapse toggle works. Found and fixed one integration bug: ContactsView was sending sort_dir as 'asc'/'desc' string but backend expects int (1/-1), causing 422 errors and 'No contacts found' despite 26,431 contacts existing. After fix, Contacts table shows 40 rows / 26431 total correctly.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [
+      {"flow": "Contacts list load", "issue": "FIXED by testing agent: ContactsView sent sort_dir='asc'/'desc' but backend /api/li-search/connections expects int (1/-1). Was returning 422 and showing 'No contacts found' for all accounts.", "affected_selectors": ["[data-testid='nav-contacts']"]}
+    ],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_crm_stage.py",
+    "/app/test_reports/pytest/iter19_crm.xml"
+  ],
+  "action_items": [
+    "None blocking. Consider aligning sort_dir semantics: either update backend to accept 'asc'/'desc' strings, or ensure all future views convert to 1/-1 (only ContactsView was affected)."
+  ],
+  "critical_code_review_comments": [
+    "CRMLayout is clean and modular (6 views ~200-400 lines each), replacing the 1162-line monolith — good refactor.",
+    "ContactsView.jsx uses direct axios calls with query params but did not coerce sort_dir type — a shared api helper or param validator would prevent 422s like this.",
+    "Old LinkedInSearch.jsx (1162 lines) is still in the codebase but unused per App.js — should be removed or archived to avoid confusion.",
+    "linkedin_search.py is now 2328 lines with 40+ routes — should be split into pipeline/messaging/search/accounts sub-routers.",
+    "PUT /connections/{public_id}/stage does not validate the 'stage' value against the allowed 6-stage enum (new_lead/connected/messaged/replied/follow_up/converted) — a client can persist arbitrary stage strings.",
+    "Frontend inline styles for the design tokens (#09090b/#18181b/#27272a/#2563eb) are duplicated across 8 files — extract to a theme constants file or tailwind config."
+  ],
+  "updated_files": [
+    "/app/frontend/src/components/crm/ContactsView.jsx",
+    "/app/backend/tests/test_crm_stage.py"
+  ],
+  "success_rate": {"backend": "100% (6/6)", "frontend": "100% (all 6 views load, navigation + Contacts fixed)"},
+  "test_credentials": "Agent password: Agent@2024! (works). Preview: https://qikberry-whatsapp.preview.emergentagent.com/linkedin-search",
+  "seed_data_creation": "None. Used existing account (Vineet Narang, 26,431 connections).",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "New CRM lives at /app/frontend/src/components/crm/. All 8 sub-components have data-testid on interactive elements (nav-{view}, crm-sidebar, sidebar-toggle, contacts-search, bulk-message-btn, etc). New backend endpoint PUT /api/li-search/connections/{public_id}/stage works. sort_dir bug in Contacts was fixed. Old LinkedInSearch.jsx still exists but unused. AGENT_PASSWORD is Agent@2024!.",
+  "rca of the issue": "ContactsView passed sort_dir='asc' (string) to GET /api/li-search/connections which declares sort_dir: int = 1 in FastAPI. Pydantic v2 int_parsing raised 422, response body was JSON error, axios threw AxiosError, catch block only console.error'd, so UI silently showed empty list. Fix: coerce to 1/-1 in the params object. Verified post-fix: table populated with 26,431 total contacts, 40 rows/page rendering."
+}

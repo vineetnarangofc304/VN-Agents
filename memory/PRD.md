@@ -13,44 +13,34 @@ Build a multi-agent platform serving 10 completely independent agents, each acce
 
 ## What's Been Implemented
 
-### Agent 1: Invoicing (`/invoicing`) — PDF upload/first-page extraction/bulk ZIP
-### Agent 2: Refund (`/refund`) — LLM-powered Google Play refund generator
-### Agent 3: Stock Investor (`/stocks`) — NSE scanner, portfolio tracker
-### Agent 4: LinkedIn (`/linkedin`) — OAuth, AI content gen, post to LinkedIn, scheduling, 6hr auto-poster
-### Agent 5: PDF Extractor (`/directory`) — PDF to Excel extraction
-### Agent 6: Account Checker (`/checker`) — DDC email scanner, credits capture, chip farming
-### Agent 7: Catchment Mining (`/catchment`) — Web crawler for Delhi NCR contact databases
+### Agent 1-7, 9-10: (Unchanged — see previous PRD versions)
 
-### Agent 8: LinkedIn Lead Finder (`/linkedin-search`) — UPDATED Aug 2026
+### Agent 8: LinkedIn Lead CRM (`/linkedin-search`) — REVAMPED Aug 2026
+**Full CRM redesign** from monolithic 1162-line component to modular 8-file architecture:
+
+#### CRM Views (New)
+- **Dashboard**: KPI cards (Total Contacts, Messages Sent, Contacted, Response Rate), Recent Messages, Recent Leads
+- **Pipeline**: Kanban board with 6 stages (New Lead, Connected, Messaged, Replied, Follow-up, Converted)
+- **Search**: Post search with AI classification, keyword management, auto-commenting engine
+- **Contacts**: Sortable table with bulk selection, search, pagination, contact detail drawer
+- **Messages**: Compose panel with recipient search, AI generation per company, message history
+- **Settings**: LinkedIn cookie manager, Chrome extension download
+
+#### CRM Architecture
+- Sidebar navigation with view switching
+- Top header with multi-account switcher (Hardik, Shivam, Vineet)
+- Design: Deep Obsidian (#09090b) base, Manrope headings, IBM Plex Sans body, #2563eb primary
+- Files in `/app/frontend/src/components/crm/`
+
+#### Existing Features (Carried Over)
 - Post Search via LinkedIn Voyager API (cookie-based auth)
-- 10 search keywords, AI classification (GPT-4o), company matching
+- AI classification (GPT-4o), company matching
 - AI comment generation & posting
-- **Multi-User CRM** (NEW): Account dropdown to switch between LinkedIn profiles
-  - Add/remove people (e.g., Hardik Sachdeva, Shivam Narang)
-  - Each account has isolated contacts, messages, stats
-  - Backend: `li_accounts` collection, all endpoints filter by `account_id`
-- Messaging tab: fetch connections, AI message generation, single/bulk send
-- Contact Enrichment: Fetch email & phone via LinkedIn Dash API (extension)
+- Multi-User CRM: Account switching, isolated contacts/messages
+- Messaging: fetch connections, AI message generation, single/bulk send
+- Contact Enrichment: email & phone via Chrome extension
 
-### Agent 9: Content Studio (`/content-studio`)
-- **Dashboard**: Stats, content pillars, recent content
-- **AI Content Generation**: 3-step pipeline with quality scoring
-- **Content Calendar**: AI-generated publishing schedule
-- **Infographic Generation**: Nano Banana
-- **LinkedIn Publishing**: Separate OAuth for Vineet Narang
-- **Light Theme UI**: Apple/Stripe quality
-
-### Agent 10: Banking Agent (`/banking`)
-- PDF Upload, Auto-Categorization, Dashboard, Charts, Transactions
-
-### Chrome Extension: LinkedIn Lead Agent v2.0.0 (Aug 2026)
-- **Multi-Account Support**: Account selector in popup + content script
-- **Manifest V3** Chrome extension for LinkedIn automation
-- **Floating Panel**: button on LinkedIn pages with Sync + Message Queue
-- **Auto-Sync**: Syncs connections directly to backend with `account_id`
-- **Enrichment**: Fetch email/phone scoped to active account
-- **Message Queue**: Pick up message queues per account
-- Download: `/linkedin-lead-agent-extension.zip`
+### Chrome Extension: LinkedIn Lead Agent v2.0.0 (Unchanged)
 
 ## Background Schedulers
 - DDC Farm: Daily at 3 PM IST
@@ -60,34 +50,35 @@ Build a multi-agent platform serving 10 completely independent agents, each acce
 
 ## Key DB Collections
 - `li_accounts`: `{account_id, name, linkedin_url, created_at, is_default}`
-- `li_connections`: `{public_id, full_name, occupation, company, email, phone, account_id, ...}`
+- `li_connections`: `{public_id, full_name, occupation, company, email, phone, account_id, lead_stage, ...}`
 - `li_message_log`: `{public_id, recipient_name, message, account_id, sent_at}`
 - `li_message_queue`: `{recipients, message, account_id, status, created_at}`
 
-## Bug Fixes (Aug 18, 2026)
-- **Production Backend Crash (HTTP 520)**: Fixed unprotected MongoDB operations in startup_event. Wrapped admin seeding in try/except so server boots even when Atlas is slow/unreachable.
-- **Module-level asyncio crash**: Replaced `asyncio.get_event_loop().create_task()` in banking_agent.py with lazy `_maybe_ensure_indices()` pattern.
-- **Filesystem safety**: Wrapped all module-level `mkdir()` calls in try/except across server.py, hearclear_leads.py, linkedin.py.
-- **Security**: Removed hardcoded admin credentials from InvoicingAgent.jsx frontend bundle.
-- **CORS**: Properly reads CORS_ORIGINS from .env, removed hardcoded DB fallbacks from all route files.
+## Recent Fixes (Aug 18-19, 2026)
+- Production Backend Crash (HTTP 520) — Fixed startup_event try/except
+- CRM Revamp — Full redesign from monolith to modular CRM
+- ContactsView sort_dir bug — Fixed string vs int parameter mismatch
 
 ## Prioritized Backlog
 
-### P0 (Next)
-- **Qikberry WhatsApp Integration**: Credentials provided (API Key: auAF-SnAv-R6VI). Add WhatsApp send button per contact in CRM.
-- **Email SMTP Integration**: Blocked — waiting on user for SMTP credentials.
+### P0 (Next — CRM Phase 2)
+- **People Search**: Add Voyager API people search by keywords/title/company/industry
+- **Connection Requests**: Send personalized connection requests from CRM
+- **Follow-up Automation**: Track responses, auto-remind for no-response follow-ups
+- **Lead Scoring**: AI-powered 1-10 scoring based on profile + engagement
 
 ### P1
-- Project Manager Agent (WhatsApp + Google Docs + Dashboard)
-- LinkedIn Post Search Scheduler (automated daily runs)
-- Chrome Extension Monetization (Freemium + Stripe)
+- **Qikberry WhatsApp Integration**: Credentials provided (API Key: auAF-SnAv-R6VI)
+- **Saved Search Automation**: Daily auto-run of saved searches
+- **Campaign Manager**: Drip sequences for outreach
 
 ### P2
-- Content Studio Phase 2 (Idea Inbox, Analytics)
-- Research Agent: Daily monitoring of OpenAI, Anthropic, arXiv, HN
-- Catchment Mining proxy-based scraping
+- Project Manager Agent (WhatsApp + Google Docs + Dashboard)
+- Chrome Extension Monetization (Freemium + Stripe)
+- Email SMTP Integration (waiting for credentials)
 
 ### Future
-- SMS/WhatsApp alerts for Stock Investor
-- Catchment Mining for more cities
-- 365-day full calendar generation
+- Network Analytics Dashboard
+- LinkedIn Post Search Scheduler
+- Content Studio Phase 2
+- Research Agent

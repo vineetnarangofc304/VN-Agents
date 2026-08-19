@@ -6,7 +6,7 @@ const agents = [
   { id: "refund", name: "Refund Agent", desc: "Generate detailed refund requests for failed transactions", icon: RefreshCw, color: "#f59e0b", path: "/refund" },
   { id: "stocks", name: "Stock Investor", desc: "Scan NSE stocks, find undervalued picks under INR 100", icon: TrendingUp, color: "#16a34a", path: "/stocks" },
   { id: "linkedin", name: "LinkedIn Agent", desc: "Auto-generate and publish LinkedIn posts for your companies", icon: Linkedin, color: "#0a66c2", path: "/linkedin" },
-  { id: "linkedin-search", name: "LinkedIn Lead Finder", desc: "Find people looking for agencies on LinkedIn, classify & auto-comment", icon: SearchCheck, color: "#0ea5e9", path: "/linkedin-search" },
+  { id: "linkedin-search", name: "LinkedIn Lead CRM", desc: "Full CRM: find leads, manage pipeline, send messages, auto-comment", icon: SearchCheck, color: "#2563eb", path: "/linkedin-search" },
   { id: "content-studio", name: "Content Studio", desc: "AI Personal Brand Content OS — research, create, publish thought leadership", icon: Zap, color: "#0066FF", path: "/content-studio" },
   { id: "directory", name: "PDF Extractor", desc: "Extract company data from PDF directories into Excel", icon: BookOpen, color: "#8b5cf6", path: "/directory" },
   { id: "checker", name: "Account Checker", desc: "Bulk-test login accounts and find active ones", icon: ShieldCheck, color: "#ef4444", path: "/checker" },
