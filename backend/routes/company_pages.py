@@ -68,6 +68,8 @@ async def list_company_pages():
 @router.post("")
 async def create_company_page(data: CompanyPageCreate):
     """Add a new company page."""
+    # Sanitize org_id - strip trailing slashes and whitespace
+    data.org_id = data.org_id.strip().rstrip("/")
     existing = await db.company_pages.find_one({"org_id": data.org_id})
     if existing:
         # Update instead
@@ -135,15 +137,17 @@ async def generate_content(org_id: str, req: ContentGenerateRequest):
     if not EMERGENT_KEY:
         raise HTTPException(status_code=500, detail="LLM key not configured")
 
-    pillar = req.pillar or (page["pillars"][0] if page.get("pillars") else "general industry insights")
+    pillars = page.get("pillars") or []
+    pillar = req.pillar or (pillars[0] if pillars else "general industry insights")
     company_name = page.get("name", "Our Company")
     company_desc = page.get("description", "")
 
     # Generate post content
-    chat = LlmChat(
-        api_key=EMERGENT_KEY,
-        session_id=f"company-post-{org_id}-{uuid.uuid4()}",
-        system_message=f"""You are a senior LinkedIn content strategist writing posts for {company_name}'s official company page.
+    try:
+        chat = LlmChat(
+            api_key=EMERGENT_KEY,
+            session_id=f"company-post-{org_id}-{uuid.uuid4()}",
+            system_message=f"""You are a senior LinkedIn content strategist writing posts for {company_name}'s official company page.
 
 Company: {company_name}
 About: {company_desc}
@@ -159,20 +163,20 @@ WRITING STYLE:
 - 150-300 words — punchy, not verbose
 - NEVER sound like AI. Sound like a real company sharing expertise.
 - NEVER use "In today's rapidly evolving" or similar AI cliches."""
-    ).with_model("openai", "gpt-4o")
+        ).with_model("openai", "gpt-4o")
 
-    topic = req.custom_topic or pillar
-    msg = UserMessage(text=f"""Write a LinkedIn post for {company_name}'s company page.
+        topic = req.custom_topic or pillar
+        msg = UserMessage(text=f"""Write a LinkedIn post for {company_name}'s company page.
 
 Content Pillar/Topic: {topic}
 
 Make it keyword-rich and SEO-friendly. Include specific numbers/data where possible.
 Write ONLY the post content. No meta commentary.""")
 
-    try:
         content = await chat.send_message(msg)
     except Exception as e:
         error_msg = str(e)
+        logger.error(f"Content generation error for {org_id}: {error_msg[:300]}")
         if "budget" in error_msg.lower() or "exceeded" in error_msg.lower():
             raise HTTPException(status_code=503, detail="AI budget exceeded. Go to Profile > Manage Plan > Universal Key > Add Balance to top up.")
         raise HTTPException(status_code=502, detail=f"AI generation failed: {error_msg[:200]}")

@@ -123,3 +123,47 @@ def test_generate_content_fundle(sess):
 def test_generate_content_nonexistent_page(sess):
     r = sess.post(f"{API}/NONEXISTENT_XYZ/generate", json={"generate_image": False}, timeout=15)
     assert r.status_code == 404
+    # Must be proper JSON error, not an HTML/Cloudflare error page
+    assert "application/json" in r.headers.get("content-type", "")
+    assert r.json().get("detail") == "Company page not found"
+
+
+def test_generate_never_returns_5xx_gateway_error(sess):
+    """Regression for the 520 Cloudflare bug: response must be a valid JSON
+    HTTP response (200 on success, 502/503 on AI failure) - never 520/no-response."""
+    org_id = "69021406"
+    r = sess.post(f"{API}/{org_id}/generate", json={
+        "pillar": "Retail AI",
+        "generate_image": False,
+    }, timeout=90)
+    assert r.status_code in (200, 502, 503), f"Unexpected status {r.status_code}: {r.text[:300]}"
+    assert "application/json" in r.headers.get("content-type", ""), r.text[:300]
+    body = r.json()
+    if r.status_code == 200:
+        assert body.get("content")
+        assert body.get("pillar") == "Retail AI"
+        assert body.get("image_path") is None
+    else:
+        assert body.get("detail")
+
+
+# ============== org_id SANITIZATION ==============
+def test_create_page_strips_trailing_slash(sess):
+    dirty = f"  {TEMP_ORG_ID}/  "
+    sess.delete(f"{API}/{TEMP_ORG_ID}", timeout=10)
+    r = sess.post(API, json={
+        "org_id": dirty,
+        "name": "TEST_Sanitize Page",
+        "pillars": ["x"],
+    }, timeout=15)
+    assert r.status_code == 200, r.text
+    assert r.json().get("org_id") == TEMP_ORG_ID, r.text
+
+    r2 = sess.get(API, timeout=15)
+    ids = {p["org_id"] for p in r2.json()["pages"]}
+    assert TEMP_ORG_ID in ids
+    assert f"{TEMP_ORG_ID}/" not in ids
+
+    # cleanup
+    d = sess.delete(f"{API}/{TEMP_ORG_ID}", timeout=10)
+    assert d.status_code == 200
