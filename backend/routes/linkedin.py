@@ -32,7 +32,21 @@ LINKEDIN_AUTH_URL = "https://www.linkedin.com/oauth/v2/authorization"
 LINKEDIN_TOKEN_URL = "https://www.linkedin.com/oauth/v2/accessToken"
 LINKEDIN_USERINFO_URL = "https://api.linkedin.com/v2/userinfo"
 LINKEDIN_POSTS_URL = "https://api.linkedin.com/rest/posts"
-LINKEDIN_API_VERSION = "202502"
+LINKEDIN_API_VERSION = "202608"
+
+def _get_redirect_uri():
+    """Get the correct redirect URI based on environment."""
+    # First check explicit env var
+    explicit = os.environ.get("LINKEDIN_REDIRECT_URI", "")
+    # If PROD_DOMAIN is set and the redirect URI points to preview, use PROD_DOMAIN instead
+    prod_domain = os.environ.get("PROD_DOMAIN", "")
+    backend_url = os.environ.get("REACT_APP_BACKEND_URL", "")
+    # Use the backend URL (which is correct per-environment) to construct the redirect
+    if backend_url:
+        return f"{backend_url}/api/linkedin/callback"
+    if prod_domain and explicit and "preview" in explicit:
+        return f"{prod_domain}/api/linkedin/callback"
+    return explicit
 
 # In-memory state storage for OAuth CSRF (short-lived, cleanup on server restart is acceptable)
 oauth_states = {}
@@ -150,10 +164,12 @@ async def linkedin_auth():
 
     scopes = "openid profile w_member_social w_organization_social"
     from urllib.parse import quote
+    redirect_uri = _get_redirect_uri()
+    logger.info(f"LinkedIn OAuth redirect URI: {redirect_uri}")
     params = (
         f"response_type=code"
         f"&client_id={LINKEDIN_CLIENT_ID}"
-        f"&redirect_uri={quote(LINKEDIN_REDIRECT_URI, safe='')}"
+        f"&redirect_uri={quote(redirect_uri, safe='')}"
         f"&state={state}"
         f"&scope={quote(scopes, safe='')}"
     )
@@ -199,7 +215,7 @@ async def linkedin_callback(code: str = Query(None), state: str = Query(None), e
                     "code": code,
                     "client_id": LINKEDIN_CLIENT_ID,
                     "client_secret": LINKEDIN_CLIENT_SECRET,
-                    "redirect_uri": LINKEDIN_REDIRECT_URI
+                    "redirect_uri": _get_redirect_uri()
                 },
                 headers={"Content-Type": "application/x-www-form-urlencoded"}
             )
@@ -642,6 +658,156 @@ Write ONLY the post content. No meta text like 'Here's a post...' - just the act
             posts.append({"content": f"Error generating content: {str(e)}", "company": company_key, "error": True})
 
     return {"posts": posts}
+
+
+@router.post("/admin/inject-token")
+async def admin_inject_token(data: dict):
+    """Admin endpoint to manually inject a LinkedIn OAuth token."""
+    access_token = data.get("access_token")
+    refresh_token = data.get("refresh_token")
+    expires_in = data.get("expires_in", 86400)
+    refresh_expires_in = data.get("refresh_token_expires_in", 525600)
+    account_id = data.get("account_id")
+
+    if not access_token:
+        raise HTTPException(status_code=400, detail="access_token required")
+
+    import time as _time
+
+    # Get profile info with the token
+    profile_name = "Unknown"
+    person_urn = ""
+    try:
+        async with httpx.AsyncClient() as http_client:
+            profile_resp = await http_client.get(
+                LINKEDIN_USERINFO_URL,
+                headers={"Authorization": f"Bearer {access_token}"}
+            )
+            if profile_resp.status_code == 200:
+                profile = profile_resp.json()
+                profile_name = profile.get("name", "Unknown")
+                person_urn = f"urn:li:person:{profile.get('sub', '')}"
+    except Exception as e:
+        logger.warning(f"Profile fetch error: {e}")
+
+    # Find or create account
+    if account_id:
+        existing = await db.linkedin_accounts.find_one({"account_id": account_id})
+    else:
+        existing = await db.linkedin_accounts.find_one({"schedule_enabled": True})
+        if not existing:
+            existing = await db.linkedin_accounts.find_one({})
+
+    now = _time.time()
+    token_data = {
+        "access_token": access_token,
+        "refresh_token": refresh_token,
+        "token_expires_at": now + expires_in,
+        "refresh_token_expires_at": now + refresh_expires_in,
+        "token_updated_at": datetime.now(timezone.utc).isoformat(),
+    }
+    if person_urn:
+        token_data["person_urn"] = person_urn
+    if profile_name != "Unknown":
+        token_data["name"] = profile_name
+
+    if existing:
+        await db.linkedin_accounts.update_one(
+            {"account_id": existing["account_id"]},
+            {"$set": token_data}
+        )
+        return {"success": True, "profile": profile_name, "account_id": existing["account_id"], "expires_in": expires_in}
+    else:
+        new_id = str(uuid.uuid4())
+        token_data.update({"account_id": new_id, "schedule_enabled": True, "schedule_company": "fundle", "schedule_interval_hours": 6})
+        await db.linkedin_accounts.insert_one(token_data)
+        return {"success": True, "profile": profile_name, "account_id": new_id, "expires_in": expires_in}
+
+
+
+@router.post("/trigger-post")
+async def trigger_post_now(data: dict):
+    """Manually trigger an immediate AI-generated post for an account."""
+    account_id = data.get("account_id")
+    company = data.get("company", "fundle")
+    topic = data.get("topic")
+    with_image = data.get("with_image", False)
+
+    if not account_id:
+        # Use the first schedule-enabled account
+        acc = await db.linkedin_accounts.find_one({"schedule_enabled": True})
+        if not acc:
+            raise HTTPException(status_code=400, detail="No active LinkedIn account found")
+        account_id = acc["account_id"]
+
+    # Validate token
+    try:
+        access_token, person_urn = await get_valid_token(account_id)
+    except Exception as e:
+        raise HTTPException(status_code=401, detail=str(e))
+
+    ctx = COMPANY_CONTEXTS.get(company.lower())
+    if not ctx:
+        raise HTTPException(status_code=400, detail=f"Unknown company: {company}")
+
+    llm_key = os.environ.get("EMERGENT_LLM_KEY")
+    if not llm_key:
+        raise HTTPException(status_code=500, detail="LLM key not configured")
+
+    # Generate content
+    try:
+        chat = LlmChat(
+            api_key=llm_key,
+            session_id=f"trigger-post-{uuid.uuid4()}",
+            system_message=f"""You are Abhinav Khanna, CBO at Fundle.ai — the AI Operating System for modern retail and mall enterprises.
+
+Company: {ctx['name']}
+About: {ctx['description']}
+
+WRITING STYLE: First person, founder voice. Open with a bold insight or stat. Short paragraphs. 150-300 words. End with a question. 4-6 hashtags including #FundleAI #EnterpriseAI #RetailAI. NEVER sound like AI."""
+        ).with_model("openai", "gpt-4o")
+
+        content = await chat.send_message(
+            UserMessage(text=f"Write a LinkedIn post about: {topic or 'AI Agents transforming retail'}")
+        )
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"AI generation failed: {str(e)[:200]}")
+
+    # Post to LinkedIn (text only for speed)
+    import httpx
+    headers = {
+        "Authorization": f"Bearer {access_token}",
+        "Content-Type": "application/json",
+        "X-Restli-Protocol-Version": "2.0.0",
+        "LinkedIn-Version": LINKEDIN_API_VERSION,
+    }
+
+    payload = {
+        "author": person_urn,
+        "commentary": content,
+        "visibility": "PUBLIC",
+        "distribution": {"feedDistribution": "MAIN_FEED", "targetEntities": [], "thirdPartyDistributionChannels": []},
+        "lifecycleState": "PUBLISHED",
+        "isReshareDisabledByAuthor": False,
+    }
+
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as http_client:
+            response = await http_client.post(LINKEDIN_POSTS_URL, json=payload, headers=headers)
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"LinkedIn API error: {str(e)[:200]}")
+
+    if response.status_code in [200, 201]:
+        post_id = response.headers.get("x-restli-id", "")
+        await db.linkedin_post_history.insert_one({
+            "post_id": post_id, "account_id": account_id, "company": company,
+            "content": content, "topic": topic,
+            "posted_at": datetime.now(timezone.utc).isoformat(), "source": "manual_trigger"
+        })
+        return {"success": True, "post_id": post_id, "content": content}
+    else:
+        raise HTTPException(status_code=400, detail=f"LinkedIn error ({response.status_code}): {response.text[:300]}")
+
 
 
 # ============== Post History ==============

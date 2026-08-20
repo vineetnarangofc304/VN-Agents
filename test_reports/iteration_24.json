@@ -1,0 +1,50 @@
+{
+  "summary": "Iteration 24: verified the LinkedIn OAuth redirect-URI fix (backend + frontend). 12/12 pytest cases passed in /app/backend/tests/test_linkedin_oauth_redirect.py: GET /api/linkedin/auth returns a LinkedIn authorization URL with redirect_uri=https://vnagents.agenticindia.ai/api/linkedin/callback (no 'preview' substring) and scope=openid profile w_member_social w_organization_social; callback returns 400 'Missing code or state' with no params, HTML error page for error=..., and 400 (not 500) for a bogus code; /api/health healthy; agent-login works with Agent@2024! (payload requires both 'agent' and 'password') and returns 401 on wrong password; /api/company-pages returns 5 pages with no _id leakage; /api/linkedin/accounts leaks no access_token/_id. Frontend: /linkedin login + LinkedInAgent load, Settings tab opens, 'Connect LinkedIn Account' opens the LinkedIn OAuth popup whose URL contains the production redirect_uri and w_organization_social scope. /linkedin-search CRM loads with all 7 sidebar nav items (nav-dashboard/pipeline/search/contacts/messages/company_pages/settings) all clickable, Company Pages view renders 5 pages. No 4xx/5xx network calls or console errors observed during frontend runs.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "routes/linkedin.py::_get_redirect_uri", "issue": "Because LINKEDIN_REDIRECT_URI contains 'preview' and PROD_DOMAIN is set, the PREVIEW environment now also emits the production redirect_uri. Consequence: OAuth 'Connect LinkedIn' can no longer be completed from the preview URL - LinkedIn will redirect to vnagents.agenticindia.ai and the token will be stored in the production DB, not preview. Recommend deriving the redirect from the incoming request host (request.base_url) or keeping a per-environment env var, so both environments work."},
+      {"endpoint": "routes/linkedin.py::_get_redirect_uri", "issue": "The first branch reads REACT_APP_BACKEND_URL, which is not present in the backend process env (dead code today - verified by log 'LinkedIn OAuth redirect URI: https://vnagents.agenticindia.ai/api/linkedin/callback'). If it ever gets injected with the preview URL it would silently override PROD_DOMAIN and re-break production. Either remove it or gate it explicitly."},
+      {"endpoint": "GET /api/linkedin/callback", "issue": "State is looked up but never enforced ('Accept the callback even if state is not found'), so CSRF protection is effectively disabled. Bogus code+state returned 400 from the LinkedIn token exchange, which is fine, but state should be validated."},
+      {"endpoint": "server.py::AgentLoginRequest", "issue": "AGENT_PASSWORD still falls back to a hardcoded default when the env var is missing (carried over from iteration 23); fail fast instead."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "LinkedInAgent > Connected Accounts", "issue": "Profile avatar renders as a broken image (LinkedIn CDN picture URL expired); no fallback initials/placeholder", "selector": "[data-testid^='li-account-']", "priority": "LOW"}
+    ],
+    "integration_issues": [
+      {"flow": "LinkedIn Connect from preview URL", "issue": "Popup opens LinkedIn OAuth with the production redirect_uri, so the connection cannot be completed/verified in the preview environment (token would be written to the prod DB). Also requires https://vnagents.agenticindia.ai/api/linkedin/callback to be whitelisted in the LinkedIn developer app - otherwise LinkedIn will show 'redirect_uri does not match'.", "affected_selectors": ["[data-testid='linkedin-connect-btn']"]}
+    ],
+    "design_issues": [
+      {"screen": "LinkedIn Agent > Settings", "issues": ["Auto-Post Schedule shows 'Auto-Posting ON' while the only connected account badge says 'token_expired' - misleading state, no warning to reconnect", "Company/Interval/Account use native browser <select> elements instead of the shadcn Select used elsewhere", "Large empty space below the cards on 1920x1080"]},
+      {"screen": "CRM Dashboard", "issues": ["TOTAL CONTACTS = 0 while CONTACTED = 9 and Recent Leads is populated (still unfixed from iteration 23)", "RESPONSE RATE shows an em dash with no tooltip/explanation"]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_linkedin_oauth_redirect.py",
+    "/app/test_reports/pytest/iteration24.xml"
+  ],
+  "action_items": [
+    "Make _get_redirect_uri environment-aware from the incoming request host so OAuth also works in preview (currently preview is broken by design)",
+    "Confirm https://vnagents.agenticindia.ai/api/linkedin/callback is registered as an authorized redirect URL in the LinkedIn developer app - the fix is useless otherwise",
+    "Remove/guard the dead REACT_APP_BACKEND_URL branch in _get_redirect_uri",
+    "Enforce OAuth state validation in /api/linkedin/callback",
+    "Fix Dashboard TOTAL CONTACTS KPI (0 vs CONTACTED 9) - still open from iteration 23",
+    "Show a reconnect warning when schedule is ON but the account token is expired"
+  ],
+  "critical_code_review_comments": [
+    "routes/linkedin.py is ~1400+ lines with large prompt/content literals inlined; extract COMPANY_CONTEXTS and HEARCLEAR_INFOGRAPHIC_THEMES into a content module",
+    "LinkedInPostRequest declares link_title twice (duplicate field definition)",
+    "Infographic generation uses threading + a new asyncio loop and an in-memory job dict (infographic_jobs) - jobs are lost on reload and won't work across workers; use a DB-backed job record",
+    "OAuth state is written to Mongo but never verified, negating CSRF protection"
+  ],
+  "updated_files": ["/app/backend/tests/test_linkedin_oauth_redirect.py"],
+  "success_rate": {"backend": "100%", "frontend": "100%"},
+  "seed_data_creation": "None. Used existing 5 company pages and the existing (token_expired) LinkedIn account. Bogus-code callback attempts created no records.",
+  "should_call_test_agent_after_fix": false,
+  "should_main_agent_self_test": true,
+  "test_credentials": "Agent password Agent@2024! works via POST /api/auth/agent-login with body {\"agent\": \"<name>\", \"password\": \"...\"} (the 'agent' field is required - 422 otherwise). /app/memory/test_credentials.md only lists the admin email/password for /api/auth/login.",
+  "context_for_next_testing_agent": "Redirect-URI fix verified end-to-end at the URL-construction level: backend log prints 'LinkedIn OAuth redirect URI: https://vnagents.agenticindia.ai/api/linkedin/callback' and the frontend popup URL carries the encoded production redirect plus w_organization_social. Real OAuth cannot be completed from preview (redirect goes to prod domain), so any post/generate flow will still 401 - the stored account token is expired (token_expires_at ~2026-06-08). Regression files: /app/backend/tests/test_linkedin_oauth_redirect.py (this iteration) and /app/backend/tests/test_production_login_fix.py (iteration 23). CRM sidebar testids are nav-<view> (not crm-nav-*).",
+  "rca_of_the_issue": "Original bug: LINKEDIN_REDIRECT_URI was hardcoded to the preview host, so on production LinkedIn redirected to a domain that does not serve the prod app. Fix adds _get_redirect_uri() which substitutes PROD_DOMAIN when the configured redirect contains 'preview'. Verified working. Residual risk: the substitution is unconditional, so the preview deployment now also advertises the production callback and can no longer complete OAuth itself; a request-host-derived redirect would fix both environments."
+}

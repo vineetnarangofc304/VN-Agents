@@ -1916,6 +1916,75 @@ async def update_connection_stage(public_id: str, data: dict):
     return {"success": True, "stage": stage}
 
 
+# ============== Voyager Post Creation ==============
+@router.post("/voyager-post")
+async def create_voyager_post(data: dict):
+    """Create a LinkedIn post using the Voyager API (cookie-based, no OAuth needed)."""
+    content = data.get("content", "")
+    org_id = data.get("org_id")  # If posting as company page
+    if not content:
+        raise HTTPException(status_code=400, detail="content is required")
+
+    cookie_doc = await db.li_search_config.find_one({"type": "cookie"})
+    if not cookie_doc or not cookie_doc.get("li_at"):
+        raise HTTPException(status_code=400, detail="No LinkedIn cookie configured. Go to Settings and add your li_at cookie.")
+
+    li_at = cookie_doc["li_at"]
+    jsessionid = await _ensure_jsessionid(li_at, cookie_doc.get("jsessionid", ""))
+    if not jsessionid:
+        raise HTTPException(status_code=400, detail="Could not obtain JSESSIONID. Please update your li_at cookie in Settings.")
+
+    headers = _build_cookie_header(li_at, jsessionid)
+
+    payload = {
+        "visibleToConnectionsOnly": False,
+        "externalAudienceProviders": [],
+        "commentaryV2": {
+            "text": content,
+            "attributes": []
+        },
+        "origin": "FEED",
+        "allowedCommentersScope": "ALL",
+        "postState": "PUBLISHED",
+    }
+
+    # If posting as a company page, add the organization author
+    if org_id:
+        payload["author"] = f"urn:li:organization:{org_id}"
+
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            resp = await client.post(
+                "https://www.linkedin.com/voyager/api/contentcreation/normShares",
+                json=payload,
+                headers=headers,
+            )
+
+        if resp.status_code in [200, 201]:
+            result = resp.json() if resp.text else {}
+            post_urn = result.get("value", {}).get("urn", "") if isinstance(result.get("value"), dict) else str(result.get("value", ""))
+            # Save to history
+            await db.voyager_post_history.insert_one({
+                "post_urn": post_urn,
+                "content": content,
+                "org_id": org_id,
+                "posted_at": datetime.now(timezone.utc).isoformat(),
+                "status": "published",
+                "source": "voyager",
+            })
+            return {"success": True, "post_urn": post_urn}
+        else:
+            error_text = resp.text[:500]
+            logger.error(f"Voyager post failed: {resp.status_code} {error_text}")
+            raise HTTPException(status_code=resp.status_code, detail=f"LinkedIn rejected the post: {error_text[:300]}")
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Voyager post error: {e}")
+        raise HTTPException(status_code=502, detail=f"Failed to post: {str(e)[:200]}")
+
+
+
 
 @router.post("/messages/log")
 async def log_message(data: dict):

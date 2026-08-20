@@ -1125,7 +1125,7 @@ async def _scheduled_posts_worker():
 
 async def _auto_post_generator():
     """Background task that auto-generates and publishes LinkedIn posts on schedule."""
-    await _asyncio.sleep(30)  # Wait for startup
+    await _asyncio.sleep(300)  # Wait 5 minutes for startup to stabilize
     while True:
         try:
             accounts = await db.linkedin_accounts.find({"schedule_enabled": True}).to_list(20)

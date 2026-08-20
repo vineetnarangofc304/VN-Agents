@@ -20,7 +20,7 @@ db = client[os.environ.get('DB_NAME', 'test_database')]
 
 EMERGENT_KEY = os.environ.get('EMERGENT_LLM_KEY', '')
 LINKEDIN_POSTS_URL = "https://api.linkedin.com/rest/posts"
-LINKEDIN_API_VERSION = "202502"
+LINKEDIN_API_VERSION = "202608"
 
 INFOGRAPHIC_DIR = Path(__file__).parent.parent / "uploads" / "company_infographics"
 try:
@@ -366,7 +366,7 @@ async def get_company_posts(org_id: str, limit: int = 20):
 async def run_company_auto_poster():
     """Background task: auto-post to company pages on schedule."""
     import asyncio
-    await asyncio.sleep(60)  # Wait for startup
+    await asyncio.sleep(600)  # Wait 10 minutes for startup to stabilize
 
     while True:
         try:
