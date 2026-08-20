@@ -1452,6 +1452,9 @@ async def start_scheduler():
         # Company pages auto-poster
         from routes.company_pages import run_company_auto_poster
         _asyncio.create_task(run_company_auto_poster())
+        # Voyager auto-poster (4 posts/day via cookie, no OAuth)
+        from routes.voyager_auto_poster import run_voyager_auto_poster
+        _asyncio.create_task(run_voyager_auto_poster())
     except Exception as e:
         logger.warning(f"Background task creation error: {e}")
 

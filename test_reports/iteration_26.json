@@ -1,0 +1,50 @@
+{
+  "summary": "Iteration 26: verified the new Voyager auto-poster module + the WhatsApp CTA fix. Backend: 8/8 pytest cases passed in /app/backend/tests/test_voyager_auto_poster.py - GET /api/health 200; GET /api/li-search/cookie returns has_cookie=true, profile_name='Abhinav Khanna', no _id leak; POST /api/li-search/voyager-post with empty content -> 400 'content is required'; GET /api/company-pages returns exactly 5 pages incl. org 69021406; POST /api/company-pages/69021406/generate (generate_image=false) now returns content that CONTAINS the WhatsApp CTA +91-9910530372 plus hashtags (iteration-25 gap is fixed); module structure test asserts routes/voyager_auto_poster.py imports cleanly, TOPIC_PILLARS has exactly 10 unique pillars, FUNDLE_CONTEXT contains Fundle Brain / Retail AI / Mall AI / Loyalty Agent / Lead Agent / KAZO / ADSR / Abhinav Khanna, WHATSAPP_CTA holds the number, and run_voyager_auto_poster + all 4 helpers are coroutines; server.py wires create_task(run_voyager_auto_poster()); uploads/fundle_logo.png exists (20KB, valid PNG header). Also validated the shared Gemini image pipeline live: POST /api/company-pages/69021406/generate with generate_image=true produced a real 768x1376 infographic (gemini-3.1-flash-image-preview works, no LLM errors in logs). Frontend: /linkedin-search CRM loaded after Agent@2024! login, all 7 sidebar testids present (nav-dashboard/pipeline/search/contacts/messages/company_pages/settings), Company Pages view rendered 5 company-page-<org_id> cards each with an enabled generate-<org_id> button, zero console errors and zero >=400 API calls. No LinkedIn post was triggered.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "routes/voyager_auto_poster.py::_upload_and_post_voyager", "issue": "The image PUT upload response status is never checked (and reg_resp!=200 is silently ignored) - a failed media upload silently degrades the auto-post to text-only with no log/alert. Also headers param is annotated 'str' but is a dict."},
+      {"endpoint": "routes/voyager_auto_poster.py", "issue": "No observability/control surface: there is no API to read auto-poster status (posts today, last pillar, last error) or to enable/disable/manually trigger it. Operator can only grep supervisor logs, so a silently dead scheduler (e.g. expired cookie -> 6h sleep) is invisible in the UI."},
+      {"endpoint": "routes/voyager_auto_poster.py", "issue": "os.environ.get('MONGO_URL','') and DB_NAME default 'test_database' - env vars should fail fast rather than defaulting (an empty MONGO_URL raises a confusing pymongo ConfigurationError at import, as reproduced in the test run)."},
+      {"endpoint": "routes/voyager_auto_poster.py", "issue": "Module-level Mongo `client` is shadowed by the local httpx `client` inside _upload_and_post_voyager - fragile naming; rename to http/mongo_client."},
+      {"endpoint": "routes/voyager_auto_poster.py", "issue": "posts_today counts every voyager_post_history doc with status=published, including manual UI posts, so manual posting silently consumes the 4/day budget. Confirm this is intended; otherwise filter source='voyager_auto'."},
+      {"endpoint": "routes/company_pages.py generate (image path)", "issue": "The company-page infographic prompt does not pass the actual fundle_logo.png and does not require the WhatsApp footer: the generated image (verified 69021406_adc2d8a4.png) shows a wrong hexagon 'F' logo and a footer without +91-9910530372, i.e. branding is inconsistent with the new auto-poster infographic spec."},
+      {"endpoint": "routes/voyager_auto_poster.py::_generate_infographic", "issue": "Logo fidelity relies on the image model reproducing the reference PNG, which is unreliable. Safer: composite the real uploads/fundle_logo.png onto the generated image with PIL so every post carries the exact logo."},
+      {"endpoint": "POST /api/li-search/voyager-post", "issue": "Carried over from iteration 25 and still open: expired-cookie LinkedIn 401 is re-raised with an empty detail, and image_path is an unvalidated caller-supplied filesystem path."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [
+      {"flow": "Auto-poster visibility", "issue": "The CRM has no indicator that the Voyager auto-poster (4 posts/day) is running; all cards show 'Auto OFF' and '0/4 today' which contradicts the always-on background poster. User cannot tell whether automation is active or blocked by an expired cookie.", "affected_selectors": ["[data-testid^='company-page-']"]}
+    ],
+    "design_issues": [
+      {"screen": "Company Pages", "issues": ["Fundle.ai still shows '0 total posts' although posts exist in voyager_post_history (counter ignores the Voyager path)", "Persistent 'LinkedIn OAuth Required / w_organization_social' banner even though the Voyager cookie path is the production path - misleading", "Pillar chips remain low-contrast light blue on dark background", "Right column leaves a large empty gap (grid/masonry misalignment) when left cards are taller"]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_voyager_auto_poster.py",
+    "/app/backend/tests/test_voyager_post.py",
+    "/app/test_reports/pytest/iteration26.xml"
+  ],
+  "action_items": [
+    "Add an auto-poster status endpoint + UI badge (posts today, next run, last error, cookie validity) so the 4 posts/day automation is observable",
+    "Check the media register/PUT upload responses in _upload_and_post_voyager and log/record image upload failures instead of silently posting text-only",
+    "Pass the real fundle_logo.png and the WhatsApp footer into the company_pages infographic prompt (or composite the logo with PIL) so branding matches the auto-poster spec",
+    "Decide whether manual voyager posts should count against the 4/day cap (currently they do)",
+    "Still open from iteration 25: map LinkedIn 401/403 to a clear 'li_at cookie expired' message and validate/allow-list image_path"
+  ],
+  "critical_code_review_comments": [
+    "voyager_auto_poster.py is well structured (400 lines) but has no unit-testable seam: the 5-minute sleep + infinite while loop means the decision logic (posts today / 6h gap / pillar rotation) cannot be tested without running the loop. Extract a _should_post_now() and _next_pillar() helper.",
+    "uvicorn --reload restarts the task on every file save, resetting the 5-minute startup delay - acceptable in preview, but the poster effectively never fires while files are being edited; confirm production runs without --reload.",
+    "Silent failure paths: content-gen failure sleeps 30min, infographic failure is swallowed, post failure only logs. Persist failures to a collection so the UI can surface them."
+  ],
+  "updated_files": ["/app/backend/tests/test_voyager_auto_poster.py"],
+  "success_rate": {"backend": "100%", "frontend": "100%"},
+  "seed_data_creation": "None persisted. Two /api/company-pages/69021406/generate calls produced one throwaway infographic at uploads/company_infographics/69021406_adc2d8a4.png; nothing was published to LinkedIn and no DB writes occurred.",
+  "should_call_test_agent_after_fix": false,
+  "should_main_agent_self_test": true,
+  "test_credentials": "Agent@2024! on the /linkedin-search agent-login (password-only). Admin: vineetnarangofc@gmail.com / InvoiceAgent@2024! per /app/memory/test_credentials.md.",
+  "context_for_next_testing_agent": "New regression file: /app/backend/tests/test_voyager_auto_poster.py (8 tests, all pass). It loads /app/backend/.env before importing routes.voyager_auto_poster because that module reads MONGO_URL at import time. All 9 requested items verified. The auto-poster loop itself was NOT executed (5-min delay + hot reload); only structure/wiring verified. Do NOT send non-empty content to /api/li-search/voyager-post with a valid cookie - it publishes for real. CRM sidebar testids nav-<view>; cards company-page-<org_id> with generate-<org_id>/post-<org_id>.",
+  "rca_of_the_issue": "The iteration-25 gap (missing WhatsApp CTA in productised generation) is resolved: company_pages.py now enforces the exact CTA in the system prompt and voyager_auto_poster.py additionally appends WHATSAPP_CTA when the model omits '9910530372'. Remaining risks are observability (no status API/UI for the background poster) and unverified image-upload success in the Voyager media path."
+}
