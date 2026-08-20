@@ -1922,6 +1922,7 @@ async def create_voyager_post(data: dict):
     """Create a LinkedIn post using the Voyager API (cookie-based, no OAuth needed)."""
     content = data.get("content", "")
     org_id = data.get("org_id")  # If posting as company page
+    image_path = data.get("image_path")  # Optional infographic path
     if not content:
         raise HTTPException(status_code=400, detail="content is required")
 
@@ -1936,24 +1937,45 @@ async def create_voyager_post(data: dict):
 
     headers = _build_cookie_header(li_at, jsessionid)
 
-    payload = {
-        "visibleToConnectionsOnly": False,
-        "externalAudienceProviders": [],
-        "commentaryV2": {
-            "text": content,
-            "attributes": []
-        },
-        "origin": "FEED",
-        "allowedCommentersScope": "ALL",
-        "postState": "PUBLISHED",
-    }
-
-    # If posting as a company page, add the organization author
-    if org_id:
-        payload["author"] = f"urn:li:organization:{org_id}"
-
     try:
-        async with httpx.AsyncClient(timeout=30.0) as client:
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            # Upload image if provided
+            media_urn = None
+            if image_path and os.path.exists(image_path):
+                import os as _os
+                reg_resp = await client.post(
+                    "https://www.linkedin.com/voyager/api/voyagerMediaUploadMetadata?action=upload",
+                    json={"mediaUploadType": "IMAGE_SHARING", "fileSize": _os.path.getsize(image_path), "filename": "infographic.png"},
+                    headers=headers,
+                )
+                if reg_resp.status_code == 200:
+                    reg_data = reg_resp.json()
+                    upload_url = reg_data.get("data", {}).get("value", {}).get("singleUploadUrl", "")
+                    media_urn = reg_data.get("data", {}).get("value", {}).get("urn", "")
+                    if upload_url and media_urn:
+                        with open(image_path, "rb") as f:
+                            img_bytes = f.read()
+                        up_headers = dict(headers)
+                        up_headers['content-type'] = 'image/png'
+                        await client.put(upload_url, content=img_bytes, headers=up_headers)
+                        logger.info(f"Voyager image uploaded: {media_urn}")
+
+            payload = {
+                'visibleToConnectionsOnly': False,
+                'externalAudienceProviders': [],
+                'commentaryV2': {'text': content, 'attributes': []},
+                'origin': 'FEED',
+                'allowedCommentersScope': 'ALL',
+                'postState': 'PUBLISHED',
+            }
+
+            if media_urn:
+                payload['mediaCategory'] = 'IMAGE'
+                payload['media'] = [{'category': 'IMAGE', 'mediaUrn': media_urn, 'tapTargets': []}]
+
+            if org_id:
+                payload['author'] = f'urn:li:organization:{org_id}'
+
             resp = await client.post(
                 "https://www.linkedin.com/voyager/api/contentcreation/normShares",
                 json=payload,
@@ -1962,12 +1984,14 @@ async def create_voyager_post(data: dict):
 
         if resp.status_code in [200, 201]:
             result = resp.json() if resp.text else {}
-            post_urn = result.get("value", {}).get("urn", "") if isinstance(result.get("value"), dict) else str(result.get("value", ""))
+            post_urn = result.get("data", {}).get("status", {}).get("urn", "")
             # Save to history
             await db.voyager_post_history.insert_one({
                 "post_urn": post_urn,
                 "content": content,
                 "org_id": org_id,
+                "image_path": image_path,
+                "has_image": media_urn is not None,
                 "posted_at": datetime.now(timezone.utc).isoformat(),
                 "status": "published",
                 "source": "voyager",
@@ -1976,7 +2000,9 @@ async def create_voyager_post(data: dict):
         else:
             error_text = resp.text[:500]
             logger.error(f"Voyager post failed: {resp.status_code} {error_text}")
-            raise HTTPException(status_code=resp.status_code, detail=f"LinkedIn rejected the post: {error_text[:300]}")
+            if resp.status_code in [401, 403]:
+                raise HTTPException(status_code=400, detail="LinkedIn cookie expired. Go to Settings and update your li_at cookie.")
+            raise HTTPException(status_code=400, detail=f"LinkedIn rejected the post ({resp.status_code}). Try updating your li_at cookie in Settings.")
     except HTTPException:
         raise
     except Exception as e:

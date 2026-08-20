@@ -163,7 +163,8 @@ WRITING STYLE:
 - 4-6 SEO-friendly hashtags at the end
 - 150-300 words — punchy, not verbose
 - NEVER sound like AI. Sound like a real company sharing expertise.
-- NEVER use "In today's rapidly evolving" or similar AI cliches."""
+- NEVER use "In today's rapidly evolving" or similar AI cliches.
+- ALWAYS end the post with this exact CTA before hashtags: "Want to see this in action for your business? Let's talk.\nWhatsApp: +91-9910530372" """
         ).with_model("openai", "gpt-4o")
 
         topic = req.custom_topic or pillar

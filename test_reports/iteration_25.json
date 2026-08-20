@@ -1,0 +1,49 @@
+{
+  "summary": "Iteration 25: tested the Voyager posting endpoint, li-search cookie status, company-pages list/generate, and the CRM Company Pages UI. Backend: 9/9 pytest cases passed in /app/backend/tests/test_voyager_post.py - POST /api/li-search/voyager-post returns 400 'content is required' for empty/missing content, exists (not 404), does not 500 with a stored (now expired) li_at cookie and instead surfaces LinkedIn's 401 as HTTP 401, and ignores a non-existent image_path without crashing; GET /api/li-search/cookie returns {has_cookie: true, profile_name: 'Abhinav Khanna', ...} with no _id leak; GET /api/company-pages returns exactly 5 pages (incl. org 69021406 Fundle.ai) with no _id; POST /api/company-pages/69021406/generate with generate_image=false returned 200 with 941 chars of content and image_path=null; unknown org returns 404. Frontend: /linkedin-search CRM loads after agent login (Agent@2024!), all 7 sidebar nav items present (nav-dashboard/pipeline/search/contacts/messages/company_pages/settings), Company Pages view renders 5 cards each with an enabled Generate Post button (generate-<org_id>). Clicked generate-69021406 end-to-end: content + 'Infographic generated' appeared with Post Now / Discard actions, no console errors and no >=400 network calls. Did NOT attempt a real LinkedIn publish.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "POST /api/li-search/voyager-post", "issue": "When the li_at cookie is expired, LinkedIn's 401 is re-raised verbatim as HTTP 401 with an empty body -> detail is literally 'LinkedIn rejected the post: ' (no actionable text). Frontend/global 401 handlers may also mistake this for an app-auth failure and log the user out. Map upstream 401/403 to 400/502 with a clear 'LinkedIn cookie expired - update li_at in Settings' message."},
+      {"endpoint": "POST /api/li-search/voyager-post", "issue": "image_path is a caller-supplied absolute filesystem path with no validation/allow-listing (must be under the infographic dir). Arbitrary local files could be read and uploaded to LinkedIn."},
+      {"endpoint": "POST /api/li-search/voyager-post", "issue": "The image upload result is not validated: if voyagerMediaUploadMetadata returns non-200 or the PUT fails, the post silently continues as text-only with no warning to the caller. The PUT response status is never checked."},
+      {"endpoint": "POST /api/li-search/voyager-post", "issue": "Redundant 'import os as _os' inside the function while os is already imported at module level (os.path.exists is used before the local import) - dead/confusing code."},
+      {"endpoint": "POST /api/company-pages/{org_id}/generate", "issue": "The generated content contains no WhatsApp CTA. The +91-9910530372 CTA only exists in the standalone /app/backend/post_with_images.py script, so any post produced through the app/UI will be missing the CTA that the user requires on every post. Move WHATSAPP_CTA into the generate/post path (or the system prompt) so it is appended consistently."},
+      {"endpoint": "POST /api/company-pages/{org_id}/generate", "issue": "Infographic generation failures are swallowed (logged, image_path=None) and the API returns 200 - callers cannot distinguish 'image not requested' from 'image generation failed'. Return an image_error field."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "CompanyPagesView > Generated Content", "issue": "Generated post text is shown truncated/read-only ('...') with no textarea to review or edit before 'Post Now', and no way to view the generated infographic - user must publish blind", "selector": "[data-testid='generate-69021406']", "priority": "MEDIUM"}
+    ],
+    "integration_issues": [
+      {"flow": "Company page publish", "issue": "Not exercised (would create real LinkedIn content). Note the persistent 'LinkedIn OAuth Required / w_organization_social' banner plus expired token means Post Now will fail; the voyager-post path returns 401 due to the expired li_at cookie.", "affected_selectors": ["[data-testid='post-69021406']"]}
+    ],
+    "design_issues": [
+      {"screen": "Company Pages", "issues": ["Fundle.ai shows '0 total posts' although 3 posts were published via the Voyager path - voyager_post_history is not reflected in the per-page counters, so the UI understates activity", "Right column leaves a large empty gap when the left card expands (masonry/grid misalignment)", "Pillar chips use low-contrast light blue on dark background"]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_voyager_post.py",
+    "/app/test_reports/pytest/iteration25.xml"
+  ],
+  "action_items": [
+    "Append the WhatsApp CTA (+91-9910530372) inside the app's generate/post flow, not just post_with_images.py - UI-generated posts currently omit it",
+    "Translate LinkedIn 401/403 from voyager-post into a clear 4xx 'cookie expired - update li_at in Settings' message instead of an empty-detail 401",
+    "Validate/allow-list image_path in voyager-post and verify both the media-register and PUT upload responses before posting",
+    "Show the generated content in an editable textarea + infographic preview before Post Now",
+    "Include voyager_post_history in company page post counters (Fundle.ai shows 0 total posts)"
+  ],
+  "critical_code_review_comments": [
+    "routes/linkedin_search.py is 2418 lines - split cookie/auth helpers, search, messaging and posting into modules",
+    "voyager-post duplicates the media-upload logic that also exists in post_with_images.py; extract a shared voyager client helper",
+    "No unit-level guard on image_path (path traversal / arbitrary file read into an external upload)"
+  ],
+  "updated_files": ["/app/backend/tests/test_voyager_post.py"],
+  "success_rate": {"backend": "100%", "frontend": "100%"},
+  "seed_data_creation": "None. Test probes only produced 400/401 responses; no LinkedIn post was published and no DB records were created (voyager_post_history is only written on success).",
+  "should_call_test_agent_after_fix": false,
+  "should_main_agent_self_test": true,
+  "test_credentials": "Agent@2024! works on the /linkedin-search agent-login screen (password-only field). /app/memory/test_credentials.md lists admin vineetnarangofc@gmail.com / InvoiceAgent@2024!.",
+  "context_for_next_testing_agent": "Regression file added: /app/backend/tests/test_voyager_post.py (health, cookie status, voyager-post 400/no-500 probes, company-pages list + generate). The stored li_at cookie (Abhinav Khanna, updated 2026-08-20) is expired -> voyager-post returns 401 with an empty LinkedIn body; treat that as expected until the cookie is refreshed. Do NOT send non-empty content with a valid cookie unless a real post is intended. CRM sidebar testids are nav-<view>; company page cards are company-page-<org_id> with generate-<org_id> / post-<org_id> buttons.",
+  "rca_of_the_issue": "voyager-post behaves correctly for the requested validation cases. The only functional gap found is that the WhatsApp CTA lives solely in the standalone post_with_images.py script, so the productised generate/post path emits posts without the mandatory CTA; and expired-cookie failures are surfaced as an opaque 401 because the upstream LinkedIn status/body is passed through unmodified."
+}
