@@ -9,6 +9,7 @@ const VIEW_TITLES = {
   contacts: "Contacts",
   messages: "Messages",
   company_pages: "Company Pages",
+  campaigns: "Campaigns",
   settings: "Settings",
 };
 

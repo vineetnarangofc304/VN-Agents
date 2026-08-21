@@ -9,6 +9,7 @@ import ContactsView from "./ContactsView";
 import MessagesView from "./MessagesView";
 import SettingsView from "./SettingsView";
 import CompanyPagesView from "./CompanyPagesView";
+import CampaignsView from "./CampaignsView";
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 
@@ -68,6 +69,7 @@ export default function CRMLayout() {
     contacts: <ContactsView {...sharedProps} />,
     messages: <MessagesView {...sharedProps} />,
     company_pages: <CompanyPagesView />,
+    campaigns: <CampaignsView />,
     settings: <SettingsView {...sharedProps} />,
   };
 

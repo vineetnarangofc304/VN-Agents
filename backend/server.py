@@ -38,6 +38,7 @@ from routes.linkedin_search import router as li_search_router
 from routes.content_studio import router as content_studio_router
 from routes.banking_agent import router as banking_router
 from routes.company_pages import router as company_pages_router
+from routes.campaign_manager import router as campaign_router
 
 # MongoDB connection
 mongo_url = os.environ.get('MONGO_URL', '')
@@ -925,6 +926,7 @@ app.include_router(li_search_router)
 app.include_router(content_studio_router)
 app.include_router(banking_router)
 app.include_router(company_pages_router)
+app.include_router(campaign_router)
 
 # CORS Configuration
 cors_env = os.environ.get("CORS_ORIGINS", "")
@@ -1455,6 +1457,9 @@ async def start_scheduler():
         # Voyager auto-poster (4 posts/day via cookie, no OAuth)
         from routes.voyager_auto_poster import run_voyager_auto_poster
         _asyncio.create_task(run_voyager_auto_poster())
+        # Campaign auto-sender
+        from routes.campaign_manager import run_campaign_auto_sender
+        _asyncio.create_task(run_campaign_auto_sender())
     except Exception as e:
         logger.warning(f"Background task creation error: {e}")
 

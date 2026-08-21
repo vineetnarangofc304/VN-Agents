@@ -162,7 +162,7 @@ async def linkedin_auth():
         "used": False
     })
 
-    scopes = "openid profile w_member_social w_organization_social"
+    scopes = "openid profile w_member_social w_organization_social r_organization_social rw_organization_admin r_ads rw_ads"
     from urllib.parse import quote
     redirect_uri = _get_redirect_uri()
     logger.info(f"LinkedIn OAuth redirect URI: {redirect_uri}")
