@@ -10,6 +10,7 @@ import MessagesView from "./MessagesView";
 import SettingsView from "./SettingsView";
 import CompanyPagesView from "./CompanyPagesView";
 import CampaignsView from "./CampaignsView";
+import WhatsAppView from "./WhatsAppView";
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 
@@ -70,6 +71,7 @@ export default function CRMLayout() {
     messages: <MessagesView {...sharedProps} />,
     company_pages: <CompanyPagesView />,
     campaigns: <CampaignsView />,
+    whatsapp: <WhatsAppView API={API} activeAccountId={activeAccountId} />,
     settings: <SettingsView {...sharedProps} />,
   };
 

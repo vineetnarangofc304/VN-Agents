@@ -8,6 +8,7 @@ const VIEW_TITLES = {
   search: "Search",
   contacts: "Contacts",
   messages: "Messages",
+  whatsapp: "WhatsApp",
   company_pages: "Company Pages",
   campaigns: "Campaigns",
   settings: "Settings",

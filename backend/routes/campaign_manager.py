@@ -1,6 +1,7 @@
 """
 LinkedIn Outreach Campaign Manager v2
 Fixed: background task sending, atomic claiming, retry mechanism, cookie preflight.
+Uses Emergent Object Storage for persistent file hosting across deployments.
 """
 import os
 import uuid
@@ -24,27 +25,60 @@ _db = _client[os.environ.get('DB_NAME', 'test_database')]
 MAX_MESSAGES_PER_DAY = 25
 
 PROSPECTS_FILE = Path(__file__).parent.parent / "uploads" / "prospects.xlsx"
+BROCHURE_FILE = Path(__file__).parent.parent / "uploads" / "fundle_marketplace_brochure.pdf"
+
+# Cloud storage paths
+CLOUD_PROSPECTS_PATH = "vnagents-crm/campaigns/prospects.xlsx"
+CLOUD_BROCHURE_PATH = "vnagents-crm/campaigns/fundle_marketplace_brochure.pdf"
 
 MYNTRA_CAMPAIGN_TEMPLATE = {
     "campaign_id": "7701ea79",
     "name": "Myntra 500 - Marketplace AutoPilot Outreach",
     "message_template": "Dear {name},\n\nHope you are doing well! I was keen to showcase and demo our Marketplace Automation Platform — Marketplace AutoPilot — to your team at {brand}.\n\nIt helps manage sales, commissions, reconciliations, discrepancy detection, and invoicing with leading marketplaces like Myntra, Ajio, Flipkart, Amazon, and Nykaa.\n\nSince {brand} sells on these marketplaces, I thought it would be great for you to see our platform in action.\n\nAttaching a quick e-brochure for you to understand the functionality and how it can help your backend marketplace operations.\n\nWould be happy to have the team do a detailed demo as required.\n\nBrochure: https://kazob2b.fundlezone.com/brochure\n\nRegards,\nVineet Narang\nFundle.ai\nWhatsApp: +91-9910530372",
-    "attachment_path": str(Path(__file__).parent.parent / "uploads" / "fundle_marketplace_brochure.pdf"),
+    "attachment_cloud_path": CLOUD_BROCHURE_PATH,
     "sender_name": "Vineet",
     "daily_limit": 25,
     "status": "active",
 }
 
 
-async def seed_myntra_campaign():
-    """Auto-seed the Myntra 500 campaign if it doesn't exist."""
+def _ensure_prospects_file() -> str:
+    """Get a path to prospects.xlsx — local first, cloud fallback."""
+    if PROSPECTS_FILE.exists():
+        return str(PROSPECTS_FILE)
     try:
+        from utils.object_storage import download_to_local
+        local = str(PROSPECTS_FILE)
+        download_to_local(CLOUD_PROSPECTS_PATH, local)
+        logger.info("Prospects downloaded from cloud storage")
+        return local
+    except Exception as e:
+        logger.warning(f"Could not download prospects from cloud: {e}")
+        return None
+
+
+async def seed_myntra_campaign():
+    """Auto-seed the Myntra 500 campaign if it doesn't exist. Also uploads assets to cloud."""
+    try:
+        # Upload assets to cloud (idempotent — overwrites are fine)
+        try:
+            await asyncio.to_thread(_upload_campaign_assets_inner)
+        except Exception as e:
+            logger.warning(f"Asset upload failed (non-fatal): {e}")
+
         existing = await _db.outreach_campaigns.find_one({"campaign_id": "7701ea79"})
         if existing:
+            # Ensure cloud path is set on existing doc
+            if not existing.get("attachment_cloud_path"):
+                await _db.outreach_campaigns.update_one(
+                    {"campaign_id": "7701ea79"},
+                    {"$set": {"attachment_cloud_path": CLOUD_BROCHURE_PATH}}
+                )
             return  # Already seeded
 
-        if not PROSPECTS_FILE.exists():
-            logger.warning("Myntra prospects file not found, skipping seed")
+        xlsx_path = _ensure_prospects_file()
+        if not xlsx_path:
+            logger.warning("Myntra prospects file not found locally or in cloud, skipping seed")
             return
 
         # Create campaign
@@ -53,7 +87,7 @@ async def seed_myntra_campaign():
         logger.info("Myntra 500 campaign created")
 
         # Import prospects
-        wb = openpyxl.load_workbook(str(PROSPECTS_FILE))
+        wb = openpyxl.load_workbook(xlsx_path)
         ws = wb.active
         imported = 0
         for row in ws.iter_rows(min_row=5, values_only=True):
@@ -80,6 +114,22 @@ async def seed_myntra_campaign():
         logger.error(f"Myntra campaign seed error: {e}")
 
 
+def _upload_campaign_assets_inner():
+    """Upload campaign assets to cloud storage (sync, called via asyncio.to_thread)."""
+    try:
+        from utils.object_storage import init_storage, upload_local_file
+        init_storage()
+
+        if BROCHURE_FILE.exists():
+            result = upload_local_file(str(BROCHURE_FILE), CLOUD_BROCHURE_PATH, "application/pdf")
+            logger.info(f"Brochure uploaded to cloud: {result.get('path')} ({result.get('size')} bytes)")
+
+        if PROSPECTS_FILE.exists():
+            result = upload_local_file(str(PROSPECTS_FILE), CLOUD_PROSPECTS_PATH, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+            logger.info(f"Prospects uploaded to cloud: {result.get('path')} ({result.get('size')} bytes)")
+    except Exception as e:
+        logger.error(f"Campaign asset upload error (non-fatal): {e}")
+
 
 
 def _build_voyager_headers(li_at: str, jsessionid: str) -> dict:
@@ -92,6 +142,38 @@ def _build_voyager_headers(li_at: str, jsessionid: str) -> dict:
         'cookie': f'li_at={li_at}; JSESSIONID="ajax:{clean_js}"',
         'csrf-token': f'ajax:{clean_js}',
     }
+
+
+@router.get("/cloud-assets/status")
+async def cloud_assets_status():
+    """Check if campaign assets are available in cloud storage."""
+    results = {"brochure": False, "prospects": False}
+    try:
+        from utils.object_storage import init_storage, get_object
+        init_storage()
+        try:
+            get_object(CLOUD_BROCHURE_PATH)
+            results["brochure"] = True
+        except Exception:
+            pass
+        try:
+            get_object(CLOUD_PROSPECTS_PATH)
+            results["prospects"] = True
+        except Exception:
+            pass
+    except Exception as e:
+        logger.error(f"Cloud asset status check error: {e}")
+    return results
+
+
+@router.post("/cloud-assets/upload")
+async def trigger_asset_upload():
+    """Manually trigger upload of local campaign files to cloud storage."""
+    try:
+        _upload_campaign_assets_inner()
+        return {"success": True, "detail": "Assets uploaded to cloud storage"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 async def _validate_cookie():
@@ -206,14 +288,16 @@ async def import_prospects_from_xlsx(campaign_id: str):
     if not campaign:
         raise HTTPException(status_code=404, detail="Campaign not found")
 
-    # Check multiple paths
+    # Check multiple paths — local first, then cloud fallback
     xlsx_path = None
     for p in ["/tmp/prospects.xlsx", "/app/backend/uploads/prospects.xlsx"]:
         if os.path.exists(p):
             xlsx_path = p
             break
     if not xlsx_path:
-        raise HTTPException(status_code=400, detail="No prospects file found.")
+        xlsx_path = _ensure_prospects_file()
+    if not xlsx_path:
+        raise HTTPException(status_code=400, detail="No prospects file found locally or in cloud storage.")
 
     wb = openpyxl.load_workbook(xlsx_path)
     ws = wb.active

@@ -35,12 +35,25 @@ export default function CampaignsView() {
     try {
       const res = await axios.post(`${API}/campaigns/${campaignId}/send-batch`, { batch_size: batchSize });
       setSendResult(res.data);
+      // Auto-refresh stats every 10s while batch is running
+      const interval = setInterval(() => { fetchCampaigns(); if (expandedCampaign === campaignId) fetchProspects(campaignId); }, 10000);
+      setTimeout(() => clearInterval(interval), 120000);
       fetchCampaigns();
-      fetchProspects(campaignId);
     } catch (err) {
       setSendResult({ success: false, detail: err.response?.data?.detail || "Failed" });
     }
     finally { setSending(null); }
+  };
+
+  const handleRetryFailed = async (campaignId) => {
+    try {
+      const res = await axios.post(`${API}/campaigns/${campaignId}/retry-failed`);
+      setSendResult({ success: true, detail: `Reset ${res.data.reset} failed prospects to pending` });
+      fetchCampaigns();
+      if (expandedCampaign === campaignId) fetchProspects(campaignId);
+    } catch (err) {
+      setSendResult({ success: false, detail: err.response?.data?.detail || "Retry failed" });
+    }
   };
 
   if (loading) {
@@ -125,7 +138,7 @@ export default function CampaignsView() {
           {/* Send Result */}
           {sendResult && sending === null && (
             <div className="px-5 py-2 text-xs" style={{ background: sendResult.success ? "#10b98110" : "#ef444410", color: sendResult.success ? "#10b981" : "#ef4444" }}>
-              {sendResult.success ? `Sent: ${sendResult.sent} | Failed: ${sendResult.failed} | Remaining today: ${sendResult.daily_remaining}` : sendResult.detail}
+              {sendResult.success ? sendResult.detail : sendResult.detail}
             </div>
           )}
 

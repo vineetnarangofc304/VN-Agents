@@ -1,0 +1,62 @@
+{
+  "summary": "Tested Emergent Object Storage campaign assets + Qikberry/Qikchat WhatsApp integration (backend + frontend). Backend: 15/15 pytest cases pass against the public preview URL - cloud-assets status returns brochure=true/prospects=true, manual upload works and is idempotent, GET /api/campaigns returns the Myntra campaign (91 total = 91 pending, attachment_cloud_path set correctly), GET /api/campaigns/7701ea79/prospects returns seeded rows with no _id leakage, /api/whatsapp/config returns configured=true, /api/whatsapp/stats and /api/whatsapp/messages return valid shapes, and /api/whatsapp/send + /send-bulk correctly 400 on missing phone/message/contacts. Verified the real Qikchat API is reachable: one controlled send to +910000000000 returned {status:true, 'Messages queued successfully', credits:0} and was logged to Mongo (test row deleted afterwards). Frontend: agent password gate ('Access' + Agent@2024!) works, nav-whatsapp loads the WhatsApp view, all compose testids render (phone/name/message/send/contact-search/toggle-history), send button correctly disabled until phone+message present, char counter updates, CRM contact picker returns 8 live suggestions, history toggle expands/collapses and rendered the logged message row, and Campaigns view still renders 91 total / 91 pending / 0 sent / 0 failed with a 50-row prospects table. No console errors, no error elements on any tested screen.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "POST /api/whatsapp/send", "issue": "No phone format validation. Any string is accepted and blindly prefixed with +91 (e.g. 'abcd' -> '+91abcd') and forwarded to Qikchat, burning an API call. Add a regex/E.164 check before calling the provider."},
+      {"endpoint": "POST /api/whatsapp/send", "issue": "Message is logged as status='sent' purely because Qikchat returned 'queued successfully' (my send to the invalid number +910000000000 was recorded as 'sent'). There is no delivery-status webhook/poll, so the sent/failed stats are optimistic and misleading."},
+      {"endpoint": "POST /api/whatsapp/config", "issue": "Updates a module-level global only; not persisted and lost on reload/restart. Also the response claims success without validating the key against Qikchat. GET /config reads the module constant, so a runtime update is inconsistent across workers."},
+      {"endpoint": "POST /api/whatsapp/send, /send-bulk", "issue": "Untyped `data: dict` bodies - no Pydantic model, so no schema validation/OpenAPI contract."},
+      {"endpoint": "POST /api/whatsapp/send-bulk", "issue": "Sends sequentially with no rate limiting/throttling and no cap on contacts count - a large payload will block the request for minutes and can trip provider limits."},
+      {"endpoint": "GET /api/campaigns/cloud-assets/status", "issue": "Uses blocking `requests` calls (object_storage.py) inside an async endpoint, blocking the event loop; it also downloads the full 486KB PDF + 106KB XLSX just to test existence. Use a HEAD/metadata call and run it via asyncio.to_thread."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "TopHeader", "issue": "VIEW_TITLES had no 'whatsapp' entry, so the header showed 'Dashboard' while the WhatsApp view was active. FIXED by me (added whatsapp: 'WhatsApp'); verified header now reads 'WhatsApp'.", "selector": "[data-testid=\"crm-top-header\"] h1", "priority": "LOW"}
+    ],
+    "integration_issues": [
+      {"flow": "WhatsApp CRM contact quick-pick", "issue": "Most CRM connections have no phone number. Selecting such a contact silently clears the phone input (setPhone(c.phone || '')) and leaves Send disabled with no explanation. Suggest hiding/disabling phone-less contacts or showing 'no phone on file'.", "affected_selectors": ["[data-testid=\"whatsapp-contact-search\"]", "[data-testid^=\"contact-pick-\"]"]},
+      {"flow": "WhatsApp view data fetch", "issue": "fetchConfig/fetchStats/fetchMessages/fetchContacts only console.error on failure - no visible error state; a backend outage silently renders an empty/'not configured' UI.", "affected_selectors": ["[data-testid=\"whatsapp-compose\"]"]},
+      {"flow": "WhatsApp compose", "issue": "textarea has no maxLength although the UI shows an x/4096 counter - users can exceed the advertised limit and only find out from the provider error.", "affected_selectors": ["[data-testid=\"whatsapp-message-input\"]"]},
+      {"flow": "WhatsApp bulk send", "issue": "POST /api/whatsapp/send-bulk has no UI entry point at all - bulk sending is unreachable from the CRM.", "affected_selectors": []},
+      {"flow": "Campaigns > Show Prospects", "issue": "STILL OPEN from iteration_28: table is capped at 50 rows of 91 with no pagination or 'showing 50 of 91' hint.", "affected_selectors": ["[data-testid=\"prospects-table-7701ea79\"]"]}
+    ],
+    "design_issues": [
+      {"screen": "CRM (all views incl. WhatsApp) at 390x844 mobile", "issues": ["Layout is not responsive: the sidebar keeps its full fixed width and never collapses, squeezing the content column to ~50px - inputs are unusable and the page overflows horizontally. Add a collapsible/drawer sidebar and md: breakpoints."]},
+      {"screen": "WhatsApp view", "issues": ["Send button uses white text on #25D366 (contrast ~2.0:1) - fails WCAG AA; use dark text or a darker green.", "Placeholder/meta text uses #71717a on #09090b (~3.4:1) - below AA for small text.", "Invalid CSS prop `focusRingColor` on the phone input style object (line 148) - a no-op React style key; use Tailwind focus:ring classes."]},
+      {"screen": "CRM Campaigns", "issues": ["Progress bar track invisible at 0% sent (unchanged from iteration_28)."]}
+    ]
+  },
+  "test_report_links": ["/app/backend/tests/test_whatsapp_cloud.py", "/app/test_reports/pytest/whatsapp_cloud_results.xml"],
+  "action_items": [
+    "Add E.164/regex phone validation in POST /api/whatsapp/send and /send-bulk before calling Qikchat",
+    "Stop marking queued messages as 'sent'; use status='queued' and add a delivery-status update (webhook/poll) so stats are truthful",
+    "Persist the WhatsApp API key (DB or .env) instead of a module-level global, and validate it on save",
+    "Make object_storage calls non-blocking (asyncio.to_thread) and use metadata/HEAD instead of full downloads for cloud-assets/status",
+    "WhatsApp UI: handle phone-less CRM contacts, add visible API-error states, add maxLength=4096 on the textarea",
+    "Add pagination/'50 of 91' indicator to the campaign prospects table (carried over)",
+    "Fix mobile responsiveness of CRMLayout (collapsible sidebar)",
+    "Improve WhatsApp send-button contrast and remove the invalid focusRingColor style key"
+  ],
+  "critical_code_review_comments": [
+    "routes/whatsapp.py: QIKCHAT_API_KEY is read once at import into a module global that POST /config mutates - not multi-worker safe and lost on restart. Read from a config store per-request.",
+    "routes/whatsapp.py: full Qikchat api_response (provider payload) is persisted in Mongo and returned to the client on failure - can leak provider internals; store a trimmed subset.",
+    "routes/whatsapp.py: send and send-bulk duplicate ~25 lines of phone normalization + payload build + DB logging - extract a shared _send_one() helper (DRY).",
+    "routes/campaign_manager.py: _upload_campaign_assets (async, lines 45-59) and _upload_campaign_assets_inner (lines 140-154) are byte-identical duplicates; the async one is dead code. Also seed_myntra_campaign line 81 has a no-op `run_in_executor(None, lambda: None)`.",
+    "utils/object_storage.py uses sync `requests` throughout while every caller is an async FastAPI endpoint - blocks the event loop on 100-500KB transfers.",
+    "MYNTRA_CAMPAIGN_TEMPLATE still omits 'attachment_path' (flagged in iteration_28) - preview vs production doc parity gap remains.",
+    "Both route modules build their own module-level AsyncIOMotorClient with os.environ.get('MONGO_URL','') empty default - share one client and fail fast on missing config."
+  ],
+  "updated_files": [
+    "/app/frontend/src/components/crm/TopHeader.jsx (added whatsapp entry to VIEW_TITLES)",
+    "/app/backend/tests/test_whatsapp_cloud.py (new, 15 tests)"
+  ],
+  "success_rate": {"backend": "100% (15/15)", "frontend": "100% of requested flows (with the header-title bug fixed by me)"},
+  "seed_data_creation": "One WhatsApp log row (contact_name=TEST_QA, +910000000000) was created by the controlled Qikchat validation send and deleted afterwards; whatsapp_messages is back to 0 documents. No campaign data modified.",
+  "should_call_test_agent_after_fix": true,
+  "should_main_agent_self_test": false,
+  "test_credentials": "Agent gate password Agent@2024! at /linkedin-search (works). QIKCHAT_API_KEY in backend/.env is live and functional.",
+  "context_for_next_testing_agent": "Reusable suite: /app/backend/tests/test_whatsapp_cloud.py (cd /app/backend && python -m pytest tests/test_whatsapp_cloud.py -v). All campaign + whatsapp endpoints are unauthenticated, so curl/requests work directly. The Qikchat API is LIVE - test_send_invalid_number_is_handled_gracefully performs one real (0-credit, queued) send; delete the resulting TEST_QA row from db.whatsapp_messages after runs. /api/campaigns/{id}/send-batch was NOT exercised (would send real LinkedIn messages). Mobile responsiveness of the whole CRM shell is broken - retest after any layout fix.",
+  "rca_of_the_issue": "Header showed 'Dashboard' on the WhatsApp view because TopHeader.jsx VIEW_TITLES lacked a 'whatsapp' key and fell back to the default; added the key. The 'sent' status for an invalid number is a design gap, not a bug in transport: Qikchat's synchronous response only confirms queueing (status:true, per-message status 'processing'), while routes/whatsapp.py maps that directly to status='sent', so no delivery failure can ever be recorded without a webhook."
+}
