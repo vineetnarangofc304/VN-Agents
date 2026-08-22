@@ -1,0 +1,46 @@
+{
+  "summary": "Verified the auto-seed of the Myntra 500 campaign end-to-end. Backend: 11/11 pytest cases pass against the preview public URL (health, GET /api/campaigns, GET /api/campaigns/7701ea79/prospects with pagination + status filter, POST retry-failed, no _id leakage, seed idempotency). Also simulated the production fresh-DB scenario by running seed_myntra_campaign() against a temp DB: campaign created + exactly 91 prospects imported, all 'pending', 0 empty names, and re-running the seed created no duplicates. Frontend: logged into /linkedin-search with the agent password, opened the CRM Campaigns tab - Myntra 500 card renders with 91 total / 91 pending / 0 sent / 0 failed, progress bar, and Show Prospects expands a table with 50 rows containing name, brand, title, status and working LinkedIn links (verified https://in.linkedin.com/in/anirudh-mohan-ab9b907). Collapse works, Send Batch button enabled. No console errors, no error elements.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "seed_myntra_campaign (MYNTRA_CAMPAIGN_TEMPLATE)", "issue": "Template omits 'attachment_path'. The preview campaign doc has attachment_path=/app/backend/uploads/fundle_marketplace_brochure.pdf, so a freshly seeded production campaign will differ from preview (field absent). Current send flow does not read attachment_path, so impact is data-parity only - but add it to the template for consistency."},
+      {"endpoint": "GET /api/campaigns/{id}/prospects", "issue": "Unknown campaign_id returns 200 with total=0 instead of 404; harmless but hides typos."},
+      {"endpoint": "POST /api/campaigns/{id}/retry-failed", "issue": "No campaign existence check - returns success/reset=0 for any non-existent campaign_id."},
+      {"endpoint": "seed_myntra_campaign", "issue": "Seed is fired as a fire-and-forget asyncio task at startup with errors only logged; a failed seed is silent (no health/status surface to detect it in production)."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [
+      {"flow": "Campaigns > Show Prospects", "issue": "Prospect table is capped at limit=50 with no pagination or 'showing 50 of 91' indicator, so 41 seeded prospects are unreachable from the UI.", "affected_selectors": ["[data-testid=\"prospects-table-7701ea79\"]"]},
+      {"flow": "Campaigns data fetch", "issue": "fetchCampaigns/fetchProspects only console.error on failure - no visible error state; a backend outage renders an empty 'No campaigns yet' state that is indistinguishable from a real empty DB.", "affected_selectors": ["[data-testid=\"campaign-7701ea79\"]"]},
+      {"flow": "Retry failed prospects", "issue": "POST /api/campaigns/{id}/retry-failed has no UI trigger; the 'failed' stat is not clickable, so users cannot retry from the CRM.", "affected_selectors": []}
+    ],
+    "design_issues": [
+      {"screen": "CRM Campaigns", "issues": ["Progress bar track is fully invisible at 0% sent (same tone as border) - consider a subtle fill or percentage label", "'Show Prospects' toggle uses #a1a1aa on #18181b at 12px - low prominence for the primary expand control"]}
+    ]
+  },
+  "test_report_links": ["/app/backend/tests/test_myntra_seed.py", "/app/backend/tests/sim_fresh_seed.py", "/app/test_reports/pytest/myntra_seed_results.xml"],
+  "action_items": [
+    "Add 'attachment_path': '/app/backend/uploads/fundle_marketplace_brochure.pdf' (or a relative path) to MYNTRA_CAMPAIGN_TEMPLATE so production parity is kept",
+    "Add pagination / total indicator to the prospects table (only 50 of 91 visible)",
+    "Add error/empty-state distinction and a Retry Failed control in CampaignsView"
+  ],
+  "critical_code_review_comments": [
+    "seed_myntra_campaign duplicates ~30 lines of the row-parsing logic in import_prospects_from_xlsx - extract a shared _import_prospects(campaign_id, xlsx_path) helper (DRY).",
+    "Excel column indexes (row[0], row[16], row[17], row[21]) and min_row=5 are magic numbers duplicated in two places; a header change silently imports blank names.",
+    "Module-level Motor client uses os.environ.get('MONGO_URL', '') with an empty default - fail fast instead (empty URI raises an opaque pymongo ConfigurationError, which I hit when importing the module outside the server process)."
+  ],
+  "updated_files": [
+    "/app/frontend/src/components/crm/CampaignsView.jsx (added data-testid: toggle-prospects-{id}, campaign-total-{id}, prospects-table-{id}, prospect-row)",
+    "/app/backend/tests/test_myntra_seed.py (new)",
+    "/app/backend/tests/sim_fresh_seed.py (new)"
+  ],
+  "success_rate": {"backend": "100% (11/11)", "frontend": "100% (all tested flows)"},
+  "seed_data_creation": "Temp Mongo DB 'TEST_seed_sim_db' created to simulate a fresh production seed and dropped afterwards. NOTE: the requested retry-failed test reset the 25 previously-failed preview prospects back to 'pending' (campaign now 91 pending / 0 failed) - this is expected endpoint behaviour, not a bug.",
+  "should_call_test_agent_after_fix": false,
+  "should_main_agent_self_test": true,
+  "test_credentials": "Agent password Agent@2024! on /linkedin-search (works). /app/memory/test_credentials.md lists vineetnarangofc@gmail.com / InvoiceAgent@2024! for admin API auth (not needed - campaign endpoints are unauthenticated).",
+  "context_for_next_testing_agent": "Campaign endpoints in routes/campaign_manager.py require no auth, so they can be hit directly with requests. Reusable suite at /app/backend/tests/test_myntra_seed.py (run: cd /app/backend && python -m pytest tests/test_myntra_seed.py -v). /app/backend/tests/sim_fresh_seed.py reproduces the production fresh-DB seed safely in a temp DB (must set DB_NAME before importing routes.campaign_manager because the Motor client is module-level). Send-batch was NOT exercised (would send real LinkedIn messages via Voyager and consume the 25/day limit).",
+  "rca_of_the_issue": "Original production issue (missing Myntra contacts) is resolved: seed_myntra_campaign runs at startup, checks for campaign_id 7701ea79, and imports from the code-deployed /app/backend/uploads/prospects.xlsx. Fresh-DB simulation confirms 91 prospects imported and idempotency on repeat runs (per-prospect public_id dedupe plus the campaign-exists early return). Remaining gap: attachment_path is not part of the seed template, so production will lack the brochure path present in preview."
+}

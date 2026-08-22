@@ -1458,7 +1458,8 @@ async def start_scheduler():
         from routes.voyager_auto_poster import run_voyager_auto_poster
         _asyncio.create_task(run_voyager_auto_poster())
         # Campaign auto-sender
-        from routes.campaign_manager import run_campaign_auto_sender
+        from routes.campaign_manager import run_campaign_auto_sender, seed_myntra_campaign
+        _asyncio.create_task(seed_myntra_campaign())
         _asyncio.create_task(run_campaign_auto_sender())
     except Exception as e:
         logger.warning(f"Background task creation error: {e}")

@@ -95,7 +95,7 @@ export default function CampaignsView() {
           <div className="px-5 py-3 flex items-center gap-6 border-b" style={{ borderColor: "#27272a" }}>
             <div className="flex items-center gap-1">
               <Users size={14} style={{ color: "#a1a1aa" }} />
-              <span className="text-xs text-white font-medium">{campaign.total}</span>
+              <span className="text-xs text-white font-medium" data-testid={`campaign-total-${campaign.campaign_id}`}>{campaign.total}</span>
               <span className="text-xs" style={{ color: "#a1a1aa" }}>total</span>
             </div>
             <div className="flex items-center gap-1">
@@ -132,6 +132,7 @@ export default function CampaignsView() {
           {/* Expand/Collapse Prospects */}
           <div className="px-5 py-2">
             <button
+              data-testid={`toggle-prospects-${campaign.campaign_id}`}
               onClick={() => {
                 if (expandedCampaign === campaign.campaign_id) {
                   setExpandedCampaign(null);
@@ -149,7 +150,7 @@ export default function CampaignsView() {
 
           {/* Prospects Table */}
           {expandedCampaign === campaign.campaign_id && prospects[campaign.campaign_id] && (
-            <div className="border-t overflow-x-auto" style={{ borderColor: "#27272a" }}>
+            <div className="border-t overflow-x-auto" data-testid={`prospects-table-${campaign.campaign_id}`} style={{ borderColor: "#27272a" }}>
               <table className="w-full">
                 <thead>
                   <tr className="border-b" style={{ borderColor: "#27272a" }}>
@@ -162,7 +163,7 @@ export default function CampaignsView() {
                 </thead>
                 <tbody>
                   {(prospects[campaign.campaign_id]?.prospects || []).map(p => (
-                    <tr key={p.public_id} className="border-t" style={{ borderColor: "#27272a" }}>
+                    <tr key={p.public_id} className="border-t" data-testid="prospect-row" style={{ borderColor: "#27272a" }}>
                       <td className="px-4 py-2 text-xs text-white">{p.rank}</td>
                       <td className="px-4 py-2 text-xs text-white">
                         <a href={p.linkedin_url} target="_blank" rel="noreferrer" style={{ color: "#2563eb" }}>{p.name}</a>

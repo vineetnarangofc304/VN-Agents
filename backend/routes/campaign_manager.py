@@ -23,6 +23,64 @@ _db = _client[os.environ.get('DB_NAME', 'test_database')]
 
 MAX_MESSAGES_PER_DAY = 25
 
+PROSPECTS_FILE = Path(__file__).parent.parent / "uploads" / "prospects.xlsx"
+
+MYNTRA_CAMPAIGN_TEMPLATE = {
+    "campaign_id": "7701ea79",
+    "name": "Myntra 500 - Marketplace AutoPilot Outreach",
+    "message_template": "Dear {name},\n\nHope you are doing well! I was keen to showcase and demo our Marketplace Automation Platform — Marketplace AutoPilot — to your team at {brand}.\n\nIt helps manage sales, commissions, reconciliations, discrepancy detection, and invoicing with leading marketplaces like Myntra, Ajio, Flipkart, Amazon, and Nykaa.\n\nSince {brand} sells on these marketplaces, I thought it would be great for you to see our platform in action.\n\nAttaching a quick e-brochure for you to understand the functionality and how it can help your backend marketplace operations.\n\nWould be happy to have the team do a detailed demo as required.\n\nBrochure: https://kazob2b.fundlezone.com/brochure\n\nRegards,\nVineet Narang\nFundle.ai\nWhatsApp: +91-9910530372",
+    "attachment_path": str(Path(__file__).parent.parent / "uploads" / "fundle_marketplace_brochure.pdf"),
+    "sender_name": "Vineet",
+    "daily_limit": 25,
+    "status": "active",
+}
+
+
+async def seed_myntra_campaign():
+    """Auto-seed the Myntra 500 campaign if it doesn't exist."""
+    try:
+        existing = await _db.outreach_campaigns.find_one({"campaign_id": "7701ea79"})
+        if existing:
+            return  # Already seeded
+
+        if not PROSPECTS_FILE.exists():
+            logger.warning("Myntra prospects file not found, skipping seed")
+            return
+
+        # Create campaign
+        doc = {**MYNTRA_CAMPAIGN_TEMPLATE, "created_at": datetime.now(timezone.utc).isoformat()}
+        await _db.outreach_campaigns.insert_one(doc)
+        logger.info("Myntra 500 campaign created")
+
+        # Import prospects
+        wb = openpyxl.load_workbook(str(PROSPECTS_FILE))
+        ws = wb.active
+        imported = 0
+        for row in ws.iter_rows(min_row=5, values_only=True):
+            if not row[0] or not str(row[0]).isdigit():
+                continue
+            linkedin_url = row[16] or ""
+            if not linkedin_url or "linkedin.com" not in str(linkedin_url):
+                continue
+            public_id = str(linkedin_url).rstrip("/").split("/")[-1]
+            existing_p = await _db.campaign_prospects.find_one({"campaign_id": "7701ea79", "public_id": public_id})
+            if existing_p:
+                continue
+            await _db.campaign_prospects.insert_one({
+                "campaign_id": "7701ea79", "rank": int(row[0]),
+                "brand": row[1] or "", "name": row[17] or "", "title": row[21] or "",
+                "category": row[2] or "", "pitch": row[13] or "",
+                "linkedin_url": str(linkedin_url), "public_id": public_id,
+                "status": "pending", "created_at": datetime.now(timezone.utc).isoformat(),
+                "sent_at": None, "error": None,
+            })
+            imported += 1
+        logger.info(f"Myntra 500: imported {imported} prospects")
+    except Exception as e:
+        logger.error(f"Myntra campaign seed error: {e}")
+
+
+
 
 def _build_voyager_headers(li_at: str, jsessionid: str) -> dict:
     clean_js = jsessionid.strip('"').replace("ajax:", "")
