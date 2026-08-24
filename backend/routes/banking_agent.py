@@ -246,9 +246,12 @@ async def _parse_statement(file_bytes: bytes, password: str = "") -> dict:
         pdf_stream = io.BytesIO(file_bytes)
         pdf = pdfplumber.open(pdf_stream, password=password or None)
     except Exception as e:
-        err_msg = str(e) or "Unknown error"
-        if "password" in err_msg.lower() or "encrypted" in err_msg.lower():
-            raise HTTPException(status_code=400, detail="PDF is password-protected. Please provide the password.")
+        err_msg = str(e) or repr(e) or "Unknown error"
+        if "password" in err_msg.lower() or "encrypted" in err_msg.lower() or "PDFPasswordIncorrect" in err_msg:
+            if password:
+                raise HTTPException(status_code=400, detail="Wrong password. The PDF is password-protected and the password you entered is incorrect.")
+            else:
+                raise HTTPException(status_code=400, detail="This PDF is password-protected. Please enter the correct password and try again.")
         logger.error(f"PDF open error: {err_msg}")
         raise HTTPException(status_code=400, detail=f"Failed to open PDF: {err_msg}")
 
