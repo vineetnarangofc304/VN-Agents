@@ -36,15 +36,15 @@ LINKEDIN_API_VERSION = "202608"
 
 def _get_redirect_uri():
     """Get the correct redirect URI based on environment."""
-    # First check explicit env var
     explicit = os.environ.get("LINKEDIN_REDIRECT_URI", "")
-    # If PROD_DOMAIN is set and the redirect URI points to preview, use PROD_DOMAIN instead
-    prod_domain = os.environ.get("PROD_DOMAIN", "")
+    # Return the explicit redirect URI as-is (it's the preview URL in this env)
+    if explicit:
+        return explicit
     backend_url = os.environ.get("REACT_APP_BACKEND_URL", "")
-    # Use the backend URL (which is correct per-environment) to construct the redirect
     if backend_url:
         return f"{backend_url}/api/linkedin/callback"
-    if prod_domain and explicit and "preview" in explicit:
+    prod_domain = os.environ.get("PROD_DOMAIN", "")
+    if prod_domain:
         return f"{prod_domain}/api/linkedin/callback"
     return explicit
 
