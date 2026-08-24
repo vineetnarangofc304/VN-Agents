@@ -40,6 +40,7 @@ from routes.banking_agent import router as banking_router
 from routes.company_pages import router as company_pages_router
 from routes.campaign_manager import router as campaign_router
 from routes.whatsapp import router as whatsapp_router
+from routes.mcp_proxy import router as mcp_proxy_router
 
 # MongoDB connection
 mongo_url = os.environ.get('MONGO_URL', '')
@@ -929,6 +930,7 @@ app.include_router(banking_router)
 app.include_router(company_pages_router)
 app.include_router(campaign_router)
 app.include_router(whatsapp_router)
+app.include_router(mcp_proxy_router)
 
 # CORS Configuration
 cors_env = os.environ.get("CORS_ORIGINS", "")
