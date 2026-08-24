@@ -241,79 +241,121 @@ async def _parse_statement(file_bytes: bytes, password: str = "") -> dict:
     statement_period = ""
     opening_balance = 0.0
 
+    # Step 1: Open the PDF
     try:
         pdf_stream = io.BytesIO(file_bytes)
-        with pdfplumber.open(pdf_stream, password=password or None) as pdf:
-            first_text = pdf.pages[0].extract_text() or ""
-            lines = first_text.split("\n")
-            if lines:
-                account_holder = lines[0].strip()
-            for line in lines:
-                if "IFSC" in line:
-                    if "UTIB" in line:
-                        bank_name = "Axis Bank"
-                    elif "ICIC" in line:
-                        bank_name = "ICICI Bank"
-                    elif "HDFC" in line:
-                        bank_name = "HDFC Bank"
-                    elif "SBIN" in line:
-                        bank_name = "SBI"
-                if "Account No" in line or "Statement of Account" in line:
-                    acc = re.search(r"(\d{12,18})", line)
-                    if acc:
-                        account_number = acc.group(1)
-                if "period" in line.lower():
-                    pm = re.search(r"From\s*:\s*(\d{2}-\d{2}-\d{4})\s*To\s*:\s*(\d{2}-\d{2}-\d{4})", line)
-                    if pm:
-                        statement_period = f"{pm.group(1)} to {pm.group(2)}"
+        pdf = pdfplumber.open(pdf_stream, password=password or None)
+    except Exception as e:
+        err_msg = str(e) or "Unknown error"
+        if "password" in err_msg.lower() or "encrypted" in err_msg.lower():
+            raise HTTPException(status_code=400, detail="PDF is password-protected. Please provide the password.")
+        logger.error(f"PDF open error: {err_msg}")
+        raise HTTPException(status_code=400, detail=f"Failed to open PDF: {err_msg}")
 
-            for page in pdf.pages:
+    try:
+        if not pdf.pages:
+            raise HTTPException(status_code=400, detail="PDF has no pages")
+
+        first_text = pdf.pages[0].extract_text() or ""
+        lines = first_text.split("\n")
+        if lines:
+            account_holder = lines[0].strip()
+        for line in lines:
+            if "IFSC" in line:
+                if "UTIB" in line:
+                    bank_name = "Axis Bank"
+                elif "ICIC" in line:
+                    bank_name = "ICICI Bank"
+                elif "HDFC" in line:
+                    bank_name = "HDFC Bank"
+                elif "SBIN" in line:
+                    bank_name = "SBI"
+            if "Account No" in line or "Statement of Account" in line:
+                acc = re.search(r"(\d{12,18})", line)
+                if acc:
+                    account_number = acc.group(1)
+            if "period" in line.lower():
+                pm = re.search(r"From\s*:\s*(\d{2}-\d{2}-\d{4})\s*To\s*:\s*(\d{2}-\d{2}-\d{4})", line)
+                if pm:
+                    statement_period = f"{pm.group(1)} to {pm.group(2)}"
+
+        for page in pdf.pages:
+            try:
                 tables = page.extract_tables()
-                for table in tables:
-                    for row in table:
-                        if not row or len(row) < 6:
-                            continue
-                        date_str = (row[0] or "").strip()
+            except Exception:
+                continue
+            if not tables:
+                continue
+            for table in tables:
+                for row in table:
+                    if not row or len(row) < 4:
+                        continue
+
+                    # Handle varying column counts (some banks have 5-7 columns)
+                    date_str = (row[0] or "").strip()
+                    if not re.match(r"\d{2}[-/]\d{2}[-/]\d{4}", date_str):
+                        continue
+
+                    # Find the columns dynamically
+                    if len(row) >= 6:
                         particulars = (row[2] or "").strip().replace("\n", " ")
                         debit_str = (row[3] or "").strip()
                         credit_str = (row[4] or "").strip()
                         balance_str = (row[5] or "").strip()
+                    elif len(row) >= 5:
+                        particulars = (row[1] or "").strip().replace("\n", " ")
+                        debit_str = (row[2] or "").strip()
+                        credit_str = (row[3] or "").strip()
+                        balance_str = (row[4] or "").strip()
+                    else:
+                        particulars = (row[1] or "").strip().replace("\n", " ")
+                        debit_str = (row[2] or "").strip()
+                        credit_str = (row[3] or "").strip()
+                        balance_str = ""
 
-                        if "OPENING BALANCE" in particulars:
-                            opening_balance = _parse_amount(balance_str)
-                            continue
-                        if date_str == "Tran Date":
-                            continue
-                        if not re.match(r"\d{2}-\d{2}-\d{4}", date_str):
-                            continue
+                    if "OPENING BALANCE" in particulars.upper():
+                        opening_balance = _parse_amount(balance_str)
+                        continue
+                    if date_str.lower().startswith("tran"):
+                        continue
 
-                        debit = _parse_amount(debit_str)
-                        credit = _parse_amount(credit_str)
-                        balance = _parse_amount(balance_str)
+                    debit = _parse_amount(debit_str)
+                    credit = _parse_amount(credit_str)
+                    balance = _parse_amount(balance_str)
 
+                    # Try multiple date formats
+                    txn_date = None
+                    for fmt in ["%d-%m-%Y", "%d/%m/%Y", "%d-%b-%Y", "%d/%b/%Y"]:
                         try:
-                            txn_date = datetime.strptime(date_str, "%d-%m-%Y")
+                            txn_date = datetime.strptime(date_str, fmt)
+                            break
                         except ValueError:
                             continue
+                    if not txn_date:
+                        continue
 
-                        merchant, category = _categorize_merchant(particulars)
-                        txn_type = _detect_txn_type(particulars)
+                    merchant, category = _categorize_merchant(particulars)
+                    txn_type = _detect_txn_type(particulars)
 
-                        transactions.append({
-                            "date": txn_date.strftime("%Y-%m-%d"),
-                            "particulars": particulars,
-                            "debit": debit,
-                            "credit": credit,
-                            "balance": balance,
-                            "merchant": merchant,
-                            "category": category,
-                            "txn_type": txn_type,
-                            "is_debit": debit > 0,
-                        })
+                    transactions.append({
+                        "date": txn_date.strftime("%Y-%m-%d"),
+                        "particulars": particulars,
+                        "debit": debit,
+                        "credit": credit,
+                        "balance": balance,
+                        "merchant": merchant,
+                        "category": category,
+                        "txn_type": txn_type,
+                        "is_debit": debit > 0,
+                    })
 
+    except HTTPException:
+        raise
     except Exception as e:
-        logger.error(f"PDF parse error: {e}")
-        raise HTTPException(status_code=400, detail=f"Failed to parse PDF: {str(e)}")
+        logger.error(f"PDF parse error: {type(e).__name__}: {e}")
+        raise HTTPException(status_code=400, detail=f"Failed to parse PDF: {type(e).__name__}: {str(e) or 'Could not extract transactions from this PDF format'}")
+    finally:
+        pdf.close()
 
     return {
         "bank_name": bank_name,
