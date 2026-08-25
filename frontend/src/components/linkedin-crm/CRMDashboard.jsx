@@ -210,6 +210,22 @@ function CampaignCard({ campaign: c, ax, onRefresh }) {
     if (expanded) fetchProspects();
   };
 
+  const handleStop = async () => {
+    try {
+      await ax.post(`/api/crm/campaigns/${c.campaign_id}/stop`);
+      onRefresh();
+      if (expanded) fetchProspects();
+    } catch (err) { alert(err.response?.data?.detail || "Failed to stop"); }
+  };
+
+  const handleDelete = async () => {
+    if (!window.confirm(`Delete "${c.name}" and all ${c.total} prospects? This cannot be undone.`)) return;
+    try {
+      await ax.delete(`/api/crm/campaigns/${c.campaign_id}`);
+      onRefresh();
+    } catch (err) { alert(err.response?.data?.detail || "Failed to delete"); }
+  };
+
   const pct = c.total > 0 ? Math.round((c.sent / c.total) * 100) : 0;
 
   return (
@@ -226,8 +242,14 @@ function CampaignCard({ campaign: c, ax, onRefresh }) {
               <input type="file" accept=".xlsx,.csv" onChange={handleUpload} className="hidden" data-testid={`upload-${c.campaign_id}`} />
               {uploading && <Loader2 size={12} className="animate-spin" />}
             </label>
+            <button onClick={handleStop} className="px-3 py-1.5 rounded-md text-xs font-medium flex items-center gap-1.5 border" style={{ borderColor: "#27272a", color: "#f59e0b" }} data-testid={`stop-${c.campaign_id}`}>
+              Stop
+            </button>
             <button onClick={() => handleSend(5)} disabled={sending || c.pending === 0} className="px-3 py-1.5 rounded-md text-xs font-medium text-white flex items-center gap-1.5 disabled:opacity-40" style={{ background: "#2563eb" }} data-testid={`send-${c.campaign_id}`}>
               {sending ? <Loader2 size={12} className="animate-spin" /> : <Send size={12} />} Send Batch (5)
+            </button>
+            <button onClick={handleDelete} className="px-3 py-1.5 rounded-md text-xs font-medium flex items-center gap-1.5 border" style={{ borderColor: "#27272a", color: "#ef4444" }} data-testid={`delete-${c.campaign_id}`}>
+              Delete
             </button>
           </div>
         </div>

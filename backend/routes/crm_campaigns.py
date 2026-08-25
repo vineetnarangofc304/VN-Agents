@@ -52,65 +52,92 @@ async def _get_user_cookies(user: dict) -> tuple:
 
 
 async def _resolve_urn(http_client, public_id: str, headers: dict):
-    """Resolve LinkedIn public_id to fsd_profile URN."""
-    resp = await http_client.get(
-        f"https://www.linkedin.com/voyager/api/identity/dash/profiles?q=memberIdentity&memberIdentity={public_id}",
-        headers=headers,
-    )
-    if resp.status_code != 200:
-        return None, f"lookup_{resp.status_code}"
-    for item in resp.json().get("included", []):
-        eid = item.get("entityUrn", "")
-        if "fsd_profile" in eid:
-            return eid, None
-    return None, "no_urn"
+    """Resolve LinkedIn public_id to fsd_profile URN. Falls back gracefully."""
+    try:
+        resp = await http_client.get(
+            f"https://www.linkedin.com/voyager/api/identity/dash/profiles?q=memberIdentity&memberIdentity={public_id}",
+            headers=headers,
+        )
+        if resp.status_code == 200:
+            for item in resp.json().get("included", []):
+                eid = item.get("entityUrn", "")
+                if "fsd_profile" in eid:
+                    return eid, None
+    except Exception:
+        pass
+    # Return None — caller will use public_id fallback
+    return None, None
 
 
-async def _send_message_or_invite(http_client, headers: dict, recipient_urn: str, direct_msg: str, invite_note: str):
-    """Try direct message first, fall back to connection request."""
-    member_id = recipient_urn.split(":")[-1] if ":" in recipient_urn else recipient_urn
-    tracking = "".join(random.choices(string.ascii_lowercase + string.digits, k=16))
+async def _send_message_or_invite(http_client, headers: dict, recipient_urn: str, public_id: str, direct_msg: str, invite_note: str):
+    """Try direct message first, fall back to connection request.
+    Uses URN if available, otherwise uses public_id for invite."""
 
-    # Try direct message (1st-degree connections)
-    payload = {
-        "keyVersion": "LEGACY_INBOX",
-        "conversationCreate": {
-            "eventCreate": {
-                "originToken": str(uuid.uuid4()),
-                "value": {
-                    "com.linkedin.voyager.messaging.create.MessageCreate": {
-                        "attributedBody": {"text": direct_msg, "attributes": []},
-                        "attachments": [],
-                    }
+    # Try direct message if we have a URN (only works for 1st-degree)
+    if recipient_urn:
+        member_id = recipient_urn.split(":")[-1] if ":" in recipient_urn else recipient_urn
+        tracking = "".join(random.choices(string.ascii_lowercase + string.digits, k=16))
+
+        payload = {
+            "keyVersion": "LEGACY_INBOX",
+            "conversationCreate": {
+                "eventCreate": {
+                    "originToken": str(uuid.uuid4()),
+                    "value": {
+                        "com.linkedin.voyager.messaging.create.MessageCreate": {
+                            "body": direct_msg,
+                            "attributedBody": {"text": direct_msg, "attributes": []},
+                            "attachments": [],
+                        }
+                    },
+                    "trackingId": tracking,
                 },
-                "trackingId": tracking,
-            },
-            "dedupeByClientGeneratedToken": False,
-            "recipients": [member_id],
-            "subtype": "MEMBER_TO_MEMBER",
+                "dedupeByClientGeneratedToken": False,
+                "recipients": [member_id],
+                "subtype": "MEMBER_TO_MEMBER",
+            }
+        }
+        resp = await http_client.post(
+            "https://www.linkedin.com/voyager/api/messaging/conversations?action=create",
+            json=payload, headers=headers,
+        )
+        if resp.status_code in [200, 201]:
+            return True, "message_sent"
+
+    # Connection request — try with URN first, then public_id
+    if recipient_urn:
+        invite_payload = {
+            "inviteeProfileUrn": recipient_urn,
+            "customMessage": invite_note[:300],
+            "trackingId": str(uuid.uuid4()),
+        }
+        resp2 = await http_client.post(
+            "https://www.linkedin.com/voyager/api/voyagerRelationshipsDashMemberRelationships?action=verifyQuotaAndCreate",
+            json=invite_payload, headers=headers,
+        )
+        if resp2.status_code in [200, 201]:
+            return True, "invite_sent"
+
+    # Fallback: Use the old normInvitations endpoint with public_id (no URN needed)
+    invite_payload_v2 = {
+        "trackingId": str(uuid.uuid4()),
+        "message": invite_note[:300],
+        "invitations": [],
+        "excludeInvitations": [],
+        "invitee": {
+            "com.linkedin.voyager.growth.invitation.InviteeProfile": {
+                "profileId": public_id
+            }
         }
     }
-    resp = await http_client.post(
-        "https://www.linkedin.com/voyager/api/messaging/conversations?action=create",
-        json=payload, headers=headers,
+    resp3 = await http_client.post(
+        "https://www.linkedin.com/voyager/api/growth/normInvitations",
+        json=invite_payload_v2, headers=headers,
     )
-    if resp.status_code in [200, 201]:
-        return True, "message_sent"
-
-    # Fall back to connection request
-    invite_payload = {
-        "inviteeProfileUrn": recipient_urn,
-        "customMessage": invite_note[:300],
-        "trackingId": str(uuid.uuid4()),
-    }
-    resp2 = await http_client.post(
-        "https://www.linkedin.com/voyager/api/voyagerRelationshipsDashMemberRelationships?action=verifyQuotaAndCreate",
-        json=invite_payload, headers=headers,
-    )
-    if resp2.status_code in [200, 201]:
+    if resp3.status_code in [200, 201]:
         return True, "invite_sent"
 
-    return False, resp2.text[:200]
+    return False, f"send_failed_{resp3.status_code}"
 
 
 # ============ Campaigns ============
@@ -285,21 +312,20 @@ async def _send_batch_bg(campaign: dict, prospects: list, headers: dict):
     async with httpx.AsyncClient(timeout=20.0) as client:
         for prospect in prospects:
             try:
+                # Check if campaign was stopped
+                camp_check = await _db.crm_campaigns.find_one({"campaign_id": campaign["campaign_id"]})
+                if camp_check and camp_check.get("status") == "paused":
+                    logger.info(f"CRM Campaign {campaign['campaign_id']}: Stopped by user")
+                    break
+
                 # Mark as sending
                 await _db.crm_prospects.update_one(
                     {"campaign_id": campaign["campaign_id"], "public_id": prospect["public_id"]},
                     {"$set": {"status": "sending"}}
                 )
 
-                # Resolve URN
-                urn, err = await _resolve_urn(client, prospect["public_id"], headers)
-                if not urn:
-                    await _db.crm_prospects.update_one(
-                        {"campaign_id": campaign["campaign_id"], "public_id": prospect["public_id"]},
-                        {"$set": {"status": "failed", "error": err, "sent_at": datetime.now(timezone.utc).isoformat()}}
-                    )
-                    failed_count += 1
-                    continue
+                # Resolve URN (optional — we can send invites without it)
+                urn, _ = await _resolve_urn(client, prospect["public_id"], headers)
 
                 # Personalize messages
                 name = prospect.get("name", "").split()[0] if prospect.get("name") else "there"
@@ -307,8 +333,8 @@ async def _send_batch_bg(campaign: dict, prospects: list, headers: dict):
                 p_direct = direct_msg.replace("{name}", name).replace("{company}", company).replace("{title}", prospect.get("title", ""))
                 p_invite = invite_note.replace("{name}", name).replace("{company}", company).replace("{title}", prospect.get("title", ""))
 
-                # Send
-                success, send_type = await _send_message_or_invite(client, headers, urn, p_direct, p_invite)
+                # Send — passes both URN and public_id so it can fallback
+                success, send_type = await _send_message_or_invite(client, headers, urn, prospect["public_id"], p_direct, p_invite)
 
                 if success:
                     await _db.crm_prospects.update_one(
@@ -341,6 +367,32 @@ async def _send_batch_bg(campaign: dict, prospects: list, headers: dict):
                 failed_count += 1
 
     logger.info(f"CRM Campaign {campaign['campaign_id']}: Batch done. Sent={sent_count}, Failed={failed_count}")
+
+
+@router.post("/campaigns/{campaign_id}/stop")
+async def stop_campaign(campaign_id: str, request: Request):
+    user = await get_current_user(request)
+    campaign = await _db.crm_campaigns.find_one({"campaign_id": campaign_id, "user_id": user["id"]})
+    if not campaign:
+        raise HTTPException(status_code=404, detail="Campaign not found")
+    await _db.crm_campaigns.update_one({"campaign_id": campaign_id}, {"$set": {"status": "paused"}})
+    # Also revert any "sending" back to "pending"
+    await _db.crm_prospects.update_many(
+        {"campaign_id": campaign_id, "status": "sending"},
+        {"$set": {"status": "pending"}}
+    )
+    return {"success": True, "detail": "Campaign stopped"}
+
+
+@router.delete("/campaigns/{campaign_id}")
+async def delete_campaign(campaign_id: str, request: Request):
+    user = await get_current_user(request)
+    campaign = await _db.crm_campaigns.find_one({"campaign_id": campaign_id, "user_id": user["id"]})
+    if not campaign:
+        raise HTTPException(status_code=404, detail="Campaign not found")
+    await _db.crm_campaigns.delete_one({"campaign_id": campaign_id})
+    await _db.crm_prospects.delete_many({"campaign_id": campaign_id})
+    return {"success": True, "detail": "Campaign and all prospects deleted"}
 
 
 @router.post("/campaigns/{campaign_id}/retry")
