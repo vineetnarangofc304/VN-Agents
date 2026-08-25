@@ -41,6 +41,8 @@ from routes.company_pages import router as company_pages_router
 from routes.campaign_manager import router as campaign_router
 from routes.whatsapp import router as whatsapp_router
 from routes.mcp_proxy import router as mcp_proxy_router
+from routes.crm_auth import router as crm_auth_router, seed_crm_users
+from routes.crm_campaigns import router as crm_campaigns_router
 
 # MongoDB connection
 mongo_url = os.environ.get('MONGO_URL', '')
@@ -931,6 +933,8 @@ app.include_router(company_pages_router)
 app.include_router(campaign_router)
 app.include_router(whatsapp_router)
 app.include_router(mcp_proxy_router)
+app.include_router(crm_auth_router)
+app.include_router(crm_campaigns_router)
 
 # CORS Configuration
 cors_env = os.environ.get("CORS_ORIGINS", "")
@@ -1465,6 +1469,7 @@ async def start_scheduler():
         from routes.campaign_manager import run_campaign_auto_sender, seed_myntra_campaign
         _asyncio.create_task(seed_myntra_campaign())
         _asyncio.create_task(run_campaign_auto_sender())
+        await seed_crm_users()
     except Exception as e:
         logger.warning(f"Background task creation error: {e}")
 

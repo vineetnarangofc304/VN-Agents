@@ -1,0 +1,103 @@
+{
+  "summary": "Full backend + frontend test of the LinkedIn CRM (/linkedin-crm). Backend: 41 pytest tests across crm_auth (login for all 4 seed users, /me, /refresh, /logout, RBAC user CRUD, change-password, bcrypt format, brute-force lockout) and crm_campaigns (campaign CRUD, per-user isolation, daily_limit cap, XLSX prospect upload/dedupe/parsing, settings + LinkedIn cookie save). 39/41 passed. Frontend: full Playwright E2E on the public URL — unauthenticated login page, invalid-login error, super_admin login, all 4 sidebar views, campaign creation, admin user table (all 4 users), settings forms, connections view, session persistence on reload, logout, and regular-user RBAC (Admin nav hidden + campaign isolation). All frontend checks passed. 2 backend 500-error bugs found (brute-force lockout, invalid upload file).",
+  "backend_issues": {
+    "critical": [
+      {
+        "endpoint": "POST /api/crm-auth/login",
+        "issue": "Brute-force lockout returns HTTP 500 instead of 429. After 5 failed attempts from the same IP+email, _check_lockout() compares datetime.now(timezone.utc) (tz-aware) with doc['locked_until'] read back from MongoDB (tz-naive) -> 'TypeError: can't compare offset-naive and offset-aware datetimes'. Reproduced locally: attempts 1-5 = 401, attempts 6+ = 500. Backend log confirms the TypeError. Effect: lockout message never reaches the user and the account is effectively hard-blocked with an opaque 500.",
+        "priority": "CRITICAL"
+      },
+      {
+        "endpoint": "POST /api/crm/campaigns/{id}/upload",
+        "issue": "Uploading a non-XLSX file (e.g. a .txt) returns HTTP 500 Internal Server Error. openpyxl.load_workbook() raises an unhandled exception. Should be a 400 with a readable message ('Invalid spreadsheet file').",
+        "priority": "HIGH"
+      }
+    ],
+    "minor": [
+      {
+        "endpoint": "POST /api/crm-auth/login (lockout)",
+        "issue": "Lockout key is f'{request.client.host}:{email}'. Behind the k8s ingress request.client.host is the upstream proxy pod IP (observed 10.201.4.142 and 10.201.4.143 alternating for the same external client), so failed attempts are split across keys and the 5-attempt threshold is diluted/never hit via the public URL. Use X-Forwarded-For (first hop) or make the counter email-only."
+      },
+      {
+        "endpoint": "seed_crm_users()",
+        "issue": "Seed is insert-only: if a seed user already exists it is never updated, so changing DEFAULT_PASSWORD/role in code will not propagate (playbook expects seed to update an existing admin when the password changed). Password rotation must be done manually."
+      },
+      {
+        "endpoint": "CORS (server.py:940)",
+        "issue": "CORS_ORIGINS is '*' in backend/.env, so allow_origins=['*'] is combined with allow_credentials=True. Starlette echoes the request Origin, meaning ANY site can issue credentialed (cookie-bearing) requests to the CRM API -> CSRF exposure on state-changing endpoints (POST /api/crm-auth/users, /change-password, /api/crm/settings/cookie). Restrict to explicit origins for the CRM."
+      },
+      {
+        "endpoint": "backend/.env",
+        "issue": "JWT_SECRET is defined twice in backend/.env (duplicate key, last one wins) — remove the duplicate to avoid silent token-invalidation surprises."
+      },
+      {
+        "endpoint": "GET/DELETE /api/crm/campaigns/{id}",
+        "issue": "No DELETE endpoint for campaigns; test data had to be cleaned directly in Mongo. Users cannot remove a campaign from the UI or API."
+      }
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {
+        "screen": "Settings",
+        "issues": [
+          "Input placeholders ('li_at cookie value', 'JSESSIONID value', 'Current password', 'New password') are dark zinc on #09090b — contrast is below WCAG AA and hard to read.",
+          "Fields have no visible labels, only placeholders; once typed, the user loses context of which field is which."
+        ]
+      },
+      {
+        "screen": "Admin — User Management",
+        "issues": [
+          "Backend exposes PUT/DELETE /api/crm-auth/users/{id} but the admin table has no edit or delete row actions — user management is create-only from the UI.",
+          "Table is constrained to ~730px on a 1920px viewport with a large empty right area; content block is left-aligned rather than a centered max-width container."
+        ]
+      },
+      {
+        "screen": "Campaigns",
+        "issues": [
+          "No campaign delete/archive control even though a campaign can be created.",
+          "Disabled 'Send Batch (10)' button gives no tooltip/hint explaining that LinkedIn cookies or prospects are required."
+        ]
+      }
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_crm_auth_campaigns.py",
+    "/app/backend/tests/test_crm_upload.py",
+    "/app/test_reports/pytest/crm_results.xml",
+    "/app/test_reports/pytest/crm_upload_results.xml"
+  ],
+  "action_items": [
+    "Fix tz-aware/naive datetime comparison in crm_auth._check_lockout so lockout returns 429 (e.g. locked_until.replace(tzinfo=timezone.utc) when read from Mongo, or store epoch seconds).",
+    "Derive the client IP for lockout from X-Forwarded-For (or key on email only) so the 5-attempt threshold actually works behind the ingress.",
+    "Wrap openpyxl.load_workbook in try/except in POST /api/crm/campaigns/{id}/upload and raise HTTPException(400, 'Invalid or corrupt XLSX file').",
+    "Tighten CORS for the CRM: replace CORS_ORIGINS='*' with the explicit preview/prod origins since allow_credentials=True is used with cookie auth.",
+    "Remove the duplicate JWT_SECRET entry in backend/.env.",
+    "Add edit/delete row actions in the Admin user table (endpoints already exist) and a campaign delete endpoint + UI control.",
+    "Improve Settings form contrast and add visible field labels.",
+    "Update /app/memory/test_credentials.md — it still only lists the old vineetnarangofc@gmail.com admin and has no CRM (crm-auth) credentials."
+  ],
+  "critical_code_review_comments": [
+    "crm_auth.py _check_lockout(): MongoDB returns naive datetimes by default; comparing with an aware datetime throws. This turns the security control into a 500 generator — highest priority fix.",
+    "crm_auth.py: endpoints accept raw `data: dict` instead of Pydantic models (login, create_user, update_user, change-password), so there is no schema validation; e.g. PUT /users accepts an arbitrary `role` string and create_user accepts any role value (a super_admin could be created with a typo'd role silently).",
+    "crm_auth.py update_user/delete_user: user_id is passed straight to ObjectId() — a malformed id raises bson.InvalidId -> 500 instead of 404/400.",
+    "crm_campaigns.py: 477 lines mixing campaigns, connections, settings and LinkedIn transport; the Voyager message payload block is duplicated between _send_message_or_invite() and message_connections() (~30 lines) — extract a shared helper.",
+    "crm_campaigns.py send_campaign_batch uses asyncio.create_task for a long-running (8s/prospect) job with no persistence of task state; a backend reload leaves prospects stuck in status='sending' forever with no recovery path.",
+    "CRMDashboard.jsx is 561 lines with 5 view components in one file — split into per-view modules.",
+    "crm_campaigns.py get_settings(): `full` can be None if the user row was deleted mid-session -> AttributeError/500; guard it."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_crm_auth_campaigns.py",
+    "/app/backend/tests/test_crm_upload.py",
+    "/app/frontend/src/components/linkedin-crm/CRMDashboard.jsx"
+  ],
+  "success_rate": {"backend": "95% (39/41)", "frontend": "100% (all E2E checks passed)"},
+  "seed_data_creation": "All test artifacts were cleaned up: TEST_QA campaigns/prospects deleted, temporary admin-created user deleted, chandra's dummy LinkedIn cookies reset to empty, crm_login_attempts test rows purged. Shivam's password was temporarily changed and reverted to CRM@2026! (verified). All 4 seed users remain intact with default password.",
+  "should_call_test_agent_after_fix": true,
+  "should_main_agent_self_test": false,
+  "test_credentials": "vineet@channelloyalty.ai / CRM@2026! (super_admin); chandra|abhinav|shivam@channelloyalty.ai / CRM@2026! (user). NOTE: /app/memory/test_credentials.md does NOT contain these CRM credentials — it only lists the legacy vineetnarangofc@gmail.com admin. Please add the CRM creds there.",
+  "context_for_next_testing_agent": "Regression suites: /app/backend/tests/test_crm_auth_campaigns.py (35 tests) and /app/backend/tests/test_crm_upload.py (6 tests). Run with: cd /app/backend && python -m pytest tests/test_crm_auth_campaigns.py tests/test_crm_upload.py -v -o addopts=''. Two known failures are real product bugs, not test bugs: TestBruteForceLockout::test_lockout_after_5_failures (500 instead of 429 — also note the lockout counter is diluted across ingress IPs so the public URL may return 401 six times) and TestProspectUpload::test_upload_non_xlsx_file (500 instead of 400). Frontend E2E all green; I added data-testid=current-password-input / new-password-input / change-password-btn to CRMDashboard.jsx Settings. LinkedIn Voyager calls (connections pull / send batch) were intentionally not exercised — they need real li_at/JSESSIONID cookies.",
+  "rca_of_the_issue": "Lockout 500: crm_auth._check_lockout stores locked_until as a tz-aware UTC datetime; Motor/PyMongo reads it back tz-naive (no tz_aware codec option set on AsyncIOMotorClient), so `datetime.now(timezone.utc) < locked_until` raises TypeError which FastAPI surfaces as 500. Repro: POST /api/crm-auth/login with a bad password 6 times for the same email from the same client IP (verified against localhost:8001 — attempts 1-5 = 401, 6+ = 500; backend.err.log shows 'TypeError: can't compare offset-naive and offset-aware datetimes'). Mitigation: pass tz_aware=True to AsyncIOMotorClient or normalise with locked_until.replace(tzinfo=timezone.utc) before comparing. Upload 500: openpyxl.load_workbook(io.BytesIO(content)) in upload_prospects has no try/except, so any non-XLSX payload raises and returns 500; wrap and raise HTTPException(400)."
+}

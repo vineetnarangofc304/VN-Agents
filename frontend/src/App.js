@@ -14,6 +14,7 @@ import LinkedInSearch from "./components/LinkedInSearch";
 import CRMLayout from "./components/crm/CRMLayout";
 import ContentStudio from "./components/ContentStudio";
 import BankingAgent from "./components/BankingAgent";
+import LinkedInCRM from "./components/linkedin-crm/LinkedInCRM";
 
 import "./App.css";
 
@@ -82,6 +83,8 @@ const App = () => {
             <BankingAgent />
           </AgentLogin>
         } />
+
+        <Route path="/linkedin-crm" element={<LinkedInCRM />} />
       </Routes>
     </BrowserRouter>
   );
