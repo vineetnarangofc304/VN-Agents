@@ -12,10 +12,17 @@ export function AuthProvider({ children }) {
   const [loading, setLoading] = useState(true);
 
   const checkAuth = useCallback(async () => {
+    // Restore token from localStorage
+    const savedToken = localStorage.getItem("crm_token");
+    if (savedToken) {
+      ax.defaults.headers.common["Authorization"] = `Bearer ${savedToken}`;
+    }
     try {
       const { data } = await ax.get("/api/crm-auth/me");
       setUser(data);
     } catch {
+      localStorage.removeItem("crm_token");
+      delete ax.defaults.headers.common["Authorization"];
       setUser(false);
     } finally {
       setLoading(false);
@@ -26,12 +33,19 @@ export function AuthProvider({ children }) {
 
   const login = async (email, password) => {
     const { data } = await ax.post("/api/crm-auth/login", { email, password });
+    // Store token in localStorage for file uploads and cross-domain requests
+    if (data.token) {
+      localStorage.setItem("crm_token", data.token);
+      ax.defaults.headers.common["Authorization"] = `Bearer ${data.token}`;
+    }
     setUser(data);
     return data;
   };
 
   const logout = async () => {
     await ax.post("/api/crm-auth/logout");
+    localStorage.removeItem("crm_token");
+    delete ax.defaults.headers.common["Authorization"];
     setUser(false);
   };
 

@@ -158,7 +158,9 @@ async def login(data: dict, request: Request, response: Response):
     refresh = create_refresh_token(uid)
     _set_auth_cookies(response, access, refresh)
 
-    return _user_to_dict(user)
+    result = _user_to_dict(user)
+    result["token"] = access  # Also return token in body for localStorage-based auth
+    return result
 
 
 @router.post("/logout")
