@@ -323,8 +323,14 @@ async def _send_batch_bg(campaign: dict, prospects: list, headers: dict):
                         {"$set": {"status": "failed", "error": send_type, "sent_at": datetime.now(timezone.utc).isoformat()}}
                     )
                     failed_count += 1
+                    # If we get a rate limit / server error, stop the batch
+                    if "500" in str(send_type) or "429" in str(send_type) or "cookie" in str(send_type).lower():
+                        logger.warning(f"CRM Campaign {campaign['campaign_id']}: Rate limited, stopping batch")
+                        break
 
-                await asyncio.sleep(8)  # Rate limiting
+                # Human-like delay: 25-35 seconds between sends
+                delay = random.randint(25, 35)
+                await asyncio.sleep(delay)
 
             except Exception as e:
                 logger.error(f"CRM send error for {prospect.get('name')}: {e}")

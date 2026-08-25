@@ -157,11 +157,21 @@ function CampaignCard({ campaign: c, ax, onRefresh }) {
   const [prospects, setProspects] = useState([]);
   const [uploading, setUploading] = useState(false);
   const [sending, setSending] = useState(false);
+  const [selectedProspect, setSelectedProspect] = useState(null);
 
   const fetchProspects = async () => {
     const { data } = await ax.get(`/api/crm/campaigns/${c.campaign_id}`);
     setProspects(data.prospects || []);
   };
+
+  // Auto-refresh every 5s when there are "sending" prospects
+  useEffect(() => {
+    if (!expanded) return;
+    const hasSending = prospects.some(p => p.status === "sending");
+    if (!hasSending && !sending) return;
+    const timer = setInterval(() => { fetchProspects(); onRefresh(); }, 5000);
+    return () => clearInterval(timer);
+  }, [expanded, prospects, sending]);
 
   const handleUpload = async (e) => {
     const file = e.target.files?.[0];
@@ -178,11 +188,16 @@ function CampaignCard({ campaign: c, ax, onRefresh }) {
     finally { setUploading(false); }
   };
 
-  const handleSend = async (count = 10) => {
+  const handleSend = async (count = 5) => {
     setSending(true);
     try {
       const { data } = await ax.post(`/api/crm/campaigns/${c.campaign_id}/send?count=${count}`);
       alert(data.detail);
+      // Start auto-refresh
+      if (expanded) {
+        setTimeout(fetchProspects, 3000);
+        setTimeout(fetchProspects, 8000);
+      }
       setTimeout(onRefresh, 3000);
     } catch (err) { alert(err.response?.data?.detail || "Send failed"); }
     finally { setSending(false); }
@@ -192,6 +207,7 @@ function CampaignCard({ campaign: c, ax, onRefresh }) {
     const { data } = await ax.post(`/api/crm/campaigns/${c.campaign_id}/retry`);
     alert(`Reset ${data.reset} failed prospects`);
     onRefresh();
+    if (expanded) fetchProspects();
   };
 
   const pct = c.total > 0 ? Math.round((c.sent / c.total) * 100) : 0;
@@ -210,8 +226,8 @@ function CampaignCard({ campaign: c, ax, onRefresh }) {
               <input type="file" accept=".xlsx,.csv" onChange={handleUpload} className="hidden" data-testid={`upload-${c.campaign_id}`} />
               {uploading && <Loader2 size={12} className="animate-spin" />}
             </label>
-            <button onClick={() => handleSend(10)} disabled={sending || c.pending === 0} className="px-3 py-1.5 rounded-md text-xs font-medium text-white flex items-center gap-1.5 disabled:opacity-40" style={{ background: "#2563eb" }} data-testid={`send-${c.campaign_id}`}>
-              {sending ? <Loader2 size={12} className="animate-spin" /> : <Send size={12} />} Send Batch (10)
+            <button onClick={() => handleSend(5)} disabled={sending || c.pending === 0} className="px-3 py-1.5 rounded-md text-xs font-medium text-white flex items-center gap-1.5 disabled:opacity-40" style={{ background: "#2563eb" }} data-testid={`send-${c.campaign_id}`}>
+              {sending ? <Loader2 size={12} className="animate-spin" /> : <Send size={12} />} Send Batch (5)
             </button>
           </div>
         </div>
@@ -254,14 +270,15 @@ function CampaignCard({ campaign: c, ax, onRefresh }) {
                 <th className="px-3 py-2 text-left text-xs" style={{ color: "#71717a" }}>Title</th>
                 <th className="px-3 py-2 text-left text-xs" style={{ color: "#71717a" }}>Status</th>
                 <th className="px-3 py-2 text-left text-xs" style={{ color: "#71717a" }}>Type</th>
+                <th className="px-3 py-2 text-left text-xs" style={{ color: "#71717a" }}>Error</th>
               </tr>
             </thead>
             <tbody>
               {prospects.map((p, i) => (
-                <tr key={p.public_id} className="border-t" style={{ borderColor: "#1a1a1a" }}>
+                <tr key={p.public_id} className="border-t cursor-pointer hover:bg-zinc-800/40" style={{ borderColor: "#1a1a1a" }} onClick={() => setSelectedProspect(selectedProspect?.public_id === p.public_id ? null : p)}>
                   <td className="px-3 py-2 text-xs" style={{ color: "#71717a" }}>{p.rank || i + 1}</td>
                   <td className="px-3 py-2 text-xs text-white">
-                    <a href={p.linkedin_url} target="_blank" rel="noreferrer" className="hover:underline">{p.name || p.public_id}</a>
+                    <a href={p.linkedin_url} target="_blank" rel="noreferrer" className="hover:underline" style={{ color: "#3b82f6" }} onClick={e => e.stopPropagation()}>{p.name || p.public_id}</a>
                   </td>
                   <td className="px-3 py-2 text-xs" style={{ color: "#a1a1aa" }}>{p.company}</td>
                   <td className="px-3 py-2 text-xs truncate max-w-[200px]" style={{ color: "#a1a1aa" }}>{p.title}</td>
@@ -272,10 +289,54 @@ function CampaignCard({ campaign: c, ax, onRefresh }) {
                     }}>{p.status}</span>
                   </td>
                   <td className="px-3 py-2 text-xs" style={{ color: "#71717a" }}>{p.send_type || "-"}</td>
+                  <td className="px-3 py-2 text-xs truncate max-w-[200px]" style={{ color: "#ef4444" }} title={p.error || ""}>{p.error ? p.error.substring(0, 40) : ""}</td>
                 </tr>
               ))}
             </tbody>
           </table>
+
+          {/* Prospect detail panel */}
+          {selectedProspect && (
+            <div className="border-t px-5 py-4 space-y-3" style={{ borderColor: "#27272a", background: "#111" }}>
+              <div className="flex items-center justify-between">
+                <h4 className="text-sm font-semibold text-white">{selectedProspect.name}</h4>
+                <button onClick={() => setSelectedProspect(null)} className="text-xs" style={{ color: "#71717a" }}>Close</button>
+              </div>
+              <div className="grid grid-cols-2 gap-3 text-xs">
+                <div>
+                  <span style={{ color: "#71717a" }}>Company:</span>
+                  <span className="ml-2 text-white">{selectedProspect.company || "-"}</span>
+                </div>
+                <div>
+                  <span style={{ color: "#71717a" }}>Title:</span>
+                  <span className="ml-2 text-white">{selectedProspect.title || "-"}</span>
+                </div>
+                <div>
+                  <span style={{ color: "#71717a" }}>LinkedIn:</span>
+                  <a href={selectedProspect.linkedin_url} target="_blank" rel="noreferrer" className="ml-2 hover:underline" style={{ color: "#3b82f6" }}>{selectedProspect.public_id}</a>
+                </div>
+                <div>
+                  <span style={{ color: "#71717a" }}>Status:</span>
+                  <span className="ml-2" style={{ color: selectedProspect.status === "sent" ? "#10b981" : selectedProspect.status === "failed" ? "#ef4444" : "#a1a1aa" }}>
+                    {selectedProspect.status}
+                  </span>
+                </div>
+                <div>
+                  <span style={{ color: "#71717a" }}>Send Type:</span>
+                  <span className="ml-2 text-white">{selectedProspect.send_type === "message_sent" ? "Direct Message" : selectedProspect.send_type === "invite_sent" ? "Connection Request" : selectedProspect.send_type || "-"}</span>
+                </div>
+                <div>
+                  <span style={{ color: "#71717a" }}>Sent At:</span>
+                  <span className="ml-2 text-white">{selectedProspect.sent_at ? new Date(selectedProspect.sent_at).toLocaleString() : "-"}</span>
+                </div>
+              </div>
+              {selectedProspect.error && (
+                <div className="text-xs px-3 py-2 rounded" style={{ background: "#ef444410", color: "#ef4444" }}>
+                  <span className="font-medium">Error:</span> {selectedProspect.error}
+                </div>
+              )}
+            </div>
+          )}
         </div>
       )}
     </div>
