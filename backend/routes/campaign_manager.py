@@ -191,11 +191,13 @@ async def _validate_cookie():
 async def _resolve_member_urn(http_client, public_id: str, headers: dict):
     """Resolve a LinkedIn public_id to a messaging-compatible URN."""
     resp = await http_client.get(
-        f"https://www.linkedin.com/voyager/api/identity/dash/profiles?q=memberIdentity&memberIdentity={public_id}&decorationId=com.linkedin.voyager.dash.deco.identity.profile.WebMessageMiniProfile-1",
+        f"https://www.linkedin.com/voyager/api/identity/dash/profiles?q=memberIdentity&memberIdentity={public_id}",
         headers=headers,
     )
     if resp.status_code in [401, 403]:
         return None, "cookie_expired"
+    if resp.status_code == 302:
+        return None, "cookie_rejected"
     if resp.status_code != 200:
         return None, f"profile_lookup_{resp.status_code}"
 
@@ -214,7 +216,13 @@ async def _resolve_member_urn(http_client, public_id: str, headers: dict):
 
 
 async def _send_single_message(http_client, headers: dict, recipient_urn: str, public_id: str, message_text: str):
-    """Send a single LinkedIn message via Voyager API."""
+    """Send a LinkedIn connection request with a personalized note (for non-connections),
+    or a direct message (for existing connections)."""
+
+    # Truncate note to 300 chars (LinkedIn connection request limit)
+    connection_note = message_text[:300]
+
+    # First try direct message (works for 1st-degree connections)
     msg_payload = {
         "message": {"body": {"text": message_text, "attributes": []}},
         "mailboxUrn": recipient_urn,
@@ -226,7 +234,23 @@ async def _send_single_message(http_client, headers: dict, recipient_urn: str, p
         "https://www.linkedin.com/voyager/api/voyagerMessagingDashMessengerMessages?action=createMessage",
         json=msg_payload, headers=headers,
     )
-    return resp.status_code in [200, 201], resp.text[:300]
+    if resp.status_code in [200, 201]:
+        return True, "direct_message_sent"
+
+    # If messaging fails (403 = not connected), send connection request with note
+    invite_payload = {
+        "inviteeProfileUrn": recipient_urn,
+        "customMessage": connection_note,
+        "trackingId": str(uuid.uuid4()),
+    }
+    resp2 = await http_client.post(
+        "https://www.linkedin.com/voyager/api/voyagerRelationshipsDashMemberRelationships?action=verifyQuotaAndCreate",
+        json=invite_payload, headers=headers,
+    )
+    if resp2.status_code in [200, 201]:
+        return True, "connection_request_sent"
+
+    return False, resp2.text[:300]
 
 
 # ============== CRUD ==============
