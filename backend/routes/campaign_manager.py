@@ -216,28 +216,43 @@ async def _resolve_member_urn(http_client, public_id: str, headers: dict):
 
 
 async def _send_single_message(http_client, headers: dict, recipient_urn: str, public_id: str, message_text: str):
-    """Send a LinkedIn connection request with a personalized note (for non-connections),
-    or a direct message (for existing connections)."""
+    """Send a LinkedIn message via Voyager API.
+    First tries direct message (for 1st-degree connections),
+    then falls back to connection request with note."""
+    import random, string
 
-    # Truncate note to 300 chars (LinkedIn connection request limit)
-    connection_note = message_text[:300]
+    # Extract the member ID from the full URN
+    member_id = recipient_urn.split(":")[-1] if ":" in recipient_urn else recipient_urn
+    tracking_id = ''.join(random.choices(string.ascii_lowercase + string.digits, k=16))
 
-    # First try direct message (works for 1st-degree connections)
-    msg_payload = {
-        "message": {"body": {"text": message_text, "attributes": []}},
-        "mailboxUrn": recipient_urn,
-        "trackingId": str(uuid.uuid4()),
-        "dedupeByClientGeneratedToken": False,
-        "hostRecipientUrns": [recipient_urn],
+    # Format 1: Direct message via LEGACY_INBOX (works for 1st-degree connections)
+    payload = {
+        "keyVersion": "LEGACY_INBOX",
+        "conversationCreate": {
+            "eventCreate": {
+                "originToken": str(uuid.uuid4()),
+                "value": {
+                    "com.linkedin.voyager.messaging.create.MessageCreate": {
+                        "attributedBody": {"text": message_text, "attributes": []},
+                        "attachments": [],
+                    }
+                },
+                "trackingId": tracking_id,
+            },
+            "dedupeByClientGeneratedToken": False,
+            "recipients": [member_id],
+            "subtype": "MEMBER_TO_MEMBER",
+        }
     }
     resp = await http_client.post(
-        "https://www.linkedin.com/voyager/api/voyagerMessagingDashMessengerMessages?action=createMessage",
-        json=msg_payload, headers=headers,
+        "https://www.linkedin.com/voyager/api/messaging/conversations?action=create",
+        json=payload, headers=headers,
     )
     if resp.status_code in [200, 201]:
         return True, "direct_message_sent"
 
-    # If messaging fails (403 = not connected), send connection request with note
+    # Format 2: If messaging fails (403 = not connected), send connection request with note
+    connection_note = message_text[:300]
     invite_payload = {
         "inviteeProfileUrn": recipient_urn,
         "customMessage": connection_note,
