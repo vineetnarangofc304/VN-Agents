@@ -1,0 +1,95 @@
+{
+  "summary": "Focused retest of the two reported bugs: (1) {company} personalization and (2) connections showing only name. Backend: new pytest suite /app/backend/tests/test_crm_personalization.py — 13 tests (12 pass, 1 fail). Covers campaign CRUD over the public URL (create with direct_message+invite_note, GET persistence, stop->paused, delete campaign+prospects, 404s), /api/crm/connections/message validation + auth, and unit tests with httpx mocked for (a) GET /api/crm/connections response structure & 'Title at Company' / 'Title @ Company' parsing, (b) POST /api/crm/connections/message {name}/{company}/{title} replacement, (c) campaign batch (_send_batch_bg) personalization. Frontend: Playwright E2E on the public URL with the LinkedIn Voyager call mocked via page.route — connections table renders Name/Company/Title/Email/Phone/Location correctly (blank values as '-'), composer sends recipients with company+title in the POST body, campaign cards expose Stop/Delete/Send/Upload, prospect table shows Company/Title/Status/Type/Error and the detail panel shows Company, Title, LinkedIn, Status, Send Type, Sent At. 1 real backend bug found in campaign personalization fallback.",
+  "backend_issues": {
+    "critical": [
+      {
+        "endpoint": "POST /api/crm/campaigns/{id}/send (_send_batch_bg, crm_campaigns.py:332-334)",
+        "issue": "Personalization fallback is broken for prospects whose company/title are EMPTY STRINGS (very common for XLSX rows without a company column). `company = prospect.get(\"company\", \"your company\")` only falls back when the KEY IS MISSING; uploaded prospects always have company=\"\" so the default never applies, and {title} has no fallback at all. Result: 'Hey {name}, {title} at {company} right?' renders as 'Hey Asha,  at  right?' — a broken, embarrassing message sent to real prospects. Fix: `prospect.get(\"company\") or \"your company\"` and a sensible fallback/removal for {title}. Reproduced by test TestMessagePersonalization::test_campaign_batch_personalization (the only failing test). NOTE: /api/crm/connections/message (line 528) already does this correctly with `or`, so behaviour is inconsistent between the two send paths.",
+        "priority": "HIGH"
+      }
+    ],
+    "minor": [
+      {
+        "endpoint": "POST /api/crm/connections/message",
+        "issue": "The Voyager messageCreate payload omits the `body` field and only sends `attributedBody` (crm_campaigns.py:543-546), while the campaign path (_send_message_or_invite, line 88-89) sends BOTH `body` and `attributedBody`. LEGACY_INBOX conversation create generally requires `body`; connection messages may be silently rejected (results show 'failed') even though campaign sends work. Make the two payloads identical / extract a shared builder."
+      },
+      {
+        "endpoint": "GET /api/crm/connections",
+        "issue": "Contact-info enrichment loops sequentially over up to 50 connections doing one profileContactInfo GET each with a 20s httpx timeout and no delay (lines 474-501). Worst case the request blocks ~1000s (ingress 502/504) and the 50 rapid Voyager calls are a strong rate-limit/ban trigger. Recommend enriching lazily (on row click) or capping at ~10 with a small jitter delay."
+      },
+      {
+        "endpoint": "GET /api/crm/connections",
+        "issue": "Field extraction assumes flat `occupation`/`headline`/`locationName` on each `included` item. The ConnectionListWithProfile-15 dash decoration usually nests the profile under a separate entity and returns geo as a URN, so `location` (and possibly occupation) may come back empty against the real API. Could not verify — vineet@channelloyalty.ai has no li_at/JSESSIONID configured, so the live call returns 400 (see below). Please verify once real cookies are set; if location is blank, resolve it from the geo entity in entity_map (entity_map is built but never used)."
+      },
+      {
+        "endpoint": "GET /api/crm/connections (live)",
+        "issue": "With the super_admin account the live endpoint returns 400 'LinkedIn cookies not configured' — the LinkedIn-dependent path could not be exercised end to end in this environment. Structure was validated with mocks only."
+      }
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {
+        "component": "ConnectionsView message composer",
+        "issue": "Placeholder text still says 'Type your message... use {name} for personalization' — it does not mention the now-supported {company} and {title} tokens, so users will not discover them (this is exactly the reported complaint). Add a hint line listing {name}, {company}, {title}.",
+        "selector": "[data-testid=\"conn-message-input\"]",
+        "priority": "MEDIUM"
+      },
+      {
+        "component": "ConnectionsView / CampaignCard",
+        "issue": "All error and success feedback uses window.alert() (pull failure, upload, send, delete). The 400 'LinkedIn cookies not configured' arrives as a native alert with no inline error state or link to Settings; no error UI is rendered on the page.",
+        "selector": "[data-testid=\"pull-connections-btn\"]",
+        "priority": "LOW"
+      }
+    ],
+    "integration_issues": [],
+    "design_issues": [
+      {
+        "screen": "Connections",
+        "issues": [
+          "Table/content is capped at max-w-5xl on a 1920px viewport with a large empty right area; with 7 columns the Title column truncates at 180px while ~800px goes unused.",
+          "Select-all and per-row checkboxes are raw unstyled browser inputs (white boxes) on the dark theme and have no data-testid, unlike every other control."
+        ]
+      },
+      {
+        "screen": "Campaigns — prospect detail panel",
+        "issues": [
+          "Panel renders below a 99-row table, so clicking row 1 scrolls the detail out of view; consider a side panel or sticky footer.",
+          "Prospect detail shows Company/Title only — no email/phone/location (available for connections), so the two views feel inconsistent."
+        ]
+      }
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_crm_personalization.py",
+    "/app/test_reports/pytest/crm_personalization.xml",
+    "/app/backend/tests/test_crm_auth_campaigns.py",
+    "/app/backend/tests/test_crm_upload.py"
+  ],
+  "action_items": [
+    "FIX (HIGH): crm_campaigns.py:332-334 — use `prospect.get('company') or 'your company'` (and a fallback for {title}) so empty-string values are personalized instead of producing blank text in campaign messages.",
+    "Align the connections message payload with the campaign one (add the `body` field) and extract a single shared messageCreate builder — currently ~30 duplicated lines.",
+    "Make GET /api/crm/connections contact enrichment lazy/limited to avoid 50 sequential Voyager calls (rate-limit + request timeout risk).",
+    "Verify occupation/location extraction against a real Voyager response once li_at/JSESSIONID are configured; use the unused entity_map to resolve nested profile/geo entities.",
+    "Update the connections composer placeholder/hint to advertise {name}, {company}, {title}.",
+    "Still open from iteration 30 (not retested here): brute-force lockout returns 500 instead of 429, CORS '*' with allow_credentials, duplicate JWT_SECRET in backend/.env.",
+    "Add CRM credentials to /app/memory/test_credentials.md — it still lists only the legacy vineetnarangofc@gmail.com admin."
+  ],
+  "critical_code_review_comments": [
+    "Personalization is duplicated in three places (_send_batch_bg, message_connections) with divergent fallback semantics — extract `personalize(template, name, company, title)` and unit test it; that divergence is the current bug.",
+    "The occupation->company/title split is inline inside the endpoint, making it untestable without mocking HTTP. Extract `_parse_occupation(occupation) -> (title, company)`.",
+    "crm_campaigns.py is 601 lines mixing campaigns, connections, settings and the LinkedIn transport layer; split into crm_campaigns / crm_connections / crm_settings + a linkedin_client module.",
+    "get_settings() still dereferences `full` without a None guard (line 575) -> 500 if the user row was deleted mid-session.",
+    "_send_batch_bg is still fired via asyncio.create_task with no persisted task state; a backend reload leaves prospects stuck in status='sending' (stop_campaign does reset sending->pending, which mitigates it manually)."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_crm_personalization.py"
+  ],
+  "success_rate": {"backend": "92% (12/13 — the single failure is the real personalization-fallback bug)", "frontend": "100% of the requested rendering/interaction checks passed (LinkedIn API mocked)"},
+  "seed_data_creation": "Created and deleted TEST_QA_personalization and TEST_QA_delete campaigns. The Playwright run clicked Stop on the existing 'Upload Test' campaign; its status was reverted from paused back to active in Mongo. No other data changed.",
+  "should_call_test_agent_after_fix": true,
+  "should_main_agent_self_test": false,
+  "test_credentials": "vineet@channelloyalty.ai / CRM@2026! (super_admin). NOTE: this account has NO LinkedIn cookies saved, so live connections/send cannot be tested.",
+  "context_for_next_testing_agent": "Run: cd /app/backend && python -m pytest tests/test_crm_personalization.py -v -o addopts=''. The suite loads /app/backend/.env into os.environ so routes.crm_campaigns can be imported directly; LinkedIn is mocked with a _FakeClient monkeypatched onto crm_campaigns.httpx.AsyncClient, and get_current_user/_get_user_cookies/asyncio.sleep are monkeypatched. The single expected failure (test_campaign_batch_personalization) documents the empty-string company/title fallback bug — it should pass once crm_campaigns.py:332-334 uses `or` fallbacks. For frontend, mock GET **/api/crm/connections?* and POST **/api/crm/connections/message with page.route since the real Voyager call returns 400 (no cookies).",
+  "rca_of_the_issue": "User-reported bug 1 ({company} not replaced) is partially fixed: the replace() calls now exist in both send paths and the connections path handles empty values correctly. However in _send_batch_bg the fallback is written as dict.get('company', 'your company'), which only triggers on a MISSING key. upload_prospects always writes company/title (empty string when the spreadsheet has no such column), so for those prospects {company} and {title} are replaced with '' — the message body collapses to 'Hey Asha,  at  right?'. Repro: create a campaign with '{company}' in the template, upload a list without a Company column, send — verified via unit test. Bug 2 (only name showing) is resolved structurally: the endpoint now returns name/company/title/email/phone/location/linkedinUrl/urn/publicIdentifier and the UI renders all six columns (verified with a mocked Voyager payload, including 'Title at Company' and 'Title @ Company' parsing); the live path is unverified because the account has no li_at/JSESSIONID and the location field relies on a flat locationName that the dash decoration may not return."
+}

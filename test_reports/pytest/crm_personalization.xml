@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="1" skipped="0" tests="13" time="1.923" timestamp="2026-08-26T06:09:02.043287+00:00" hostname="agent-env-86a6b1ba-df50-43e0-886a-961f3d98142b"><testcase classname="tests.test_crm_personalization.TestCampaignCRUD" name="test_create_persists_templates" time="0.484" /><testcase classname="tests.test_crm_personalization.TestCampaignCRUD" name="test_stop_sets_paused" time="0.128" /><testcase classname="tests.test_crm_personalization.TestCampaignCRUD" name="test_stop_unknown_campaign_404" time="0.043" /><testcase classname="tests.test_crm_personalization.TestCampaignCRUD" name="test_delete_removes_campaign_and_prospects" time="0.169" /><testcase classname="tests.test_crm_personalization.TestCampaignCRUD" name="test_delete_unknown_campaign_404" time="0.042" /><testcase classname="tests.test_crm_personalization.TestConnectionsMessageValidation" name="test_no_recipients_400" time="0.064" /><testcase classname="tests.test_crm_personalization.TestConnectionsMessageValidation" name="test_no_message_400" time="0.044" /><testcase classname="tests.test_crm_personalization.TestConnectionsMessageValidation" name="test_requires_auth" time="0.148" /><testcase classname="tests.test_crm_personalization.TestConnectionsMessageValidation" name="test_connections_requires_auth" time="0.101" /><testcase classname="tests.test_crm_personalization.TestConnectionsStructure" name="test_connections_fields_and_company_parsing" time="0.520" /><testcase classname="tests.test_crm_personalization.TestConnectionsStructure" name="test_connections_upstream_error_is_502" time="0.000" /><testcase classname="tests.test_crm_personalization.TestMessagePersonalization" name="test_connections_message_replaces_placeholders" time="0.000" /><testcase classname="tests.test_crm_personalization.TestMessagePersonalization" name="test_campaign_batch_personalization" time="0.044"><failure message="AssertionError: assert 'your company' in 'Hey Nocompany,  at  right?'">self = &lt;test_crm_personalization.TestMessagePersonalization object at 0xfc601de33850&gt;
+crm_mod = &lt;module 'routes.crm_campaigns' from '/app/backend/routes/crm_campaigns.py'&gt;
+monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0xfc600ccd9b10&gt;
+
+    def test_campaign_batch_personalization(self, crm_mod, monkeypatch):
+        captured = []
+    
+        async def fake_resolve(client, pid, headers):
+            return f"urn:li:fsd_profile:{pid}", None
+    
+        async def fake_send(client, headers, urn, pid, direct, invite):
+            captured.append({"pid": pid, "direct": direct, "invite": invite})
+            return True, "message_sent"
+    
+        class _DB:
+            class _Coll:
+                def __init__(self, doc=None):
+                    self.doc = doc
+    
+                async def find_one(self, *a, **k):
+                    return self.doc
+    
+                async def update_one(self, *a, **k):
+                    return None
+            crm_campaigns = _Coll({"campaign_id": "c1", "status": "active"})
+            crm_prospects = _Coll(None)
+    
+        monkeypatch.setattr(crm_mod, "_resolve_urn", fake_resolve)
+        monkeypatch.setattr(crm_mod, "_send_message_or_invite", fake_send)
+        monkeypatch.setattr(crm_mod, "_db", _DB)
+        monkeypatch.setattr(crm_mod.httpx, "AsyncClient", lambda *a, **k: _FakeClient())
+    
+        campaign = {
+            "campaign_id": "c1",
+            "direct_message": "Hey {name}, {title} at {company} right?",
+            "invite_note": "Hi {name} from {company}",
+        }
+        prospects = [
+            {"name": "Asha Rao", "company": "Acme Corp", "title": "VP Marketing", "public_id": "asha-rao"},
+            {"name": "Nocompany Guy", "company": "", "title": "", "public_id": "nc"},
+        ]
+        asyncio.get_event_loop().run_until_complete(
+            crm_mod._send_batch_bg(campaign, prospects, {}))
+    
+        assert captured[0]["direct"] == "Hey Asha, VP Marketing at Acme Corp right?"
+        assert captured[0]["invite"] == "Hi Asha from Acme Corp"
+        assert "{company}" not in captured[1]["direct"]
+&gt;       assert "your company" in captured[1]["direct"]
+E       AssertionError: assert 'your company' in 'Hey Nocompany,  at  right?'
+
+tests/test_crm_personalization.py:349: AssertionError</failure></testcase></testsuite></testsuites>

@@ -392,6 +392,7 @@ function ConnectionsView({ ax, user }) {
     setSendResult(null);
     const recipients = connections.filter(c => selected.has(c.publicIdentifier)).map(c => ({
       publicId: c.publicIdentifier, name: c.name, urn: c.urn,
+      company: c.company || "", title: c.title || "",
     }));
     try {
       const { data } = await ax.post("/api/crm/connections/message", { recipients, message: message.trim() });
@@ -431,7 +432,7 @@ function ConnectionsView({ ax, user }) {
             <div className="flex items-center justify-between">
               <span className="text-xs font-medium" style={{ color: "#a1a1aa" }}>{selected.size} selected</span>
             </div>
-            <textarea value={message} onChange={e => setMessage(e.target.value)} rows={3} placeholder="Type your message... use {name} for personalization" className="w-full px-3 py-2 rounded-md border text-sm text-white placeholder:text-zinc-500 resize-none" style={{ background: "#09090b", borderColor: "#27272a" }} data-testid="conn-message-input" />
+            <textarea value={message} onChange={e => setMessage(e.target.value)} rows={3} placeholder="Type your message... use {name}, {company}, {title} for personalization" className="w-full px-3 py-2 rounded-md border text-sm text-white placeholder:text-zinc-500 resize-none" style={{ background: "#09090b", borderColor: "#27272a" }} data-testid="conn-message-input" />
             <button onClick={handleSend} disabled={sending || selected.size === 0 || !message.trim()} className="px-4 py-2 rounded-md text-sm font-medium text-white flex items-center gap-2 disabled:opacity-40" style={{ background: "#2563eb" }} data-testid="conn-send-btn">
               {sending ? <Loader2 size={14} className="animate-spin" /> : <MessageSquare size={14} />} Send to {selected.size} connections
             </button>
@@ -449,7 +450,11 @@ function ConnectionsView({ ax, user }) {
                     <input type="checkbox" checked={selected.size === connections.length && connections.length > 0} onChange={toggleAll} />
                   </th>
                   <th className="px-3 py-2 text-left text-xs" style={{ color: "#71717a" }}>Name</th>
-                  <th className="px-3 py-2 text-left text-xs" style={{ color: "#71717a" }}>Headline</th>
+                  <th className="px-3 py-2 text-left text-xs" style={{ color: "#71717a" }}>Company</th>
+                  <th className="px-3 py-2 text-left text-xs" style={{ color: "#71717a" }}>Title</th>
+                  <th className="px-3 py-2 text-left text-xs" style={{ color: "#71717a" }}>Email</th>
+                  <th className="px-3 py-2 text-left text-xs" style={{ color: "#71717a" }}>Phone</th>
+                  <th className="px-3 py-2 text-left text-xs" style={{ color: "#71717a" }}>Location</th>
                 </tr>
               </thead>
               <tbody>
@@ -459,9 +464,13 @@ function ConnectionsView({ ax, user }) {
                       <input type="checkbox" checked={selected.has(c.publicIdentifier)} onChange={() => toggleSelect(c.publicIdentifier)} />
                     </td>
                     <td className="px-3 py-2 text-xs text-white">
-                      <a href={c.linkedinUrl} target="_blank" rel="noreferrer" className="hover:underline" onClick={e => e.stopPropagation()}>{c.name}</a>
+                      <a href={c.linkedinUrl} target="_blank" rel="noreferrer" className="hover:underline" style={{ color: "#3b82f6" }} onClick={e => e.stopPropagation()}>{c.name}</a>
                     </td>
-                    <td className="px-3 py-2 text-xs truncate max-w-[300px]" style={{ color: "#a1a1aa" }}>{c.headline}</td>
+                    <td className="px-3 py-2 text-xs" style={{ color: "#a1a1aa" }}>{c.company || "-"}</td>
+                    <td className="px-3 py-2 text-xs truncate max-w-[180px]" style={{ color: "#a1a1aa" }}>{c.title || "-"}</td>
+                    <td className="px-3 py-2 text-xs" style={{ color: c.email ? "#10b981" : "#71717a" }}>{c.email || "-"}</td>
+                    <td className="px-3 py-2 text-xs" style={{ color: c.phone ? "#10b981" : "#71717a" }}>{c.phone || "-"}</td>
+                    <td className="px-3 py-2 text-xs" style={{ color: "#71717a" }}>{c.location || "-"}</td>
                   </tr>
                 ))}
               </tbody>

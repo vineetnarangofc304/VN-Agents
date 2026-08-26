@@ -328,10 +328,11 @@ async def _send_batch_bg(campaign: dict, prospects: list, headers: dict):
                 urn, _ = await _resolve_urn(client, prospect["public_id"], headers)
 
                 # Personalize messages
-                name = prospect.get("name", "").split()[0] if prospect.get("name") else "there"
-                company = prospect.get("company", "your company")
-                p_direct = direct_msg.replace("{name}", name).replace("{company}", company).replace("{title}", prospect.get("title", ""))
-                p_invite = invite_note.replace("{name}", name).replace("{company}", company).replace("{title}", prospect.get("title", ""))
+                first_name = prospect.get("name", "").split()[0] if prospect.get("name") else "there"
+                company = prospect.get("company") or "your company"
+                title = prospect.get("title") or ""
+                p_direct = direct_msg.replace("{name}", first_name).replace("{company}", company).replace("{title}", title)
+                p_invite = invite_note.replace("{name}", first_name).replace("{company}", company).replace("{title}", title)
 
                 # Send — passes both URN and public_id so it can fallback
                 success, send_type = await _send_message_or_invite(client, headers, urn, prospect["public_id"], p_direct, p_invite)
@@ -415,29 +416,92 @@ async def get_connections(request: Request, count: int = 50, start: int = 0):
     li_at, jsessionid = await _get_user_cookies(user)
     headers = _build_headers(li_at, jsessionid)
 
-    async with httpx.AsyncClient(timeout=15.0) as client:
+    async with httpx.AsyncClient(timeout=20.0) as client:
         url = f"https://www.linkedin.com/voyager/api/relationships/dash/connections?q=search&sortType=RECENTLY_ADDED&count={count}&start={start}&decorationId=com.linkedin.voyager.dash.deco.web.mynetwork.ConnectionListWithProfile-15"
         resp = await client.get(url, headers=headers)
 
-    if resp.status_code != 200:
-        raise HTTPException(status_code=502, detail="Failed to fetch connections from LinkedIn")
+        if resp.status_code != 200:
+            raise HTTPException(status_code=502, detail=f"Failed to fetch connections (status {resp.status_code})")
 
-    data = resp.json()
-    included = data.get("included", [])
-    connections = []
-    for item in included:
-        fn = item.get("firstName", "")
-        ln = item.get("lastName", "")
-        if fn and ln:
-            connections.append({
+        data = resp.json()
+        included = data.get("included", [])
+
+        # Build a lookup of all included entities by entityUrn
+        entity_map = {}
+        for item in included:
+            urn = item.get("entityUrn", "")
+            if urn:
+                entity_map[urn] = item
+
+        connections = []
+        for item in included:
+            fn = item.get("firstName", "")
+            ln = item.get("lastName", "")
+            if not fn or not ln:
+                continue
+
+            occupation = item.get("occupation", "") or item.get("headline", "") or ""
+            public_id = item.get("publicIdentifier", "")
+            urn = item.get("entityUrn", "")
+
+            # Parse company from occupation ("Title at Company")
+            company = ""
+            title = occupation
+            if " at " in occupation:
+                parts = occupation.split(" at ", 1)
+                title = parts[0].strip()
+                company = parts[1].strip()
+            elif " @ " in occupation:
+                parts = occupation.split(" @ ", 1)
+                title = parts[0].strip()
+                company = parts[1].strip()
+
+            conn = {
                 "name": f"{fn} {ln}",
                 "firstName": fn,
                 "lastName": ln,
-                "publicIdentifier": item.get("publicIdentifier", ""),
-                "headline": item.get("occupation", ""),
-                "urn": item.get("entityUrn", ""),
-                "linkedinUrl": f"https://linkedin.com/in/{item.get('publicIdentifier', '')}",
-            })
+                "publicIdentifier": public_id,
+                "headline": occupation,
+                "title": title,
+                "company": company,
+                "urn": urn,
+                "linkedinUrl": f"https://linkedin.com/in/{public_id}" if public_id else "",
+                "email": "",
+                "phone": "",
+                "location": item.get("locationName", "") or "",
+            }
+            connections.append(conn)
+
+        # Enrich with contact info (email/phone) — limit to 10 to avoid rate limits
+        import asyncio as _aio
+        for conn in connections[:10]:
+            if not conn["publicIdentifier"]:
+                continue
+            try:
+                contact_url = f"https://www.linkedin.com/voyager/api/identity/profiles/{conn['publicIdentifier']}/profileContactInfo"
+                cr = await client.get(contact_url, headers=headers)
+                if cr.status_code == 200:
+                    cdata = cr.json()
+                    # Email
+                    emails = cdata.get("emailAddress", "") or ""
+                    if not emails:
+                        email_list = cdata.get("emailAddresses", []) or []
+                        if email_list:
+                            emails = email_list[0] if isinstance(email_list[0], str) else email_list[0].get("emailAddress", "")
+                    conn["email"] = emails
+
+                    # Phone
+                    phones = cdata.get("phoneNumbers", []) or []
+                    if phones:
+                        conn["phone"] = phones[0].get("number", "") if isinstance(phones[0], dict) else str(phones[0])
+
+                    # Website / Twitter
+                    websites = cdata.get("websites", []) or []
+                    if websites:
+                        conn["website"] = websites[0].get("url", "") if isinstance(websites[0], dict) else str(websites[0])
+            except Exception:
+                pass  # Contact info fetch is best-effort
+            await _aio.sleep(1)  # Small delay between enrichment calls
 
     total = data.get("paging", {}).get("total", len(connections))
     return {"connections": connections, "total": total, "start": start}
@@ -463,8 +527,10 @@ async def message_connections(request: Request):
     async with httpx.AsyncClient(timeout=20.0) as client:
         for r in recipients[:50]:  # max 50 per batch
             member_id = r.get("urn", "").split(":")[-1] if r.get("urn") else ""
-            name = r.get("name", "").split()[0]
-            personal_msg = message.replace("{name}", name)
+            name = r.get("name", "").split()[0] if r.get("name") else "there"
+            company = r.get("company", "your company") or "your company"
+            title = r.get("title", "") or ""
+            personal_msg = message.replace("{name}", name).replace("{company}", company).replace("{title}", title)
 
             if not member_id:
                 results.append({"name": r.get("name"), "status": "skipped", "error": "No URN"})
@@ -478,6 +544,7 @@ async def message_connections(request: Request):
                         "originToken": str(uuid.uuid4()),
                         "value": {
                             "com.linkedin.voyager.messaging.create.MessageCreate": {
+                                "body": personal_msg,
                                 "attributedBody": {"text": personal_msg, "attributes": []},
                                 "attachments": [],
                             }
@@ -510,6 +577,8 @@ async def message_connections(request: Request):
 async def get_settings(request: Request):
     user = await get_current_user(request)
     full = await _db.crm_users.find_one({"email": user["email"]})
+    if not full:
+        raise HTTPException(status_code=404, detail="User not found")
     return {
         "name": full.get("name", ""),
         "email": full.get("email", ""),
