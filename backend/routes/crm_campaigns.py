@@ -432,9 +432,43 @@ async def retry_failed(campaign_id: str, request: Request):
         raise HTTPException(status_code=404, detail="Campaign not found")
     result = await _db.crm_prospects.update_many(
         {"campaign_id": campaign_id, "status": "failed"},
-        {"$set": {"status": "pending", "error": None, "sent_at": None}}
+        {"$set": {"status": "pending", "error": None, "sent_at": None, "send_type": None}}
     )
     return {"success": True, "reset": result.modified_count}
+
+
+@router.post("/campaigns/{campaign_id}/prospect-status")
+async def update_prospect_status(campaign_id: str, request: Request):
+    """Update a single prospect's status — used by the local sender script."""
+    user = await get_current_user(request)
+    campaign = await _db.crm_campaigns.find_one({"campaign_id": campaign_id, "user_id": user["id"]})
+    if not campaign:
+        raise HTTPException(status_code=404, detail="Campaign not found")
+
+    data = await request.json()
+    public_id = data.get("public_id", "")
+    status = data.get("status", "")
+    send_type = data.get("send_type")
+    error = data.get("error")
+
+    if not public_id or status not in ["sent", "failed", "pending"]:
+        raise HTTPException(status_code=400, detail="public_id and valid status required")
+
+    fields = {"status": status, "sent_at": datetime.now(timezone.utc).isoformat()}
+    if send_type:
+        fields["send_type"] = send_type
+    if error:
+        fields["error"] = error
+    if status == "pending":
+        fields["sent_at"] = None
+        fields["error"] = None
+        fields["send_type"] = None
+
+    result = await _db.crm_prospects.update_one(
+        {"campaign_id": campaign_id, "public_id": public_id},
+        {"$set": fields}
+    )
+    return {"success": result.modified_count > 0}
 
 
 # ============ Connections ============
@@ -601,6 +635,14 @@ async def message_connections(request: Request):
 
 
 # ============ User Settings ============
+@router.get("/sender-script")
+async def download_sender_script():
+    """Download the local LinkedIn sender script."""
+    from fastapi.responses import FileResponse
+    script_path = os.path.join(os.path.dirname(__file__), "..", "static", "linkedin_sender.py")
+    return FileResponse(script_path, filename="linkedin_sender.py", media_type="text/x-python")
+
+
 @router.get("/settings")
 async def get_settings(request: Request):
     user = await get_current_user(request)

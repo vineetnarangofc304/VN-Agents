@@ -602,6 +602,30 @@ function SettingsView({ ax, user }) {
         </button>
       </div>
 
+      {/* Local Sender Script */}
+      <div className="rounded-lg border p-5 space-y-4" style={{ background: "#18181b", borderColor: "#27272a" }}>
+        <h3 className="text-sm font-semibold text-white">Local Sender Script</h3>
+        <p className="text-xs" style={{ color: "#71717a" }}>
+          Download and run this Python script on your Mac/PC to send LinkedIn messages from your own machine.
+          This avoids LinkedIn's server IP blocking — messages are sent from YOUR browser's IP.
+        </p>
+        <div className="text-xs space-y-1" style={{ color: "#a1a1aa" }}>
+          <p>1. Download the script below</p>
+          <p>2. Open Terminal and run: <code className="px-1.5 py-0.5 rounded" style={{ background: "#27272a" }}>pip install requests</code></p>
+          <p>3. Run: <code className="px-1.5 py-0.5 rounded" style={{ background: "#27272a" }}>python linkedin_sender.py</code></p>
+          <p>4. Enter your CRM login + LinkedIn cookies when prompted</p>
+        </div>
+        <a
+          href={`${process.env.REACT_APP_BACKEND_URL}/api/crm/sender-script`}
+          download="linkedin_sender.py"
+          className="inline-flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium text-white"
+          style={{ background: "#2563eb" }}
+          data-testid="download-sender-btn"
+        >
+          Download linkedin_sender.py
+        </a>
+      </div>
+
       {/* Change Password */}
       <div className="rounded-lg border p-5 space-y-4" style={{ background: "#18181b", borderColor: "#27272a" }}>
         <h3 className="text-sm font-semibold text-white">Change Password</h3>
