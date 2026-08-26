@@ -73,6 +73,9 @@ def _user_to_dict(user: dict) -> dict:
     u = {**user}
     u["id"] = str(u.pop("_id"))
     u.pop("password_hash", None)
+    u.pop("li_at", None)
+    u.pop("jsessionid", None)
+    u["has_cookie"] = bool(user.get("li_at"))
     return u
 
 

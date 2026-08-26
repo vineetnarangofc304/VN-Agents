@@ -104,10 +104,12 @@ async def _send_message_or_invite(http_client, headers: dict, recipient_urn: str
         if resp.status_code in [200, 201]:
             return True, "message_sent"
 
-    # Connection request — try with URN first, then public_id
-    if recipient_urn:
+    # Connection request — try verifyQuotaAndCreate first (with URN or public_id)
+    for attempt_urn in [recipient_urn, f"urn:li:fsd_profile:{public_id}" if not recipient_urn else None]:
+        if not attempt_urn:
+            continue
         invite_payload = {
-            "inviteeProfileUrn": recipient_urn,
+            "inviteeProfileUrn": attempt_urn,
             "customMessage": invite_note[:300],
             "trackingId": str(uuid.uuid4()),
         }
@@ -117,8 +119,10 @@ async def _send_message_or_invite(http_client, headers: dict, recipient_urn: str
         )
         if resp2.status_code in [200, 201]:
             return True, "invite_sent"
+        if resp2.status_code == 401:
+            return False, "cookie_expired_401"
 
-    # Fallback: Use the old normInvitations endpoint with public_id (no URN needed)
+    # Fallback: normInvitations with public_id
     invite_payload_v2 = {
         "trackingId": str(uuid.uuid4()),
         "message": invite_note[:300],
@@ -136,6 +140,8 @@ async def _send_message_or_invite(http_client, headers: dict, recipient_urn: str
     )
     if resp3.status_code in [200, 201]:
         return True, "invite_sent"
+    if resp3.status_code == 401:
+        return False, "cookie_expired_401"
 
     return False, f"send_failed_{resp3.status_code}"
 
@@ -350,9 +356,9 @@ async def _send_batch_bg(campaign: dict, prospects: list, headers: dict):
                         {"$set": {"status": "failed", "error": send_type, "sent_at": datetime.now(timezone.utc).isoformat()}}
                     )
                     failed_count += 1
-                    # If we get a rate limit / server error, stop the batch
-                    if "500" in str(send_type) or "429" in str(send_type) or "cookie" in str(send_type).lower():
-                        logger.warning(f"CRM Campaign {campaign['campaign_id']}: Rate limited, stopping batch")
+                    # If we get a rate limit / auth error, stop the batch
+                    if "500" in str(send_type) or "429" in str(send_type) or "401" in str(send_type) or "cookie" in str(send_type).lower():
+                        logger.warning(f"CRM Campaign {campaign['campaign_id']}: Auth/rate error ({send_type}), stopping batch")
                         break
 
                 # Human-like delay: 25-35 seconds between sends
@@ -368,6 +374,28 @@ async def _send_batch_bg(campaign: dict, prospects: list, headers: dict):
                 failed_count += 1
 
     logger.info(f"CRM Campaign {campaign['campaign_id']}: Batch done. Sent={sent_count}, Failed={failed_count}")
+
+
+@router.put("/campaigns/{campaign_id}")
+async def update_campaign(campaign_id: str, request: Request):
+    user = await get_current_user(request)
+    campaign = await _db.crm_campaigns.find_one({"campaign_id": campaign_id, "user_id": user["id"]})
+    if not campaign:
+        raise HTTPException(status_code=404, detail="Campaign not found")
+
+    data = await request.json()
+    fields = {}
+    for k in ["name", "direct_message", "invite_note", "daily_limit", "status"]:
+        if k in data:
+            fields[k] = data[k]
+    if "daily_limit" in fields:
+        fields["daily_limit"] = min(int(fields["daily_limit"]), MAX_DAILY_SENDS)
+
+    if not fields:
+        raise HTTPException(status_code=400, detail="No fields to update")
+
+    await _db.crm_campaigns.update_one({"campaign_id": campaign_id}, {"$set": fields})
+    return {"success": True, "detail": "Campaign updated"}
 
 
 @router.post("/campaigns/{campaign_id}/stop")

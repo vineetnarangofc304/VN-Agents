@@ -1,0 +1,98 @@
+{
+  "summary": "Iteration 32 — Tested campaign EDIT feature (backend PUT + frontend edit form), stop/delete, message truncation and auth playbook items for the LinkedIn CRM at /linkedin-crm. FOUND AND FIXED A BLOCKING JSX SYNTAX ERROR: CRMDashboard.jsx had a stray </div> (line 298) introduced with the new edit form, so the whole React app failed to compile and /linkedin-crm rendered the CRA 'Compiled with problems' overlay (entire app down). After the fix, full E2E passed. Backend: created /app/backend/tests/test_crm_campaign_edit.py (20 tests, 20 pass) covering PUT /api/crm/campaigns/{id} full+partial update, GET roundtrip persistence, daily_limit cap at 50, long-message no-truncation, 404 unknown, 400 empty body / unknown-keys-only, 401 unauthenticated, status active<->paused, stop, delete + prospect cascade (verified directly in Mongo), and _send_message_or_invite auth-error surfacing (cookie_expired_401 with and without a resolved URN, send_failed_999, message_sent, full 900-char body not truncated, invite note capped at 300). Re-ran iteration-31 suite test_crm_personalization.py: 13/13 pass — the {company}/{title} empty-string personalization bug from iteration 31 is FIXED. Auth playbook suite test_crm_auth_playbook.py: 7/8 pass (bcrypt $2b$ 60-char hash, 4 seed users, HttpOnly+Secure cookies on login, /me via cookie only, 401 on wrong password, 429 lockout after 5 failures using a throwaway email); 1 fail = CORS wildcard with credentials. Frontend E2E (Playwright, real login as vineet@channelloyalty.ai): create campaign -> Edit button present -> form opens prefilled (name/direct message/invite note/daily limit) with Save+Cancel -> Cancel closes without saving -> Save issues PUT 200 then GET 200, closes form, list refreshes with the new name -> reopening shows all edits persisted with a 396-char message intact (no truncation) -> Stop -> Delete (confirm dialog) removes card. Connections table headers verified: Name, Company, Title, Email, Phone, Location, with a mocked /api/crm/connections payload rendering all six values.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {
+        "endpoint": "CORS (server.py:940-969 + backend/.env CORS_ORIGINS=\"*\")",
+        "issue": "allow_credentials=True is combined with allow_origins=[\"*\"]; responses come back with Access-Control-Allow-Origin: * AND Access-Control-Allow-Credentials: true. Browsers reject credentialed (cookie) requests when ACAO is a wildcard, so the httpOnly crm_access_token cookie flow only works because the preview frontend is same-origin. Playbook expects explicit origins. Set CORS_ORIGINS to the frontend URL(s) instead of \"*\". Reproduced by test_crm_auth_playbook.py::test_cors_credentials_not_wildcard."
+      },
+      {
+        "endpoint": "POST /api/crm-auth/login, GET /api/crm-auth/me, POST /api/crm-auth/refresh",
+        "issue": "_user_to_dict() strips only password_hash, so the raw LinkedIn session secrets li_at and jsessionid stored on crm_users are echoed into the login//me response body whenever they are configured. The assertion passed only because the super_admin currently has no cookies saved. Explicitly project the response fields (id, name, email, role, has_cookie) or pop li_at/jsessionid."
+      },
+      {
+        "endpoint": "PUT /api/crm/campaigns/{campaign_id}",
+        "issue": "No Pydantic model / value validation: `status` accepts any arbitrary string (e.g. status=\"banana\"), `name` accepts an empty string, and daily_limit has no lower bound (0 or negative accepted; int() on a non-numeric value raises an unhandled ValueError -> 500). Validate with a Pydantic model and constrain status to active|paused."
+      },
+      {
+        "endpoint": "_send_message_or_invite / _resolve_urn (crm_campaigns.py:54-69)",
+        "issue": "_resolve_urn swallows every non-200 (302 login redirect, 401, 999 challenge) and returns None, so the reported 'lookup_302' condition is silently downgraded and the code then builds a fabricated `urn:li:fsd_profile:{public_id}` — public_id is a vanity slug, not a member id, so that invite can never succeed and the user sees a generic send_failed instead of 'cookie expired'. Surface 302/401/999 from _resolve_urn as cookie_expired_401 so the batch aborts early with the right reason."
+      }
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {
+        "component": "CRMDashboard.jsx CampaignCard (JSX structure)",
+        "issue": "BLOCKING (fixed by tester): stray closing </div> after the new edit-form block closed the card wrapper early, leaving the prospects-table JSX as a sibling of the root element -> babel SyntaxError 'Unexpected token, expected \",\" (326:6)'. The whole frontend showed the CRA error overlay; /linkedin-crm was unusable. Please re-verify JSX nesting on future edits to this card.",
+        "selector": "src/components/linkedin-crm/CRMDashboard.jsx:298",
+        "priority": "CRITICAL"
+      },
+      {
+        "component": "CampaignCard",
+        "issue": "Campaign status is never rendered on the card (card text is only name / created / limit / totals). Clicking Stop returns 200 and sets status=paused in the DB but the UI gives zero feedback, and there is no Resume/Start control — once stopped a campaign can only be reactivated via the API (PUT status:active). Add a status badge (active/paused) and a Resume button.",
+        "selector": "[data-testid=\"stop-{campaign_id}\"]",
+        "priority": "HIGH"
+      },
+      {
+        "component": "CampaignCard edit form",
+        "issue": "Save Changes has no loading/disabled state and no error handling — saveEdit() only awaits ax.put and closes the form, so a failed PUT (e.g. 400/500) still closes the form and silently discards the user's edits. Also the form has no client-side guard against an empty campaign name, and no success toast.",
+        "selector": "[data-testid=\"save-edit-{campaign_id}\"]",
+        "priority": "MEDIUM"
+      },
+      {
+        "component": "CampaignCard / ConnectionsView",
+        "issue": "Destructive and error paths still use window.confirm/window.alert (delete confirm, upload/send/pull failures). No inline error UI; not screen-reader or testing friendly.",
+        "selector": "[data-testid=\"delete-{campaign_id}\"]",
+        "priority": "LOW"
+      }
+    ],
+    "integration_issues": [],
+    "design_issues": [
+      {
+        "screen": "Campaigns / Connections",
+        "issues": [
+          "Content column is capped at ~max-w-5xl on a 1920px viewport, leaving ~45% of the screen empty while the connections Title column truncates.",
+          "Connections select-all / per-row checkboxes are unstyled native inputs (white squares) on the dark theme and still carry no data-testid.",
+          "Prospect detail panel renders below the (up to 99-row) table, so selecting an early row pushes the details off-screen."
+        ]
+      }
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_crm_campaign_edit.py",
+    "/app/backend/tests/test_crm_auth_playbook.py",
+    "/app/backend/tests/test_crm_personalization.py",
+    "/app/test_reports/pytest/iter32_campaign_edit.xml",
+    "/app/test_reports/pytest/iter32_auth.xml",
+    "/app/test_reports/pytest/iter32_personalization.xml"
+  ],
+  "action_items": [
+    "Re-check the CRMDashboard.jsx JSX nesting fix applied by the tester (stray </div> removed at line 298) — the app was completely failing to compile before it.",
+    "Show campaign status (active/paused) on the campaign card and add a Resume control; Stop currently produces no visible change.",
+    "Add loading + error handling to saveEdit() so a failed PUT does not silently close the edit form and lose the user's edits.",
+    "Set CORS_ORIGINS in backend/.env to explicit frontend origins instead of \"*\" (wildcard + allow_credentials breaks cookie auth cross-origin).",
+    "Stop returning li_at / jsessionid in /api/crm-auth/login, /me and /refresh response bodies.",
+    "Validate PUT /api/crm/campaigns/{id} with a Pydantic model (status enum, non-empty name, daily_limit 1..50, non-numeric daily_limit currently 500s).",
+    "Surface 302/401/999 from _resolve_urn as cookie_expired_401 and stop fabricating urn:li:fsd_profile:{public_id}, which can never produce a successful invite."
+  ],
+  "critical_code_review_comments": [
+    "CRMDashboard.jsx is 696 lines with 5 screens (Campaigns, CampaignCard, Connections, Settings, Admin) in one file — the compile-breaking mis-nesting is a direct consequence; split into per-view components.",
+    "crm_campaigns.py builds the LEGACY_INBOX messageCreate payload twice (_send_message_or_invite and /connections/message) with divergent bodies — extract one shared builder.",
+    "PUT /campaigns/{id} and every other crm endpoint parse `await request.json()` raw dicts instead of Pydantic models; no input validation anywhere in the router.",
+    "_send_batch_bg is fired with asyncio.create_task from the request handler — it dies on worker restart and its progress is only observable via prospect rows; consider a persisted job/queue."
+  ],
+  "updated_files": [
+    "/app/frontend/src/components/linkedin-crm/CRMDashboard.jsx (removed stray </div> blocking compilation; added data-testid cancel-edit-{id} and edit-limit-{id})",
+    "/app/backend/tests/test_crm_campaign_edit.py (new)",
+    "/app/backend/tests/test_crm_auth_playbook.py (new)"
+  ],
+  "success_rate": {"backend": "97% (40/41 assertions-suites passing; only CORS wildcard fails)", "frontend": "92% (all edit/stop/delete/connections flows pass after the compile fix; Stop has no visible status feedback)"},
+  "seed_data_creation": "Temporary campaigns prefixed TEST_QA_* created and deleted by fixtures; two TEST_QA prospect rows inserted and removed during the delete-cascade test; throwaway TEST_QA_*@example.test login-attempt records cleared. No residual test data.",
+  "should_call_test_agent_after_fix": true,
+  "should_main_agent_self_test": false,
+  "test_credentials": "CRM: vineet@channelloyalty.ai / CRM@2026! (super_admin). NOTE: /app/memory/test_credentials.md still lists only the unrelated vineetnarangofc@gmail.com admin — add the CRM super_admin there.",
+  "context_for_next_testing_agent": "Campaign edit (PUT), stop, delete, cascade delete and message-truncation are all verified working at both API and UI level. Run `pytest tests/test_crm_campaign_edit.py tests/test_crm_auth_playbook.py tests/test_crm_personalization.py` from /app/backend. LinkedIn-dependent paths (connections pull, actual sends) still cannot be exercised — the super_admin has no li_at/JSESSIONID, so GET /api/crm/connections returns 400; use page.route to mock '**/api/crm/connections?**' in Playwright. Campaign card status badge / Resume button are still missing — retest after the main agent adds them. Dialog handling note: window.confirm is used for delete, so an async dialog handler that awaits d.accept() is required.",
+  "rca_of_the_issue": "Frontend outage RCA: the edit-form JSX was inserted inside the card's px-5 py-4 wrapper but an extra closing </div> was left after the `{editing && (...)}` block, closing that wrapper early. The stats/progress/actions blocks then became siblings of the root <div>, and the prospects-table block became a second root-level element, producing babel SyntaxError 'Unexpected token, expected \",\" (326:6)'. Removing the stray </div> restored compilation; login page and full dashboard then rendered and all edit flows passed. Stop-feedback RCA: POST /stop correctly persists status='paused' (verified in Mongo and via GET), but CampaignCard never renders c.status, so the state change is invisible and irreversible from the UI."
+}

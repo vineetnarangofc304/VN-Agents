@@ -158,6 +158,9 @@ function CampaignCard({ campaign: c, ax, onRefresh }) {
   const [uploading, setUploading] = useState(false);
   const [sending, setSending] = useState(false);
   const [selectedProspect, setSelectedProspect] = useState(null);
+  const [editing, setEditing] = useState(false);
+  const [editForm, setEditForm] = useState({});
+  const [editSaving, setEditSaving] = useState(false);
 
   const fetchProspects = async () => {
     const { data } = await ax.get(`/api/crm/campaigns/${c.campaign_id}`);
@@ -212,10 +215,14 @@ function CampaignCard({ campaign: c, ax, onRefresh }) {
 
   const handleStop = async () => {
     try {
-      await ax.post(`/api/crm/campaigns/${c.campaign_id}/stop`);
+      if (c.status === "paused") {
+        await ax.put(`/api/crm/campaigns/${c.campaign_id}`, { status: "active" });
+      } else {
+        await ax.post(`/api/crm/campaigns/${c.campaign_id}/stop`);
+      }
       onRefresh();
       if (expanded) fetchProspects();
-    } catch (err) { alert(err.response?.data?.detail || "Failed to stop"); }
+    } catch (err) { alert(err.response?.data?.detail || "Failed"); }
   };
 
   const handleDelete = async () => {
@@ -226,6 +233,22 @@ function CampaignCard({ campaign: c, ax, onRefresh }) {
     } catch (err) { alert(err.response?.data?.detail || "Failed to delete"); }
   };
 
+  const startEdit = () => {
+    setEditForm({ name: c.name, direct_message: c.direct_message || "", invite_note: c.invite_note || "", daily_limit: c.daily_limit || 25 });
+    setEditing(true);
+  };
+
+  const saveEdit = async () => {
+    if (!editForm.name?.trim()) return alert("Campaign name cannot be empty");
+    setEditSaving(true);
+    try {
+      await ax.put(`/api/crm/campaigns/${c.campaign_id}`, editForm);
+      setEditing(false);
+      onRefresh();
+    } catch (err) { alert(err.response?.data?.detail || "Failed to save"); }
+    finally { setEditSaving(false); }
+  };
+
   const pct = c.total > 0 ? Math.round((c.sent / c.total) * 100) : 0;
 
   return (
@@ -233,7 +256,13 @@ function CampaignCard({ campaign: c, ax, onRefresh }) {
       <div className="px-5 py-4">
         <div className="flex items-center justify-between">
           <div>
-            <h3 className="text-sm font-semibold text-white">{c.name}</h3>
+            <div className="flex items-center gap-2">
+              <h3 className="text-sm font-semibold text-white">{c.name}</h3>
+              <span className="text-xs px-2 py-0.5 rounded-full" style={{
+                background: c.status === "paused" ? "#f59e0b20" : "#10b98120",
+                color: c.status === "paused" ? "#f59e0b" : "#10b981",
+              }}>{c.status || "active"}</span>
+            </div>
             <p className="text-xs mt-0.5" style={{ color: "#71717a" }}>Created {new Date(c.created_at).toLocaleDateString()} | Limit: {c.daily_limit}/day</p>
           </div>
           <div className="flex items-center gap-2">
@@ -242,8 +271,11 @@ function CampaignCard({ campaign: c, ax, onRefresh }) {
               <input type="file" accept=".xlsx,.csv" onChange={handleUpload} className="hidden" data-testid={`upload-${c.campaign_id}`} />
               {uploading && <Loader2 size={12} className="animate-spin" />}
             </label>
-            <button onClick={handleStop} className="px-3 py-1.5 rounded-md text-xs font-medium flex items-center gap-1.5 border" style={{ borderColor: "#27272a", color: "#f59e0b" }} data-testid={`stop-${c.campaign_id}`}>
-              Stop
+            <button onClick={startEdit} className="px-3 py-1.5 rounded-md text-xs font-medium flex items-center gap-1.5 border" style={{ borderColor: "#27272a", color: "#a1a1aa" }} data-testid={`edit-${c.campaign_id}`}>
+              Edit
+            </button>
+            <button onClick={handleStop} className="px-3 py-1.5 rounded-md text-xs font-medium flex items-center gap-1.5 border" style={{ borderColor: "#27272a", color: c.status === "paused" ? "#10b981" : "#f59e0b" }} data-testid={`stop-${c.campaign_id}`}>
+              {c.status === "paused" ? "Resume" : "Stop"}
             </button>
             <button onClick={() => handleSend(5)} disabled={sending || c.pending === 0} className="px-3 py-1.5 rounded-md text-xs font-medium text-white flex items-center gap-1.5 disabled:opacity-40" style={{ background: "#2563eb" }} data-testid={`send-${c.campaign_id}`}>
               {sending ? <Loader2 size={12} className="animate-spin" /> : <Send size={12} />} Send Batch (5)
@@ -253,6 +285,32 @@ function CampaignCard({ campaign: c, ax, onRefresh }) {
             </button>
           </div>
         </div>
+
+        {/* Edit Form */}
+        {editing && (
+          <div className="mt-4 space-y-3 p-4 rounded-md border" style={{ background: "#111", borderColor: "#27272a" }}>
+            <input value={editForm.name} onChange={e => setEditForm({...editForm, name: e.target.value})} placeholder="Campaign name" className="w-full px-3 py-2 rounded-md border text-sm text-white" style={{ background: "#09090b", borderColor: "#27272a" }} data-testid={`edit-name-${c.campaign_id}`} />
+            <div>
+              <label className="text-xs font-medium mb-1 block" style={{ color: "#a1a1aa" }}>Direct Message (for 1st connections) — use {"{name}"}, {"{company}"}, {"{title}"}</label>
+              <textarea value={editForm.direct_message} onChange={e => setEditForm({...editForm, direct_message: e.target.value})} rows={4} className="w-full px-3 py-2 rounded-md border text-sm text-white resize-none" style={{ background: "#09090b", borderColor: "#27272a" }} data-testid={`edit-direct-${c.campaign_id}`} />
+            </div>
+            <div>
+              <label className="text-xs font-medium mb-1 block" style={{ color: "#a1a1aa" }}>Connection Request Note (max 300 chars)</label>
+              <textarea value={editForm.invite_note} onChange={e => setEditForm({...editForm, invite_note: e.target.value})} rows={3} maxLength={300} className="w-full px-3 py-2 rounded-md border text-sm text-white resize-none" style={{ background: "#09090b", borderColor: "#27272a" }} data-testid={`edit-invite-${c.campaign_id}`} />
+              <span className="text-xs" style={{ color: "#71717a" }}>{(editForm.invite_note || "").length}/300</span>
+            </div>
+            <div className="flex items-center gap-3">
+              <label className="text-xs" style={{ color: "#a1a1aa" }}>Daily limit:</label>
+              <input type="number" value={editForm.daily_limit} onChange={e => setEditForm({...editForm, daily_limit: +e.target.value})} min={1} max={50} className="w-20 px-2 py-1 rounded border text-sm text-white" style={{ background: "#09090b", borderColor: "#27272a" }} data-testid={`edit-limit-${c.campaign_id}`} />
+            </div>
+            <div className="flex gap-2">
+              <button onClick={saveEdit} disabled={editSaving} className="px-4 py-2 rounded-md text-sm font-medium text-white disabled:opacity-50 flex items-center gap-2" style={{ background: "#2563eb" }} data-testid={`save-edit-${c.campaign_id}`}>
+                {editSaving && <Loader2 size={14} className="animate-spin" />} Save Changes
+              </button>
+              <button onClick={() => setEditing(false)} className="px-4 py-2 rounded-md text-sm border" style={{ borderColor: "#27272a", color: "#a1a1aa" }} data-testid={`cancel-edit-${c.campaign_id}`}>Cancel</button>
+            </div>
+          </div>
+        )}
 
         {/* Stats */}
         <div className="flex items-center gap-6 mt-3 text-xs" style={{ color: "#a1a1aa" }}>
