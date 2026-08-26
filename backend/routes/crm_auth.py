@@ -65,8 +65,8 @@ def create_refresh_token(user_id: str) -> str:
 
 
 def _set_auth_cookies(response: Response, access: str, refresh: str):
-    response.set_cookie("crm_access_token", access, httponly=True, secure=True, samesite="none", max_age=ACCESS_TOKEN_EXPIRE * 60, path="/")
-    response.set_cookie("crm_refresh_token", refresh, httponly=True, secure=True, samesite="none", max_age=REFRESH_TOKEN_EXPIRE * 86400, path="/")
+    response.set_cookie("crm_access_token", access, httponly=True, secure=True, samesite="lax", max_age=ACCESS_TOKEN_EXPIRE * 60, path="/")
+    response.set_cookie("crm_refresh_token", refresh, httponly=True, secure=True, samesite="lax", max_age=REFRESH_TOKEN_EXPIRE * 86400, path="/")
 
 
 def _user_to_dict(user: dict) -> dict:
