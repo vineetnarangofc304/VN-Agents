@@ -302,7 +302,7 @@ async def _playwright_connections(li_at: str, keyword: str = "") -> list:
                     if await search_input.is_visible(timeout=3000):
                         await search_input.fill(keyword)
                         await page.wait_for_timeout(2000)
-                except:
+                except Exception:
                     pass
 
             # Scroll to load connections
@@ -643,7 +643,7 @@ async def save_cookie(data: CookieInput):
                 if check_resp.status_code == 200:
                     me_data = check_resp.json()
                     logger.info("Alternate profile endpoint worked!")
-        except:
+        except Exception:
             pass
 
     # If still no me_data, save anyway with a warning (user says it's a live cookie)

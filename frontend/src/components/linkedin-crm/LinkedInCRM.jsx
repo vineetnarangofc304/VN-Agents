@@ -8,8 +8,11 @@ function CRMContent() {
 
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center" style={{ background: "#09090b" }}>
-        <Loader2 size={24} className="animate-spin" style={{ color: "#2563eb" }} />
+      <div className="min-h-screen flex items-center justify-center bg-white">
+        <div className="flex flex-col items-center gap-3">
+          <Loader2 size={28} className="animate-spin text-blue-600" />
+          <span className="text-sm text-slate-500">Loading LinkedLeads.ai...</span>
+        </div>
       </div>
     );
   }

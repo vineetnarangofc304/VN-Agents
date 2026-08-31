@@ -192,7 +192,7 @@ async def refresh_token(request: Request, response: Response):
         if not user:
             raise HTTPException(status_code=401, detail="User not found")
         access = create_access_token(str(user["_id"]), user["email"])
-        response.set_cookie("crm_access_token", access, httponly=True, secure=True, samesite="none", max_age=ACCESS_TOKEN_EXPIRE * 60, path="/")
+        response.set_cookie("crm_access_token", access, httponly=True, secure=True, samesite="lax", max_age=ACCESS_TOKEN_EXPIRE * 60, path="/")
         return _user_to_dict(user)
     except jwt.ExpiredSignatureError:
         raise HTTPException(status_code=401, detail="Refresh token expired")
@@ -221,6 +221,24 @@ async def change_password(data: dict, request: Request):
     return {"success": True, "detail": "Password changed"}
 
 
+@router.post("/update-cookies")
+async def update_cookies(data: dict, request: Request):
+    """Update user's LinkedIn session cookies (li_at and JSESSIONID)."""
+    user = await get_current_user(request)
+    li_at = (data.get("li_at") or "").strip()
+    jsessionid = (data.get("jsessionid") or "").strip()
+    if not li_at and not jsessionid:
+        raise HTTPException(status_code=400, detail="At least one cookie value is required")
+    update = {}
+    if li_at:
+        update["li_at"] = li_at
+    if jsessionid:
+        update["jsessionid"] = jsessionid
+    await _db.crm_users.update_one({"_id": ObjectId(user["id"])}, {"$set": update})
+    return {"success": True, "detail": "LinkedIn cookies saved successfully"}
+
+
+
 # ============ Super Admin: User Management ============
 @router.get("/users")
 async def list_users(request: Request):
@@ -228,6 +246,9 @@ async def list_users(request: Request):
     users = []
     async for u in _db.crm_users.find({}, {"password_hash": 0}):
         u["id"] = str(u.pop("_id"))
+        u["has_cookie"] = bool(u.get("li_at"))
+        u.pop("li_at", None)
+        u.pop("jsessionid", None)
         users.append(u)
     return {"users": users}
 

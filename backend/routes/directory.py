@@ -114,7 +114,6 @@ extraction_jobs = {}
 def run_extraction_sync(job_id, pdf_bytes):
     """Run extraction in a thread (pdfplumber is CPU-bound)."""
     from motor.motor_asyncio import AsyncIOMotorClient as MC
-    import asyncio
 
     try:
         exhibitors = extract_all_exhibitors(pdf_bytes)

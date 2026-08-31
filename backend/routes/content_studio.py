@@ -298,7 +298,7 @@ async def _run_generation_pipeline(post_id: str, req: GenerateRequest):
             else:
                 research_raw_clean = research_raw
             research_parsed = json.loads(research_raw_clean)
-        except:
+        except Exception:
             research_parsed = {"topic": "Generated Topic", "angle": research_raw[:200]}
 
         await db.cs_posts.update_one({"post_id": post_id}, {"$set": {
@@ -328,7 +328,7 @@ async def _run_generation_pipeline(post_id: str, req: GenerateRequest):
             final_content = review_data.get("improved_content", draft)
             score = review_data.get("score", 7)
             review_notes = review_data
-        except:
+        except Exception:
             final_content = draft
             score = 7
             review_notes = {"raw": review_raw}
@@ -540,7 +540,7 @@ Return a JSON array of objects:
         else:
             response_clean = response
         calendar_items = json.loads(response_clean)
-    except:
+    except Exception:
         return {"success": False, "error": "Failed to parse calendar", "raw": response}
 
     # Store calendar items

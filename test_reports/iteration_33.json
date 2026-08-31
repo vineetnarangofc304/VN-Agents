@@ -1,0 +1,76 @@
+{
+  "summary": "Full e2e test of LinkedLeads.ai CRM + Extension API. Backend: 32 pytest cases across /api/crm-auth/* and /api/ext/* (login, me, users, RBAC, lockout, CORS, stats, session, campaigns CRUD, task polling/result, XLSX upload, ZIP download) - 27 passed. Frontend: Playwright e2e on /linkedin-crm covering login (valid+invalid), dashboard stat cards, all 6 nav views, campaign create/expand/pause/resume/delete, XLSX upload via UI, prospects filter+search, extension view, settings, admin table, logout - all flows work except 2 defects below. Extension itself (Chrome) not testable in this env; its API surface fully verified.",
+  "backend_issues": {
+    "critical": [
+      {"endpoint": "POST /api/crm-auth/update-cookies", "issue": "Endpoint DOES NOT EXIST (404). SettingsView.jsx calls it on 'Save Cookies', so the manual LinkedIn cookie feature is completely non-functional. UI surfaces the raw 'Not Found' string as the user message.", "priority": "CRITICAL"}
+    ],
+    "minor": [
+      {"endpoint": "POST /api/ext/tasks/{id}/result", "issue": "Malformed task_id (non-ObjectId, e.g. 'not-an-objectid') raises bson InvalidId -> HTTP 500. Should be 400/404. ObjectId(task_id) at ext_api.py:117 is unguarded."},
+      {"endpoint": "POST /api/ext/campaigns/{id}/upload-prospects", "issue": "Corrupt/non-XLSX file body -> HTTP 500 (openpyxl.load_workbook raises unhandled). Should return 400 with a clear message; the UI then shows a generic 'Upload failed' alert."},
+      {"endpoint": "CORS middleware (server.py:978-1006)", "issue": "CORS_ORIGINS='*' path yields allow_origins=['*'] together with allow_credentials=True. Browsers reject credentialed requests against wildcard; violates auth playbook requirement of explicit origins."},
+      {"endpoint": "GET /api/ext/download", "issue": "Unauthenticated - anyone can download the extension package. Consider requiring auth."},
+      {"endpoint": "GET /api/crm-auth/users", "issue": "Only password_hash is projected out; li_at / jsessionid LinkedIn session cookies of every user are returned in plaintext to the admin UI. Should be redacted to a has_cookie boolean (as _user_to_dict does)."},
+      {"endpoint": "seed_crm_users (crm_auth.py:288)", "issue": "Seed only inserts when user is absent; it never updates an existing user's password_hash/role. Playbook requires seed to update the admin if DEFAULT_PASSWORD changed."},
+      {"endpoint": "POST /api/crm-auth/refresh", "issue": "Sets crm_access_token with samesite='none' while /login sets samesite='lax' - inconsistent cookie attributes across the same cookie name."},
+      {"endpoint": "GET /api/ext/tasks/next", "issue": "Docstring says 'from this user's active campaigns' but the query only filters status='pending' with no campaign-status join. Works today only because pause() flips task status, so semantics are implicit/fragile."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "CRMDashboard / CampaignCard + UploadButton", "issue": "After a successful XLSX upload the alert says 'Added 2 prospects!' and the header count updates to '2 prospects', but the expanded task table still shows 'No prospects yet. Upload an XLSX file to add them.' Root cause: fetch effect is gated on `expanded && tasks.length === 0` with `tasks.length` as a dep; onDone() calls setTasks([]) which does not change tasks.length, so the effect never re-runs. Users must collapse and re-expand the card.", "selector": "[data-testid=\"upload-prospects-btn\"]", "priority": "HIGH"},
+      {"component": "SettingsView", "issue": "'Save Cookies' fails (404) and displays the bare backend string 'Not Found' inside the message banner - no meaningful error copy.", "selector": "[data-testid=\"save-cookies-btn\"]", "priority": "HIGH"}
+    ],
+    "integration_issues": [
+      {"flow": "Settings -> Save LinkedIn cookies", "issue": "Frontend calls POST /api/crm-auth/update-cookies which is not implemented in the backend -> 404 on every attempt.", "affected_selectors": ["[data-testid=\"li-at-input\"]", "[data-testid=\"jsessionid-input\"]", "[data-testid=\"save-cookies-btn\"]"]},
+      {"flow": "Campaign prospect upload -> task table", "issue": "Task list not re-fetched after upload (see ui_bugs).", "affected_selectors": ["[data-testid=\"upload-prospects-btn\"]"]}
+    ],
+    "design_issues": [
+      {"screen": "All CRM views (mobile 390x844)", "issues": ["Sidebar is a hard-coded w-60 (240px) flex item with no responsive collapse/hamburger - it consumes 61% of a 390px viewport, squeezing main content to ~150px", "Stat card labels ('Connects Today', 'Total Completed') are horizontally clipped on mobile", "Prospect/task tables are unusable at mobile width"]},
+      {"screen": "Sidebar (desktop)", "issues": ["'Sign Out' label uses text-slate-400 on white (~2.8:1 contrast) - below WCAG AA 4.5:1", "Inactive nav labels use text-slate-500, borderline for small text"]},
+      {"screen": "Prospects view", "issues": ["Campaign dropdown has no 'All campaigns' option, so the promised 'table of all prospects' is never reachable - it always shows a single campaign (defaults to first, which may have 0 rows and looks empty)"]},
+      {"screen": "Campaigns view", "issues": ["Pause/Resume/Delete icon buttons and the campaign filter/search inputs have no data-testid; only title attributes are available for automation"]},
+      {"screen": "Global", "issues": ["window.confirm / window.alert used for delete confirmation and upload result instead of an in-app dialog/toast"]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_ext_api.py",
+    "/app/backend/tests/test_crm_auth_lockout_cors.py",
+    "/app/test_reports/pytest/ext_api_results.xml"
+  ],
+  "action_items": [
+    "Implement POST /api/crm-auth/update-cookies (persist li_at/jsessionid on crm_users, return {success:true}) - Settings page is broken without it",
+    "Fix CampaignCard task refresh after XLSX upload: replace the `tasks.length === 0` gating with an explicit refreshKey/loaded flag so onDone() re-fetches tasks",
+    "Guard ObjectId(task_id) in POST /api/ext/tasks/{id}/result -> return 400/404 instead of 500",
+    "Wrap openpyxl.load_workbook in try/except in upload-prospects -> 400 'Invalid spreadsheet file' instead of 500",
+    "Redact li_at/jsessionid from GET /api/crm-auth/users response (use _user_to_dict)",
+    "Set explicit CORS origins (not '*') since allow_credentials=True",
+    "Make seed_crm_users idempotent-with-update for the super_admin password/role",
+    "Add responsive sidebar (hidden below md + hamburger) and fix mobile layout",
+    "Add 'All Campaigns' option to the Prospects campaign filter",
+    "Add data-testid to pause/resume/delete campaign buttons",
+    "Raise contrast of 'Sign Out' and inactive nav labels to >=4.5:1"
+  ],
+  "critical_code_review_comments": [
+    "ext_api.py:117 - ObjectId(task_id) is unguarded; any malformed id from the extension returns 500.",
+    "ext_api.py:334 - openpyxl.load_workbook on untrusted upload without try/except; also no file-extension/size validation despite the UI accepting .csv (a .csv upload will 500 since openpyxl cannot parse it).",
+    "ext_api.py:337 - `next(ws.iter_rows(...))` will raise StopIteration/RuntimeError on an empty sheet.",
+    "ext_api.py:341-351 - header mapping uses if/elif with substring matching; a header like 'Company Name' matches 'name' first only because 'company' is checked earlier - fragile and silently mis-maps columns.",
+    "crm_auth.py:229 - list_users projects out only password_hash, leaking li_at/jsessionid session cookies.",
+    "crm_auth.py:195 - refresh() uses samesite='none' whereas login uses 'lax' for the same cookie.",
+    "CRMDashboard.jsx is 888 lines with 8 components in one file - split into per-view modules (>700 line guideline).",
+    "CRMDashboard.jsx:293 - effect dependency on `tasks.length` creates the stale-empty-table bug after upload; use an explicit version counter.",
+    "ext_api.py:23 / crm_auth.py:20 - each route module creates its own AsyncIOMotorClient; share one client to avoid connection-pool duplication.",
+    "No pagination on GET /api/ext/campaigns (limit 100) or /tasks (limit 500) - will silently truncate at scale."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_ext_api.py",
+    "/app/backend/tests/test_crm_auth_lockout_cors.py"
+  ],
+  "success_rate": {"backend": "84% (27/32)", "frontend": "88% (15/17 flows)"},
+  "seed_data_creation": "All test artifacts cleaned up. Created and deleted: TEST_Campaign_Alpha, TEST_Campaign_ToDelete, TEST_Campaign_TaskFlow (backend), UITEST Campaign 001, UITEST Upload Campaign (UI). Note: TEST_Campaign_TaskFlow's completed task left 1 row in ext_task_log which now counts toward today's 'visits' stat for vineet@. Seeded 'Test Campaign Q3' (Satya Nadella/Microsoft, Sundar Pichai/Google) untouched - both tasks show status 'completed' (2/2, 100%), not 1 pending as stated in the request.",
+  "should_call_test_agent_after_fix": true,
+  "should_main_agent_self_test": false,
+  "test_credentials": "/app/memory/test_credentials.md is STALE - it contains vineetnarangofc@gmail.com/InvoiceAgent@2024! for /api/auth/login, not the CRM accounts. Working CRM creds (verified): vineet@channelloyalty.ai / CRM@2026! (super_admin), chandra@channelloyalty.ai / CRM@2026! (user). Please update the memory file.",
+  "context_for_next_testing_agent": "Run `pytest /app/backend/tests/test_ext_api.py /app/backend/tests/test_crm_auth_lockout_cors.py -v` (no -n, xdist not installed). Verified working: bcrypt $2b$ hashes, httpOnly cookies on login, brute-force 429 after 5 fails (lockout key is email-only; use a throwaway email so you don't lock the admin), per-user campaign/task isolation, public_id extraction from LinkedIn URLs, pause/resume cascading to task status, task next->in_progress->result->campaign completed_count->stats propagation, /api/ext/download returns a valid ZIP with manifest.json/background.js/content.js. Known-failing tests map 1:1 to the reported defects (update-cookies 404, corrupt-xlsx 500, malformed ObjectId 500, CORS '*', non-updating seed). After fixes, re-run those 5 and re-check the UI upload->task-table refresh at [data-testid='upload-prospects-btn'].",
+  "rca_of_the_issue": "1) Settings cookie save: SettingsView.jsx:672 POSTs /api/crm-auth/update-cookies, but crm_auth.py defines no such route (only login/logout/me/refresh/change-password/users CRUD) -> 404 on every save. 2) Stale task table after upload: CampaignCard's useEffect (CRMDashboard.jsx:292-300) fires only when `expanded && tasks.length === 0`, with deps [expanded, ax, campaign_id, tasks.length]. UploadButton's onDone calls setTasks([]) - length stays 0, so no dep changes and React skips the effect; the newly inserted tasks are never fetched. 3) The two 500s are unguarded external-input parsing: bson.ObjectId() on a path param and openpyxl.load_workbook() on an arbitrary upload body."
+}

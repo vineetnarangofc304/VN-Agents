@@ -735,7 +735,7 @@ async def get_email_ranges():
             "prefix": r["prefix"],
             "num": {"$gte": r["start"], "$lte": r["end"]},
             "status": "success",
-            "credits": {"$exists": True, "$ne": None, "$ne": "LOGIN_OK_CREDITS_UNKNOWN"}
+            "credits": {"$exists": True, "$nin": [None, "LOGIN_OK_CREDITS_UNKNOWN"]}
         })
 
         ranges.append({
@@ -784,7 +784,7 @@ async def get_credits_status():
     total_success = await db.login_results.count_documents({"status": "success"})
     with_credits = await db.login_results.count_documents({
         "status": "success",
-        "credits": {"$exists": True, "$ne": None, "$ne": "LOGIN_OK_CREDITS_UNKNOWN"}
+        "credits": {"$exists": True, "$nin": [None, "LOGIN_OK_CREDITS_UNKNOWN"]}
     })
     pending = total_success - with_credits
 
@@ -906,8 +906,8 @@ async def _farm_single_account(page, context, email, password):
             await page.wait_for_timeout(800)
         except Exception:
             result["errors"].append("no_email_btn")
-            page.remove_listener('request', on_request)
-            page.remove_listener('response', on_response)
+            page.remove_listener('request', _on_req)
+            page.remove_listener('response', _on_resp)
             return result
 
         try:
@@ -921,16 +921,16 @@ async def _farm_single_account(page, context, email, password):
             await page.fill('#pw', password, timeout=3000)
         except Exception:
             result["errors"].append("no_form")
-            page.remove_listener('request', on_request)
-            page.remove_listener('response', on_response)
+            page.remove_listener('request', _on_req)
+            page.remove_listener('response', _on_resp)
             return result
 
         try:
             await page.click('img[src*="green_login"]', force=True, timeout=3000)
         except Exception:
             result["errors"].append("no_login_btn")
-            page.remove_listener('request', on_request)
-            page.remove_listener('response', on_response)
+            page.remove_listener('request', _on_req)
+            page.remove_listener('response', _on_resp)
             return result
 
         # Wait for game lobby to fully load (daily wheel appears)

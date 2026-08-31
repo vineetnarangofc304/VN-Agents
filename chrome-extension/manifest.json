@@ -1,31 +1,41 @@
 {
   "manifest_version": 3,
-  "name": "LinkedIn Lead Agent",
-  "version": "2.0.0",
-  "description": "Sync connections, bulk message, and find leads on LinkedIn — Multi-Account",
-  "permissions": ["storage", "activeTab"],
-  "host_permissions": ["https://www.linkedin.com/*"],
-  "icons": {
-    "16": "icons/icon16.png",
-    "48": "icons/icon48.png",
-    "128": "icons/icon128.png"
-  },
-  "action": {
-    "default_popup": "popup/popup.html",
-    "default_icon": {
-      "16": "icons/icon16.png",
-      "48": "icons/icon48.png"
-    }
+  "name": "LinkedLeads.ai — LinkedIn Automation CRM",
+  "version": "1.0.0",
+  "description": "Automate LinkedIn outreach safely from your browser. Send connection requests, messages, and track campaigns — all from your real IP.",
+  "permissions": [
+    "cookies",
+    "storage",
+    "alarms",
+    "tabs",
+    "activeTab"
+  ],
+  "host_permissions": [
+    "https://www.linkedin.com/*",
+    "https://*.linkedin.com/*"
+  ],
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
   },
   "content_scripts": [
     {
       "matches": ["https://www.linkedin.com/*"],
-      "js": ["content/linkedin.js"],
-      "css": ["content/content.css"],
+      "js": ["content.js"],
       "run_at": "document_idle"
     }
   ],
-  "background": {
-    "service_worker": "background/service-worker.js"
+  "action": {
+    "default_popup": "popup/popup.html",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
+  },
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
   }
 }

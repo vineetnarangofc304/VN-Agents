@@ -43,6 +43,7 @@ from routes.whatsapp import router as whatsapp_router
 from routes.mcp_proxy import router as mcp_proxy_router
 from routes.crm_auth import router as crm_auth_router, seed_crm_users
 from routes.crm_campaigns import router as crm_campaigns_router
+from routes.ext_api import router as ext_api_router
 
 # MongoDB connection
 mongo_url = os.environ.get('MONGO_URL', '')
@@ -327,29 +328,42 @@ async def upload_invoices(
             continue
         
         try:
+            import tempfile
+            from utils.object_storage import put_object, get_object
+            
             # Generate unique ID
             invoice_id = str(uuid.uuid4())
+            content = await file.read()
             
-            # Save original file
-            original_filename = f"{invoice_id}_original.pdf"
-            original_path = ORIGINAL_DIR / original_filename
+            # Upload original to object storage
+            original_cloud_path = f"invoices/{invoice_id}_original.pdf"
+            put_object(original_cloud_path, content, "application/pdf")
             
-            with open(original_path, "wb") as f:
-                content = await file.read()
-                f.write(content)
+            # Process via temp files
+            with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tmp_orig:
+                tmp_orig.write(content)
+                tmp_orig_path = tmp_orig.name
             
-            # Process the PDF
-            edited_filename = f"{invoice_id}_edited.pdf"
-            edited_path = EDITED_DIR / edited_filename
+            tmp_edited_path = tmp_orig_path.replace(".pdf", "_edited.pdf")
+            success = process_invoice_pdf(tmp_orig_path, tmp_edited_path)
             
-            success = process_invoice_pdf(str(original_path), str(edited_path))
+            edited_cloud_path = None
+            if success and os.path.exists(tmp_edited_path):
+                with open(tmp_edited_path, "rb") as ef:
+                    edited_cloud_path = f"invoices/{invoice_id}_edited.pdf"
+                    put_object(edited_cloud_path, ef.read(), "application/pdf")
+            
+            # Cleanup temp files
+            for p in [tmp_orig_path, tmp_edited_path]:
+                if os.path.exists(p):
+                    os.unlink(p)
             
             # Store in database
             invoice_doc = {
                 "id": invoice_id,
                 "original_filename": file.filename,
-                "original_path": str(original_path),
-                "edited_path": str(edited_path) if success else None,
+                "original_cloud_path": original_cloud_path,
+                "edited_cloud_path": edited_cloud_path,
                 "user_id": user["_id"],
                 "upload_date": datetime.now(timezone.utc).isoformat(),
                 "status": "processed" if success else "failed"
@@ -387,36 +401,47 @@ async def get_invoices(user: dict = Depends(get_current_user)):
 @api_router.get("/invoices/{invoice_id}/original")
 async def download_original(invoice_id: str, user: dict = Depends(get_current_user)):
     """Download original invoice PDF"""
+    from utils.object_storage import get_object
     invoice = await db.invoices.find_one({"id": invoice_id, "user_id": user["_id"]})
     
     if not invoice:
         raise HTTPException(status_code=404, detail="Invoice not found")
     
-    if not invoice.get("original_path") or not os.path.exists(invoice["original_path"]):
+    cloud_path = invoice.get("original_cloud_path") or invoice.get("original_path")
+    if not cloud_path:
         raise HTTPException(status_code=404, detail="Original file not found")
     
-    return FileResponse(
-        invoice["original_path"],
-        media_type="application/pdf",
-        filename=f"original_{invoice['original_filename']}"
-    )
+    # Try cloud first, fall back to local for old records
+    if invoice.get("original_cloud_path"):
+        data, _ = get_object(cloud_path)
+        return Response(content=data, media_type="application/pdf",
+                       headers={"Content-Disposition": f'attachment; filename="original_{invoice["original_filename"]}"'})
+    elif os.path.exists(cloud_path):
+        return FileResponse(cloud_path, media_type="application/pdf",
+                           filename=f"original_{invoice['original_filename']}")
+    raise HTTPException(status_code=404, detail="Original file not found")
 
 @api_router.get("/invoices/{invoice_id}/edited")
 async def download_edited(invoice_id: str, user: dict = Depends(get_current_user)):
     """Download edited invoice PDF"""
+    from utils.object_storage import get_object
     invoice = await db.invoices.find_one({"id": invoice_id, "user_id": user["_id"]})
     
     if not invoice:
         raise HTTPException(status_code=404, detail="Invoice not found")
     
-    if not invoice.get("edited_path") or not os.path.exists(invoice["edited_path"]):
+    cloud_path = invoice.get("edited_cloud_path") or invoice.get("edited_path")
+    if not cloud_path:
         raise HTTPException(status_code=404, detail="Edited file not found")
     
-    return FileResponse(
-        invoice["edited_path"],
-        media_type="application/pdf",
-        filename=f"edited_{invoice['original_filename']}"
-    )
+    if invoice.get("edited_cloud_path"):
+        data, _ = get_object(cloud_path)
+        return Response(content=data, media_type="application/pdf",
+                       headers={"Content-Disposition": f'attachment; filename="edited_{invoice["original_filename"]}"'})
+    elif os.path.exists(cloud_path):
+        return FileResponse(cloud_path, media_type="application/pdf",
+                           filename=f"edited_{invoice['original_filename']}")
+    raise HTTPException(status_code=404, detail="Edited file not found")
 
 @api_router.get("/invoices/download-all")
 async def download_all_edited(user: dict = Depends(get_current_user), filter: str = "all"):
@@ -449,21 +474,34 @@ async def download_all_edited(user: dict = Depends(get_current_user), filter: st
     if not filtered_invoices:
         raise HTTPException(status_code=404, detail="No processed invoices found for this filter")
     
-    # Create ZIP file
+    # Create ZIP file in memory
+    from utils.object_storage import get_object
     filter_label = f"_{filter}" if filter != "all" else ""
     zip_filename = f"invoices{filter_label}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.zip"
-    zip_path = UPLOAD_DIR / zip_filename
     
-    with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
+    zip_buffer = io.BytesIO()
+    with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zipf:
         for invoice in filtered_invoices:
-            if invoice.get("edited_path") and os.path.exists(invoice["edited_path"]):
-                arcname = invoice['original_filename']
-                zipf.write(invoice["edited_path"], arcname)
+            cloud_path = invoice.get("edited_cloud_path") or invoice.get("edited_path")
+            if not cloud_path:
+                continue
+            try:
+                if invoice.get("edited_cloud_path"):
+                    data, _ = get_object(cloud_path)
+                elif os.path.exists(cloud_path):
+                    with open(cloud_path, "rb") as f:
+                        data = f.read()
+                else:
+                    continue
+                zipf.writestr(invoice['original_filename'], data)
+            except Exception:
+                continue
     
-    return FileResponse(
-        str(zip_path),
+    zip_buffer.seek(0)
+    return Response(
+        content=zip_buffer.read(),
         media_type="application/zip",
-        filename=zip_filename
+        headers={"Content-Disposition": f'attachment; filename="{zip_filename}"'}
     )
 
 @api_router.delete("/invoices/{invoice_id}")
@@ -935,6 +973,7 @@ app.include_router(whatsapp_router)
 app.include_router(mcp_proxy_router)
 app.include_router(crm_auth_router)
 app.include_router(crm_campaigns_router)
+app.include_router(ext_api_router)
 
 # CORS Configuration
 cors_env = os.environ.get("CORS_ORIGINS", "")
@@ -1340,7 +1379,6 @@ DESIGN SPECIFICATIONS:
                         logger.error(f"Auto-infographic generation error: {img_err}")
 
                     # Publish with image
-                    from routes.linkedin import get_valid_token, LINKEDIN_POSTS_URL, LINKEDIN_API_VERSION
                     access_token, person_urn = await get_valid_token(account["account_id"])
                     headers = {
                         "Authorization": f"Bearer {access_token}",

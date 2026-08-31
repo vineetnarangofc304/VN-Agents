@@ -1,93 +1,179 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-  <meta charset="utf-8">
-  <style>
-    * { margin: 0; padding: 0; box-sizing: border-box; }
-    body { width: 340px; font-family: system-ui, -apple-system, sans-serif; background: #0f172a; color: #e2e8f0; }
-    .header { padding: 16px; background: #1e293b; border-bottom: 1px solid #334155; display: flex; align-items: center; gap: 10px; }
-    .header img { width: 28px; height: 28px; border-radius: 6px; }
-    .header h1 { font-size: 14px; font-weight: 700; }
-    .header span { font-size: 10px; color: #64748b; }
-    .section { padding: 14px 16px; border-bottom: 1px solid #1e293b; }
-    .section h2 { font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; color: #64748b; margin-bottom: 8px; }
-    .input-row { display: flex; gap: 6px; margin-bottom: 8px; }
-    input[type="text"], select { flex: 1; background: #1e293b; border: 1px solid #334155; border-radius: 6px; padding: 8px 10px; color: #e2e8f0; font-size: 12px; outline: none; }
-    input[type="text"]:focus, select:focus { border-color: #0a66c2; }
-    select { cursor: pointer; }
-    .btn { padding: 8px 14px; border: none; border-radius: 6px; font-size: 12px; font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 6px; transition: all 0.15s; }
-    .btn-primary { background: #0a66c2; color: #fff; }
-    .btn-primary:hover { background: #004182; }
-    .btn-save { background: #22c55e; color: #fff; }
-    .btn-save:hover { background: #16a34a; }
-    .btn-sm { padding: 6px 10px; font-size: 11px; }
-    .stat { display: flex; justify-content: space-between; padding: 6px 0; }
-    .stat-label { color: #94a3b8; font-size: 12px; }
-    .stat-value { color: #e2e8f0; font-size: 12px; font-weight: 600; }
-    .status { font-size: 11px; padding: 8px 12px; border-radius: 6px; margin-top: 8px; }
-    .status-ok { background: #052e16; color: #86efac; }
-    .status-err { background: #450a0a; color: #fca5a5; }
-    .footer { padding: 10px 16px; text-align: center; }
-    .footer a { color: #0a66c2; text-decoration: none; font-size: 11px; }
-    .footer a:hover { text-decoration: underline; }
-    .acct-label { font-size: 11px; color: #94a3b8; margin-bottom: 4px; display: block; }
-    .acct-select { width: 100%; background: #1e293b; border: 1px solid #334155; border-radius: 6px; padding: 8px 10px; color: #f1f5f9; font-size: 12px; font-weight: 600; cursor: pointer; outline: none; }
-    .acct-select:focus { border-color: #0a66c2; }
-    .acct-info { font-size: 10px; color: #64748b; margin-top: 4px; }
-  </style>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=400">
+  <title>LinkedLeads.ai</title>
+  <link rel="stylesheet" href="popup.css">
 </head>
 <body>
-  <div class="header">
-    <img src="../icons/icon48.png" alt="">
-    <div>
-      <h1>LinkedIn Lead Agent</h1>
-      <span>v2.0.0 — Multi-Account</span>
+  <div id="app">
+    <!-- Login View -->
+    <div id="login-view" class="view">
+      <div class="logo-section">
+        <div class="logo-icon">
+          <svg width="32" height="32" viewBox="0 0 32 32" fill="none">
+            <rect width="32" height="32" rx="8" fill="#2563EB"/>
+            <path d="M8 24V12h4v12H8zm2-14a2.5 2.5 0 110-5 2.5 2.5 0 010 5zm6 14V17.5c0-1.5.5-3 2.5-3s2.5 1.5 2.5 3V24h4v-7c0-3.5-2-5.5-4.5-5.5-2 0-3.5 1-4 2.5h-.5V12h-4v12h4z" fill="white"/>
+          </svg>
+        </div>
+        <h1 class="logo-text">LinkedLeads<span class="logo-accent">.ai</span></h1>
+        <p class="logo-tagline">LinkedIn Automation CRM</p>
+      </div>
+      <form id="login-form">
+        <div class="input-group">
+          <label>Server URL</label>
+          <input type="url" id="server-url" placeholder="https://your-crm.com" required>
+        </div>
+        <div class="input-group">
+          <label>Email</label>
+          <input type="email" id="login-email" placeholder="you@company.com" required>
+        </div>
+        <div class="input-group">
+          <label>Password</label>
+          <input type="password" id="login-password" placeholder="Enter password" required>
+        </div>
+        <div id="login-error" class="error-msg hidden"></div>
+        <button type="submit" class="btn btn-primary" id="login-btn">
+          <span>Sign In</span>
+        </button>
+      </form>
+    </div>
+
+    <!-- Dashboard View -->
+    <div id="dashboard-view" class="view hidden">
+      <div class="header">
+        <div class="header-left">
+          <svg width="20" height="20" viewBox="0 0 32 32" fill="none">
+            <rect width="32" height="32" rx="8" fill="#2563EB"/>
+            <path d="M8 24V12h4v12H8zm2-14a2.5 2.5 0 110-5 2.5 2.5 0 010 5zm6 14V17.5c0-1.5.5-3 2.5-3s2.5 1.5 2.5 3V24h4v-7c0-3.5-2-5.5-4.5-5.5-2 0-3.5 1-4 2.5h-.5V12h-4v12h4z" fill="white"/>
+          </svg>
+          <span class="header-title">LinkedLeads.ai</span>
+        </div>
+        <div class="header-right">
+          <button class="icon-btn" id="settings-toggle" title="Settings">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>
+          </button>
+          <button class="icon-btn" id="logout-btn" title="Logout">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4M16 17l5-5-5-5M21 12H9"/></svg>
+          </button>
+        </div>
+      </div>
+
+      <!-- User Info -->
+      <div class="user-bar">
+        <div class="user-avatar" id="user-avatar">V</div>
+        <div class="user-info">
+          <div class="user-name" id="user-name">User</div>
+          <div class="user-email" id="user-email">user@email.com</div>
+        </div>
+        <div class="status-pill" id="status-pill">
+          <span class="status-dot"></span>
+          <span class="status-text">Checking...</span>
+        </div>
+      </div>
+
+      <!-- LinkedIn Session -->
+      <div class="session-card" id="session-card">
+        <div class="session-icon" id="session-icon">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="8.5" cy="7" r="4"/><line x1="20" y1="8" x2="20" y2="14"/><line x1="23" y1="11" x2="17" y2="11"/></svg>
+        </div>
+        <div class="session-info">
+          <div class="session-label" id="session-label">LinkedIn Session</div>
+          <div class="session-detail" id="session-detail">Detecting...</div>
+        </div>
+      </div>
+
+      <!-- Today's Stats -->
+      <div class="stats-grid">
+        <div class="stat-card">
+          <div class="stat-number" id="stat-connects">0</div>
+          <div class="stat-label">Connects</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-number" id="stat-messages">0</div>
+          <div class="stat-label">Messages</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-number" id="stat-visits">0</div>
+          <div class="stat-label">Visits</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-number" id="stat-limit">0/20</div>
+          <div class="stat-label">Daily Limit</div>
+        </div>
+      </div>
+
+      <!-- Automation Toggle -->
+      <div class="automation-card">
+        <div class="auto-left">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#2563EB" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+          <span class="auto-label">Automation</span>
+        </div>
+        <label class="toggle">
+          <input type="checkbox" id="auto-toggle" checked>
+          <span class="toggle-slider"></span>
+        </label>
+      </div>
+
+      <!-- Recent Activity -->
+      <div class="activity-section">
+        <div class="section-title">Recent Activity</div>
+        <div id="activity-list" class="activity-list">
+          <div class="activity-empty">No activity yet. Campaigns will execute automatically when LinkedIn is open.</div>
+        </div>
+      </div>
+
+      <!-- Open CRM Button -->
+      <a id="open-crm-btn" class="btn btn-secondary" target="_blank">
+        Open CRM Dashboard
+      </a>
+    </div>
+
+    <!-- Settings View -->
+    <div id="settings-view" class="view hidden">
+      <div class="header">
+        <button class="icon-btn" id="settings-back">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>
+        </button>
+        <span class="header-title">Settings</span>
+        <div style="width:32px"></div>
+      </div>
+      <div class="settings-body">
+        <div class="setting-group">
+          <label>Daily Action Limit</label>
+          <input type="number" id="set-daily-limit" min="1" max="50" value="20">
+          <span class="setting-hint">Max connection requests + messages per day</span>
+        </div>
+        <div class="setting-group">
+          <label>Min Delay (seconds)</label>
+          <input type="number" id="set-min-delay" min="5" max="120" value="15">
+        </div>
+        <div class="setting-group">
+          <label>Max Delay (seconds)</label>
+          <input type="number" id="set-max-delay" min="10" max="300" value="45">
+        </div>
+        <div class="setting-group">
+          <label class="flex-label">
+            <span>Working Hours Only</span>
+            <input type="checkbox" id="set-working-hours" checked>
+          </label>
+          <span class="setting-hint">Only execute during business hours</span>
+        </div>
+        <div class="setting-row">
+          <div class="setting-group half">
+            <label>Start Hour</label>
+            <input type="number" id="set-work-start" min="0" max="23" value="9">
+          </div>
+          <div class="setting-group half">
+            <label>End Hour</label>
+            <input type="number" id="set-work-end" min="0" max="23" value="18">
+          </div>
+        </div>
+        <button class="btn btn-primary" id="save-settings">Save Settings</button>
+      </div>
     </div>
   </div>
-
-  <div class="section">
-    <h2>Backend URL</h2>
-    <div class="input-row">
-      <input type="text" id="backendUrl" placeholder="https://qikberry-whatsapp.preview.emergentagent.com">
-      <button class="btn btn-save btn-sm" id="saveUrl">Save</button>
-    </div>
-    <div id="urlStatus"></div>
-  </div>
-
-  <div class="section">
-    <h2>Active Account</h2>
-    <select class="acct-select" id="accountSelect">
-      <option value="default">Loading accounts...</option>
-    </select>
-    <div class="acct-info" id="accountInfo"></div>
-  </div>
-
-  <div class="section">
-    <h2>Stats</h2>
-    <div class="stat">
-      <span class="stat-label">Connections Synced</span>
-      <span class="stat-value" id="connCount">—</span>
-    </div>
-    <div class="stat">
-      <span class="stat-label">Messages Sent</span>
-      <span class="stat-value" id="msgCount">—</span>
-    </div>
-    <div class="stat">
-      <span class="stat-label">Last Sync</span>
-      <span class="stat-value" id="lastSync">Never</span>
-    </div>
-  </div>
-
-  <div class="section">
-    <h2>Quick Actions</h2>
-    <p style="font-size:11px;color:#94a3b8;margin-bottom:8px">Go to any LinkedIn page and use the floating panel (bottom-right) to sync or message.</p>
-    <button class="btn btn-primary" id="openApp" style="width:100%;justify-content:center">Open Lead Finder App</button>
-  </div>
-
-  <div class="footer">
-    <a href="https://www.linkedin.com/mynetwork/invite-connect/connections/" target="_blank">Go to LinkedIn Connections</a>
-  </div>
-
   <script src="popup.js"></script>
 </body>
 </html>
